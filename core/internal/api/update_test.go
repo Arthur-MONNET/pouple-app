@@ -51,7 +51,7 @@ func (g *updateGit) run(_ context.Context, cmd updates.Command) (string, error) 
 		return "0\n", nil
 	case "log --format=%s -n 15 HEAD..origin/main --":
 		return "feat: one\nfix: two\nchore: three\n", nil
-	case "status --porcelain":
+	case "status --porcelain --untracked-files=no":
 		return " M README.md\n", nil
 	}
 	return "", nil
