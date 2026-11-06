@@ -13,6 +13,13 @@ def render(paths, width=15, extra=""):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
             f'{v.SHADOW}{lower(paths, width)}{arms}{v.HEAD}{v.eyes(face)}{extra}{props}</svg>')
 
+def render_bare(paths, width=15):
+    """The octopus alone: no raised arms, no props."""
+    # seen alone, the flat base of the head shows: round it so the arms leave a soft belly, not a shelf
+    head = v.HEAD.replace("C146 130 130 138 L70 138 C54 130", "C146 130 130 138 C116 144 84 144 70 138 C54 130")
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
+            f'{v.SHADOW}{lower(paths, width)}{head}{v.eyes("open")}</svg>')
+
 def mirror(d):
     """Mirror a path around x = 100 (absolute coordinates only)."""
     out, nums = [], d.replace(",", " ").split()
@@ -85,4 +92,5 @@ if __name__ == "__main__":
     out = pathlib.Path(__file__).parent / "proposals"
     for name, (paths, width) in PROPOSALS.items():
         (out / f"{name}.svg").write_text(render(paths, width) + "\n")
+        (out / f"bare-{name}.svg").write_text(render_bare(paths, width) + "\n")
     print("written:", ", ".join(PROPOSALS))
