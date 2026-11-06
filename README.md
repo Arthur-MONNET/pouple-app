@@ -27,7 +27,9 @@ The first launch guides you through two connections, with a confirmation card sh
 2. **Codex**: If the CLI is missing, Pouple downloads a verified OpenAI release into its own application folder.
    Sign in with ChatGPT in the browser. An existing CLI on your PATH is also supported.
 
-More connectors can be added later from the Connectors page.
+More connectors can be added later from the Connectors page. GitLab, Asana and Slite are optional and read-only:
+once connected, the assistant is given your open tasks and merge requests and the notes that match each Slack
+message, as data it can read but never obey. Their tokens live in the Keychain like the Slack token.
 
 Local tools can read and interact with Pouple conversations through the [local Assistant API](docs/LOCAL-API.md).
 

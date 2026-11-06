@@ -26,8 +26,11 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/api"
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 	"github.com/Arthur-MONNET/pouple/core/internal/ui"
 )
@@ -93,6 +96,10 @@ func run() error {
 	registry := connector.NewRegistry(vault, config.Connectors{File: settings},
 		slack.New(),
 		codex.New(filepath.Join(dir, "codex")),
+		// Optional: the assistant reads them as data when they are connected.
+		gitlab.New(),
+		asana.New(),
+		slite.New(),
 	)
 
 	token := os.Getenv("POUPLE_TOKEN")

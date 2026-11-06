@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,6 +96,20 @@ func (r *Registry) Status(id string) (Status, error) {
 	return status, nil
 }
 
+// withDefaults fills the empty fields that have a default. The caller's map is left as it is.
+func withDefaults(descriptor Descriptor, values Values) Values {
+	filled := Values{}
+	for key, value := range values {
+		filled[key] = value
+	}
+	for _, field := range descriptor.Fields {
+		if field.Default != "" && strings.TrimSpace(filled[field.ID]) == "" {
+			filled[field.ID] = field.Default
+		}
+	}
+	return filled
+}
+
 // checkFields refuses what the form itself can already tell is wrong, before the service is called.
 func checkFields(descriptor Descriptor, values Values) error {
 	for _, field := range descriptor.Fields {
@@ -122,6 +137,7 @@ func (r *Registry) Validate(ctx context.Context, id string, values Values) (Prof
 	if err != nil {
 		return Profile{}, err
 	}
+	values = withDefaults(c.Descriptor(), values)
 	if err := checkFields(c.Descriptor(), values); err != nil {
 		return Profile{}, err
 	}
@@ -130,6 +146,9 @@ func (r *Registry) Validate(ctx context.Context, id string, values Values) (Prof
 
 // Save validates, then stores the secrets in the keychain and the rest in the settings.
 func (r *Registry) Save(ctx context.Context, id string, values Values) (_ Profile, saveErr error) {
+	if c, err := r.Get(id); err == nil {
+		values = withDefaults(c.Descriptor(), values)
+	}
 	profile, err := r.Validate(ctx, id, values)
 	if err != nil {
 		return Profile{}, err

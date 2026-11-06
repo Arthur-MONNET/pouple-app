@@ -52,6 +52,9 @@ type Deps struct {
 	Attachments *Attachments
 	// Fetch downloads a Slack file; nil when Slack is not connected.
 	Fetch func(ctx context.Context, file PendingFile) ([]byte, error)
+	// Services gathers read-only data from the optional connected services (Asana, GitLab, Slite) for a request.
+	// It has its own time budget and never fails; nil when there is no such source.
+	Services func(ctx context.Context, query ServiceQuery) ServiceContext
 	// Persona says who the assistant works for; read at each prompt, so a change applies at once.
 	Persona func() Persona
 	// Language is the interface language, read when displaying current state or writing new journal entries.

@@ -14,6 +14,8 @@ export interface Field {
   secret: boolean;
   /** An optional field may stay empty. */
   optional?: boolean;
+  /** Prefilled in the form, and used by the core when the field is left empty. */
+  default?: string;
   /** A regular expression the value must match. */
   pattern?: string;
   patternHint?: string;
@@ -22,6 +24,8 @@ export interface Field {
 export interface Link {
   label: string;
   url: string;
+  /** Id of a field holding the user's own server address (a self-hosted service): the link then opens on that host. */
+  hostField?: string;
 }
 
 export interface GuideStep {

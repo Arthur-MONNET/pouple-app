@@ -7,7 +7,7 @@ export interface StepperItem {
   connected: boolean;
 }
 
-defineProps<{ items: StepperItem[]; current: number }>();
+defineProps<{ items: StepperItem[]; current: number; extras?: boolean }>();
 </script>
 
 <template>
@@ -30,7 +30,7 @@ defineProps<{ items: StepperItem[]; current: number }>();
         </span>
         <span v-if="index < items.length - 1" class="mx-1 h-px w-8 bg-line-strong min-[700px]:w-14" aria-hidden="true" />
       </li>
-      <li v-for="(label, offset) in [$t('stepper.projects'), $t('stepper.ready')]" :key="offset" class="flex items-center gap-2 text-ink-dim" :aria-current="current === items.length + offset ? 'step' : undefined">
+      <li v-for="(label, offset) in extras ? [$t('stepper.projects'), $t('stepper.extras'), $t('stepper.ready')] : [$t('stepper.projects'), $t('stepper.ready')]" :key="offset" class="flex items-center gap-2 text-ink-dim" :aria-current="current === items.length + offset ? 'step' : undefined">
         <span class="mx-1 h-px w-8 bg-line-strong min-[700px]:w-14" aria-hidden="true" />
         <span class="text-sm" :class="current === items.length + offset ? 'font-medium text-ink' : ''">{{ label }}</span>
       </li>

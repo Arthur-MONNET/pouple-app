@@ -60,7 +60,9 @@ func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []st
 	files, images := s.describeFiles(request.Attachments)
 	persona := s.deps.Persona()
 	history := persona.ConversationHistory(s.previousInConversation(request))
-	return persona.AnalysisPrompt(request, history, files, ""), images
+	// Read last: a request that was already stopped does not wait for the services.
+	services := s.gatherServices(ctx, request)
+	return persona.AnalysisPrompt(request, history, files, "", services), images
 }
 
 func (s *Service) previousInConversation(request Stored) []Stored {
@@ -162,7 +164,9 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 	if err != nil {
 		return err
 	}
-	s.applyOutcome(id, outcome.Redact(s.deps.Redact()))
+	outcome = outcome.Redact(s.deps.Redact())
+	s.noteServiceSources(id, outcome)
+	s.applyOutcome(id, outcome)
 	return nil
 }
 

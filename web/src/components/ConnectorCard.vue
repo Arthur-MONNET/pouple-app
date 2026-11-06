@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { lang } from '../i18n';
 import type { ConnectorStatus } from '../api/types';
 import { relativeTime } from '../lib/format';
+import { benefitKey } from '../lib/optionalConnectors';
 import AppButton from './AppButton.vue';
 import ProfileAvatar from './ProfileAvatar.vue';
 
@@ -30,6 +31,7 @@ const confirming = ref(false);
         <p class="text-xs text-ink-dim">{{ connector.descriptor.tagline }}</p>
       </div>
     </div>
+    <p v-if="!connector.descriptor.required && !connector.connected" class="text-xs leading-relaxed text-ink-muted">{{ $t(benefitKey(connector.descriptor.id)) }}</p>
 
     <div v-if="connector.connected && connector.profile" class="rounded-lg bg-canvas px-3 py-2.5">
       <p class="text-sm text-ink">{{ connector.profile.name }}</p>

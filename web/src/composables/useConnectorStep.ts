@@ -38,9 +38,16 @@ export function useConnectorStep(connector: Ref<ConnectorStatus>, onSaved: () =>
   const generalError = computed(() => (failure.value && !failure.value.field ? failure.value.message : null));
   const checklist = computed(() => checklistFor(connector.value.descriptor.id, connector.value.descriptor.actions ?? [], failure.value));
 
+  /** Fields that come with a value (the GitLab address) start with it. */
+  function applyDefaults(): void {
+    for (const field of fields.value) if (field.default && !values[field.id]) values[field.id] = field.default;
+  }
+  watch(() => connector.value.descriptor.id, applyDefaults, { immediate: true });
+
   function clearValues(): void {
     for (const key of Object.keys(values)) values[key] = '';
     for (const key of Object.keys(touched)) touched[key] = false;
+    applyDefaults();
   }
 
   /** Asks the core who the values belong to. */

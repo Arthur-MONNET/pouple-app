@@ -14,6 +14,8 @@ type Field struct {
 	Label       string `json:"label"`
 	Help        string `json:"help,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
+	// Default is used when the field is left empty (the form can prefill it). Secret fields have none.
+	Default string `json:"default,omitempty"`
 	// Secret fields are stored in the keychain and are never sent back to the interface.
 	Secret bool `json:"secret"`
 	// Optional fields may be omitted from the form.
@@ -27,6 +29,9 @@ type Field struct {
 type Link struct {
 	Label string `json:"label"`
 	URL   string `json:"url"`
+	// HostField names a field holding a web address (a self-hosted server). When the user has typed one, the form
+	// may open URL with its scheme and host replaced by that address. Optional: URL alone always works.
+	HostField string `json:"hostField,omitempty"`
 }
 
 // GuideStep is one step of the instructions shown beside the form.

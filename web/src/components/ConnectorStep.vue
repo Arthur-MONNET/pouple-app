@@ -12,7 +12,7 @@ import InlineError from './InlineError.vue';
 import MascotStage from './MascotStage.vue';
 import ProfileCard from './ProfileCard.vue';
 
-const props = withDefaults(defineProps<{ connector: ConnectorStatus; compact?: boolean; stepNumber?: number }>(), { compact: false, stepNumber: 1 });
+const props = withDefaults(defineProps<{ connector: ConnectorStatus; compact?: boolean; stepNumber?: number }>(), { compact: false, stepNumber: undefined });
 /** The connection was confirmed and saved. */
 const emit = defineEmits<{ saved: [] }>();
 
@@ -52,10 +52,10 @@ const statusText = computed(() => {
   >
     <section v-if="!confirming" aria-labelledby="guide-title" class="flex flex-col gap-4">
       <h2 id="guide-title" class="text-xs font-medium uppercase tracking-wider text-ink-dim">{{ $t('guide.howTo', { name: descriptor.name }) }}</h2>
-      <GuideList :steps="descriptor.guide ?? []" />
+      <GuideList :steps="descriptor.guide ?? []" :values="step.values" />
     </section>
     <section v-else class="flex flex-col gap-4" aria-labelledby="confirm-title">
-      <p class="font-mono text-xs uppercase tracking-widest text-accent">{{ $t('connect.stepEyebrow', { n: stepNumber, name: descriptor.name }) }}</p>
+      <p class="font-mono text-xs uppercase tracking-widest text-accent">{{ stepNumber === undefined ? $t('connect.eyebrow', { name: descriptor.name }) : $t('connect.stepEyebrow', { n: stepNumber, name: descriptor.name }) }}</p>
       <h2 id="confirm-title" class="font-display text-4xl font-semibold leading-tight tracking-tight text-ink">{{ $t('connect.isItYou') }}</h2>
       <p class="text-base leading-relaxed text-ink-muted">{{ $t('connect.answered', { name: descriptor.name }) }}</p>
       <MascotStage v-if="!compact" pose="done" size="lg" class="mt-2" />

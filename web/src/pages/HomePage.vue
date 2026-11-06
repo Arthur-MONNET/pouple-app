@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { languageEpoch } from '../i18n';
 import { useRoute, useRouter } from 'vue-router';
+import AppButton from '../components/AppButton.vue';
 import AppIcon from '../components/AppIcon.vue';
+import IconButton from '../components/IconButton.vue';
 import ConversationList from '../components/ConversationList.vue';
 import InlineError from '../components/InlineError.vue';
 import MascotStage from '../components/MascotStage.vue';
 import ConversationView from '../components/ConversationView.vue';
 import { provideAssistantStore } from '../composables/assistantStore';
 import { useApi } from '../composables/useApi';
+import { useConnectorsStore } from '../composables/useConnectorsStore';
+import { useExtrasHint } from '../composables/useExtrasHint';
 
 const route = useRoute();
 const router = useRouter();
 const store = provideAssistantStore(useApi());
+const connectors = useConnectorsStore();
+const hint = useExtrasHint();
+
+// The hint needs to know which optional connectors exist; the router only loaded the setup state.
+onMounted(() => void connectors.refreshConnectors());
 
 const selectedId = computed(() => (typeof route.params['id'] === 'string' ? route.params['id'] : null));
 const selected = computed(() => store.byId(selectedId.value));
@@ -56,6 +65,13 @@ watch(
         :aria-label="$t('list.label')"
       >
         <ConversationList :requests="store.requests.value" :selected-id="selectedId" :attention="store.attention.value" :loaded="store.loaded.value" @select="select" />
+        <div v-if="hint.visible.value" class="mx-3 mb-3 flex flex-col gap-2 rounded-xl border border-line bg-surface p-3" data-testid="extras-hint">
+          <div class="flex items-start gap-2">
+            <p class="flex-1 text-xs leading-relaxed text-ink-muted">{{ $t('extras.hint.text', { names: hint.names.value }) }}</p>
+            <IconButton :label="$t('extras.hint.dismiss')" icon="close" size="sm" data-testid="extras-hint-dismiss" @click="hint.dismiss()" />
+          </div>
+          <AppButton variant="outline" size="sm" class="self-start" @click="router.push({ name: 'connectors' })">{{ $t('extras.hint.open') }}</AppButton>
+        </div>
         <p v-if="usage" class="border-t border-line-soft px-4 py-2 font-mono text-2xs text-ink-dim"
           :title="usage.limit === null ? $t('home.usageTitle') : $t('home.usageTitleLimit')"
         >

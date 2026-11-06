@@ -15,7 +15,7 @@ const OutcomeSchema = `{
   "additionalProperties": false,
   "required": ["outcome", "summary", "reply", "questions", "proposal", "sourcesUsed"],
   "properties": {
-    "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs"]}},
+    "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
     "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change"]},
     "summary": {"type": "string"},
     "reply": {"type": ["string", "null"]},
@@ -56,7 +56,7 @@ const (
 	ProposesChange = "proposes_change"
 )
 
-var contextSources = []string{"memory", "slack", "files", "docs"}
+var contextSources = []string{"memory", "slack", "files", "docs", "asana", "gitlab", "slite"}
 
 type OutcomeOption struct {
 	Label       string  `json:"label"`

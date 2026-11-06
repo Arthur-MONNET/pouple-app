@@ -71,7 +71,7 @@ export function checklistFor(connectorId: string, actions: readonly ActionInfo[]
 export const requiredSteps = (connectors: readonly ConnectorStatus[]): ConnectorStatus[] =>
   connectors.filter((c) => c.descriptor.required).sort((a, b) => a.descriptor.order - b.descriptor.order);
 
-export type WizardPosition = { kind: 'welcome' } | { kind: 'step'; index: number } | { kind: 'projects' } | { kind: 'done' };
+export type WizardPosition = { kind: 'welcome' } | { kind: 'step'; index: number } | { kind: 'projects' } | { kind: 'extras' } | { kind: 'done' };
 
 /** Right after the last required connector is saved comes the optional projects folder, then the final screen. */
 export const afterSave = (next: WizardPosition): WizardPosition => (next.kind === 'done' ? { kind: 'projects' } : next.kind === 'welcome' ? { kind: 'step', index: 0 } : next);

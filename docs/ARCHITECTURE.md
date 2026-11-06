@@ -65,8 +65,9 @@ type Connector interface {
   the user confirms it.
 - Saving a connector stores secrets in the Keychain and the rest in `config.json`, then (re)starts what depends on it.
 
-Required, in order: **1. Slack**, **2. Codex**. Optional, added later from the app: Slite, Asana, GitLab (ported
-from Cockpit as the engine needs them).
+Required, in order: **1. Slack**, **2. Codex**. Optional, added later from the app: **GitLab** (order 10),
+**Asana** (11) and **Slite** (12). Setup is complete once the two required connectors are connected; the optional
+ones never change that.
 
 ### Slack
 
@@ -88,6 +89,28 @@ Slack asks for a *user* token (the assistant must read what you can read). Poupl
 3. Profile card from the login: e-mail and plan decoded from the ID token (no network call, nothing sent anywhere),
    plus the CLI version.
 
+### Optional connectors: GitLab, Asana, Slite
+
+Read-only, token-based, ported from Cockpit's clients. Each has a guide with a link to the page where the token is
+created, and a `Validate` that calls the service and shows the account (name, avatar, host or workspace, e-mail,
+number of open items, warnings such as a token that can write or ends soon).
+
+| Connector | Fields | Token page | Reads |
+|---|---|---|---|
+| `gitlab` | `url` (default `https://gitlab.com`), `token` (secret, `glpat-`, scope `read_api`) | `<url>/-/user_settings/personal_access_tokens` | the user's open merge requests (pipeline status) and review requests |
+| `asana` | `token` (secret, personal access token) | `https://app.asana.com/0/my-apps` | open tasks assigned to the user, and tasks matching the message |
+| `slite` | `token` (secret, API key) | Slite organization menu, Settings, API | notes matching the message (title, short excerpt) |
+
+Shared rules (`core/internal/connectors/svchttp`): credentials only in request headers, never in a URL, an error
+or a log; 10 s timeout and a 2 MiB cap per answer; a redirect to another host is refused; errors carry the status
+only, never the service's text. The GitLab address is typed by the user, so it must be `https`, without credentials,
+path, query or fragment, and it may not be this Mac (loopback), a link-local address (169.254.0.0/16, cloud metadata)
+or an unspecified address. Private network hosts are allowed (a company GitLab). The same rule is enforced again at
+connection time on the resolved address, which also stops a name that points at a forbidden address.
+
+Values are read from the registry (keychain for secrets) at each use: connecting, replacing or removing a token
+applies to the next request, with no restart.
+
 ## Assistant engine
 
 Ported from Cockpit (same behavior, the Cockpit-only parts left out):
@@ -96,6 +119,16 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 - Request state machine: queued, analyzing, awaiting-user, ready, applying, done, ignored, failed.
 - Codex runner: read-only by default, structured outcome (JSON schema), untrusted text always wrapped as data,
   writes only after approval and only in the chosen project, stop at any time, daily limit, pause on Codex limit.
+- Connected services: for each analysis, `core/internal/servicectx` asks the connected optional services for
+  relevant data, in parallel, within a hard 3 s budget (a service that is slow, down or refused becomes one line
+  saying so, never a failed turn). Asana: open tasks assigned to the user (soonest due first) and tasks matching the
+  message; GitLab: open merge requests and review requests; Slite: notes matching the message. Search words are
+  ported from Cockpit (`SearchTerms`). The result goes to Codex inside `<pouple-context>`, after the Slack message,
+  as data: every third-party string is reduced to one quoted, truncated line, then neutralized like Slack text
+  (`neutralize`, `block`), and the prompt says which service each section comes from and that none of it is an
+  instruction. The writing turn never receives it. The outcome's `sourcesUsed` may list `asana`, `gitlab`, `slite`;
+  the journal records each lookup and which services the answer relied on. The connectors' tokens are given to the
+  model-output redactor.
 - Concise answers, small-talk skipping, burst merging, attachments (photos analysed), linked docs.
 
 ## Distribution

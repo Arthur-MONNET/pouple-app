@@ -1,6 +1,7 @@
 import { ApiError, type PoupleApi } from './client';
 import { lang as activeLang, type Lang } from '../i18n';
 import { codexConnector, codexProfile, createFixtures, slackConnector, slackProfile } from './mockFixtures';
+import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
 import type {
   ActionEvent,
@@ -46,26 +47,28 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const { latency = 250, connectors: mockConnectors = true, workMs = 2200 } = options;
   let lang: Lang = options.lang ?? activeLang.value;
   const text = (): ReturnType<typeof mockText> => mockText(lang);
-  const connectors: ConnectorStatus[] = [slackConnector(lang), codexConnector(lang)];
+  const connectors: ConnectorStatus[] = [slackConnector(lang), codexConnector(lang), ...extraConnectors(lang)];
   const codex = { installed: false, signedIn: false };
   if (options.ready) {
     codex.installed = codex.signedIn = true;
-    for (const status of connectors) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
+    for (const status of connectors.filter((c) => c.descriptor.required)) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
   }
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
   const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] };
 
+  const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
+
   /** The core speaks the interface language: descriptors, profiles and the sample conversations follow it. */
   function switchLanguage(next: Lang): void {
     lang = next;
-    const fresh = [slackConnector(lang), codexConnector(lang)];
+    const fresh = [slackConnector(lang), codexConnector(lang), ...extraConnectors(lang)];
     for (const [index, status] of connectors.entries()) {
       const replacement = fresh[index];
       if (!replacement) continue;
       status.descriptor = replacement.descriptor;
-      if (status.connected) status.profile = status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang);
+      if (status.connected) status.profile = profileOf(status.descriptor.id);
     }
     if (options.view !== 'empty') requests = createFixtures(lang);
     publish();
@@ -131,6 +134,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const profileFor = (id: string, values: ConnectorValues): Profile => {
     if (id === 'slack') return (checkSlackValues(values), slackProfile(lang));
     if (id === 'codex') return currentCodexProfile();
+    if (isExtraId(id)) return (checkExtraValues(id, values, lang), extraProfile(id, lang));
     throw new ApiError(404, `unknown connector: ${id}`);
   };
 

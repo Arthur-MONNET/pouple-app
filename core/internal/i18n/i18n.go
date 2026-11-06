@@ -50,6 +50,12 @@ func T(lang Lang, key string, args ...any) string {
 	return fmt.Sprintf(text, localized...)
 }
 
+// Has reports whether the text has a French translation (a test uses it to catch untranslated copy).
+func Has(key string) bool {
+	_, ok := fr[key]
+	return ok
+}
+
 // Message carries app copy and its arguments until it is ready to display.
 type Message struct {
 	key  string

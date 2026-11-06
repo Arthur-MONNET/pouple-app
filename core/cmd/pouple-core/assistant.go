@@ -14,6 +14,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/servicectx"
 )
 
 // newAssistant builds the engine on top of the connectors and the settings.
@@ -60,6 +61,8 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 
 	service := engine.NewService(engine.Deps{
 		Store: store, Inbox: slack, Codex: meteredCodex, Attachments: attachments, Fetch: slack.Fetch,
+		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
+		Services:     servicectx.New(registry).Gather,
 		Persona:      func() engine.Persona { return personaOf(registry, load()) },
 		Language:     language,
 		ProjectsRoot: projectsRoot,
@@ -75,6 +78,12 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 			secrets := codexSecrets(filepath.Join(codexHome, "auth.json"))
 			if values, err := registry.Values("slack"); err == nil {
 				secrets = append(secrets, values["token"], values["appToken"])
+			}
+			// Tokens of the optional services never reach the model, and cannot come back out of it either.
+			for _, id := range []string{"gitlab", "asana", "slite"} {
+				if values, err := registry.Values(id); err == nil {
+					secrets = append(secrets, values["token"])
+				}
 			}
 			return engine.NewRedactor(secrets...)
 		},

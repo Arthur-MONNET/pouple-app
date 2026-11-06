@@ -55,6 +55,10 @@ func (p Profile) Localized(lang i18n.Lang, connectorID string) Profile {
 			if _, err := fmt.Sscanf(fact.Value, "%d of %d granted", &granted, &total); err == nil {
 				fact.Value = i18n.T(lang, "%d of %d granted", granted, total)
 			}
+		case "Token expires":
+			if date, err := time.Parse("2 Jan 2006", fact.Value); err == nil {
+				fact.Value = i18n.Date(lang, date)
+			}
 		case "Subscription until":
 			if date, err := time.Parse("2 Jan 2006", fact.Value); err == nil {
 				until = date
