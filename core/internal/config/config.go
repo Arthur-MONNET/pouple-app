@@ -32,6 +32,8 @@ type Settings struct {
 	ProjectsRoot string `json:"projectsRoot"`
 	// Language is the language of summaries and questions ("French"); empty uses the system language.
 	Language string `json:"language"`
+	// UILanguage is the language of the whole app: "fr" (default) or "en".
+	UILanguage string `json:"uiLanguage"`
 	// AutoApprove is "off" (always ask) or "own-notes" (apply a change proposed from a note to oneself).
 	AutoApprove string `json:"autoApprove"`
 	// Keywords are words that make a Slack message a request wherever it is posted.
@@ -41,7 +43,7 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}}
+	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}}
 }
 
 // File reads and writes the settings, one writer at a time.

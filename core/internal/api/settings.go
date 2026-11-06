@@ -17,13 +17,14 @@ type Settings struct {
 	DailyTurnLimit int      `json:"dailyTurnLimit"`
 	ProjectsRoot   string   `json:"projectsRoot"`
 	Language       string   `json:"language"`
+	UILanguage     string   `json:"uiLanguage"`
 	AutoApprove    string   `json:"autoApprove"`
 	Keywords       []string `json:"keywords"`
 	IgnoreChannels []string `json:"ignoreChannels"`
 }
 
 func viewOf(s config.Settings) Settings {
-	return Settings{s.PollSeconds, s.DailyTurnLimit, s.ProjectsRoot, s.Language, s.AutoApprove, s.Keywords, s.IgnoreChannels}
+	return Settings{s.PollSeconds, s.DailyTurnLimit, s.ProjectsRoot, s.Language, s.UILanguage, s.AutoApprove, s.Keywords, s.IgnoreChannels}
 }
 
 // MountSettings adds GET and PUT /api/settings. A PUT carries only the fields to change.
@@ -43,6 +44,7 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				DailyTurnLimit *int      `json:"dailyTurnLimit"`
 				ProjectsRoot   *string   `json:"projectsRoot"`
 				Language       *string   `json:"language"`
+				UILanguage     *string   `json:"uiLanguage"`
 				AutoApprove    *string   `json:"autoApprove"`
 				Keywords       *[]string `json:"keywords"`
 				IgnoreChannels *[]string `json:"ignoreChannels"`
@@ -51,7 +53,7 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "The request is not valid JSON"})
 				return
 			}
-			if problem := validate(patch.PollSeconds, patch.DailyTurnLimit, patch.ProjectsRoot, patch.AutoApprove); problem != "" {
+			if problem := validate(patch.PollSeconds, patch.DailyTurnLimit, patch.ProjectsRoot, patch.AutoApprove, patch.UILanguage); problem != "" {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": problem})
 				return
 			}
@@ -67,6 +69,9 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 				if patch.Language != nil {
 					s.Language = strings.TrimSpace(*patch.Language)
+				}
+				if patch.UILanguage != nil {
+					s.UILanguage = *patch.UILanguage
 				}
 				if patch.AutoApprove != nil {
 					s.AutoApprove = *patch.AutoApprove
@@ -87,12 +92,14 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 	}
 }
 
-func validate(poll, limit *int, root, autoApprove *string) string {
+func validate(poll, limit *int, root, autoApprove, uiLanguage *string) string {
 	switch {
 	case poll != nil && (*poll < 15 || *poll > 3600):
 		return "Slack is read every 15 to 3600 seconds"
 	case limit != nil && *limit < 0:
 		return "The daily limit cannot be negative (0 means no limit)"
+	case uiLanguage != nil && *uiLanguage != "fr" && *uiLanguage != "en":
+		return `The interface language must be "fr" or "en"`
 	case autoApprove != nil && *autoApprove != "off" && *autoApprove != "own-notes":
 		return `Automatic approval must be "off" or "own-notes"`
 	case root != nil && strings.TrimSpace(*root) != "":

@@ -98,6 +98,13 @@ func run() error {
 	mountSettings := api.MountSettings(settings)
 	handler := api.New(api.Options{
 		Registry: registry, Token: token, UI: ui.Files(),
+		Language: func() string {
+			current, err := settings.Load()
+			if err != nil || current.UILanguage == "" {
+				return "fr"
+			}
+			return current.UILanguage
+		},
 		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux) },
 	}, port)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}

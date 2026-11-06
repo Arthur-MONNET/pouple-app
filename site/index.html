@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pouple – your Slack requests, handled by Codex</title>
-    <meta name="description" content="Pouple watches the Slack messages that would notify you, has your local Codex look into them, and shows the answer in a corner of your screen." />
+    <title>Pouple – tes demandes Slack, prises en charge par Codex</title>
+    <meta name="description" content="Pouple surveille les messages Slack qui te notifieraient, demande à ton Codex local de les examiner et affiche la réponse dans un coin de ton écran." />
     <meta name="color-scheme" content="dark light" />
     <style>
       :root {
@@ -47,6 +47,10 @@
       .mark { font-weight: 650; letter-spacing: -0.02em; font-size: 22px; display: flex; align-items: center; gap: 10px; }
       .mark img { width: 30px; height: 30px; }
       header a.link { color: var(--muted); text-decoration: none; font-size: 14px; }
+      .nav { display: flex; align-items: center; gap: 18px; }
+      .lang { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+      .lang button { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); background: transparent; border: 0; padding: 5px 12px; cursor: pointer; }
+      .lang button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
       header a.link:hover { color: var(--ink); }
 
       .hero { padding: 56px 0 40px; display: grid; gap: 40px; grid-template-columns: 1.1fr 0.9fr; align-items: center; }
@@ -105,63 +109,95 @@
     <div class="wrap">
       <header>
         <div class="mark"><img src="assets/app-icon.svg" alt="" width="30" height="30"> Pouple</div>
-        <a class="link" href="https://github.com/Arthur-MONNET/pouple">GitHub</a>
+        <div class="nav"><div class="lang" role="group" aria-label="Langue / Language"><button type="button" data-lang="fr" aria-pressed="true">FR</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><a class="link" href="https://github.com/Arthur-MONNET/pouple">GitHub</a></div>
       </header>
 
       <main>
         <div class="hero">
           <div>
-            <h1>Eight arms. Your Slack requests, handled.</h1>
+            <h1 data-i18n="h1">Huit bras. Tes demandes Slack, réglées.</h1>
             <p class="lead">
-              Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what
-              it found in a corner of your screen. You only take the decisions.
+              <span data-i18n="lead">Pouple surveille les messages qui te notifieraient, demande à Codex, sur ton Mac, de les examiner, et affiche ce qu'il a trouvé dans un coin de ton écran. Toi, tu ne prends que les décisions.</span>
             </p>
             <div class="cta">
-              <a class="button" id="download" href="https://github.com/Arthur-MONNET/pouple/releases/latest">Download for macOS</a>
-              <span class="meta" id="version">macOS 14 or later</span>
+              <a class="button" id="download" href="https://github.com/Arthur-MONNET/pouple/releases/latest"><span data-i18n="download">Télécharger pour macOS</span></a>
+              <span class="meta" id="version">macOS 14 ou plus récent</span>
             </div>
           </div>
           <div class="stage" aria-hidden="true">
             <img class="mascot" src="assets/mascot-multitask.svg" alt="" width="380" height="380">
             <div class="bubble">
-              <small>Request from Morgan in #front</small>
-              <strong><span class="dot"></span>Needs your decision</strong>
-              <p>The login fails only with SSO accounts. Fix it in the callback, or add a retry?</p>
-              <div class="row"><span class="pill on">Fix the callback</span><span class="pill">Add a retry</span></div>
+              <small data-i18n="b_from">Demande de Morgan dans #front</small>
+              <strong><span class="dot"></span><span data-i18n="b_title">À toi de décider</span></strong>
+              <p data-i18n="b_text">La connexion échoue seulement avec les comptes SSO. Corriger le callback, ou ajouter une nouvelle tentative ?</p>
+              <div class="row"><span class="pill on" data-i18n="b_a">Corriger le callback</span><span class="pill" data-i18n="b_b">Nouvelle tentative</span></div>
             </div>
           </div>
         </div>
 
         <section aria-labelledby="what">
-          <h2 id="what">What it does</h2>
+          <h2 id="what" data-i18n="what">Ce que ça fait</h2>
           <div class="cards">
-            <div class="card"><h3>Listens like Slack does</h3><p>Mentions, direct messages, notes to yourself, group chats and the threads you take part in.</p></div>
-            <div class="card"><h3>Investigates with Codex</h3><p>Reads your projects read-only, finds the answer, and writes the short version. Nothing is changed before you approve.</p></div>
-            <div class="card"><h3>Stays out of the way</h3><p>Floating bubbles in a screen corner, a window for the full conversations, and a Stop button at any moment.</p></div>
+            <div class="card"><h3 data-i18n="c1t">Écoute comme Slack</h3><p data-i18n="c1p">Mentions, messages privés, notes à toi-même, conversations de groupe et fils auxquels tu participes.</p></div>
+            <div class="card"><h3 data-i18n="c2t">Enquête avec Codex</h3><p data-i18n="c2p">Lit tes projets en lecture seule, trouve la réponse et en écrit la version courte. Rien n’est modifié sans ton accord.</p></div>
+            <div class="card"><h3 data-i18n="c3t">Reste discret</h3><p data-i18n="c3p">Des bulles flottantes dans un coin de l’écran, une fenêtre pour les conversations complètes et un bouton Stop à tout moment.</p></div>
           </div>
         </section>
 
         <section aria-labelledby="start">
-          <h2 id="start">Ready in a few minutes</h2>
+          <h2 id="start" data-i18n="start">Prêt en quelques minutes</h2>
           <ol class="steps">
-            <li><div><b>Download and open Pouple</b><span>Drag it to Applications. The first time, macOS may ask you to confirm: right-click the app, then Open.</span></div></li>
-            <li><div><b>Connect Slack</b><span>One click creates the Slack app with the right permissions. Paste the token it gives you: Pouple shows whose account it is before saving.</span></div></li>
-            <li><div><b>Connect Codex</b><span>Pouple installs the Codex CLI if needed and signs in with ChatGPT. It has its own login and never touches yours.</span></div></li>
+            <li><div><b data-i18n="s1t">Télécharge et ouvre Pouple</b><span data-i18n="s1p">Glisse-le dans Applications. La première fois, macOS peut te demander confirmation : clic droit sur l’app, puis Ouvrir.</span></div></li>
+            <li><div><b data-i18n="s2t">Connecte Slack</b><span data-i18n="s2p">Un clic crée l’app Slack avec les bonnes permissions. Colle le jeton qu’elle te donne : Pouple montre à qui appartient le compte avant d’enregistrer.</span></div></li>
+            <li><div><b data-i18n="s3t">Connecte Codex</b><span data-i18n="s3p">Pouple installe le CLI Codex si besoin et se connecte avec ChatGPT. Il a son propre compte et ne touche jamais au tien.</span></div></li>
           </ol>
         </section>
 
         <section>
           <p class="note">
-            Your Slack token and every other key are kept in your Mac's keychain, never in a file or in the page. Pouple
-            only talks to Slack and to Codex, from your Mac.
+            <span data-i18n="note">Ton jeton Slack et toutes les autres clés restent dans le trousseau de ton Mac, jamais dans un fichier ni dans la page. Pouple ne parle qu’à Slack et à Codex, depuis ton Mac.</span>
           </p>
         </section>
       </main>
 
-      <footer>Pouple is open source. Made by Arthur Monnet.</footer>
+      <footer data-i18n="foot">Pouple est open source. Fait par Arthur Monnet.</footer>
     </div>
 
     <script>
+      const EN = {
+        h1: 'Eight arms. Your Slack requests, handled.',
+        lead: 'Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what it found in a corner of your screen. You only take the decisions.',
+        download: 'Download for macOS', b_from: 'Request from Morgan in #front', b_title: 'Needs your decision',
+        b_text: 'The login fails only with SSO accounts. Fix it in the callback, or add a retry?', b_a: 'Fix the callback', b_b: 'Add a retry',
+        what: 'What it does', c1t: 'Listens like Slack does', c1p: 'Mentions, direct messages, notes to yourself, group chats and the threads you take part in.',
+        c2t: 'Investigates with Codex', c2p: 'Reads your projects read-only, finds the answer, and writes the short version. Nothing is changed before you approve.',
+        c3t: 'Stays out of the way', c3p: 'Floating bubbles in a screen corner, a window for the full conversations, and a Stop button at any moment.',
+        start: 'Ready in a few minutes', s1t: 'Download and open Pouple', s1p: 'Drag it to Applications. The first time, macOS may ask you to confirm: right-click the app, then Open.',
+        s2t: 'Connect Slack', s2p: 'One click creates the Slack app with the right permissions. Paste the token it gives you: Pouple shows whose account it is before saving.',
+        s3t: 'Connect Codex', s3p: 'Pouple installs the Codex CLI if needed and signs in with ChatGPT. It has its own login and never touches yours.',
+        note: "Your Slack token and every other key are kept in your Mac's keychain, never in a file or in the page. Pouple only talks to Slack and to Codex, from your Mac.",
+        foot: 'Pouple is open source. Made by Arthur Monnet.',
+      };
+      const nodes = [...document.querySelectorAll('[data-i18n]')];
+      const FR = Object.fromEntries(nodes.map((node) => [node.dataset.i18n, node.textContent]));
+      const TITLES = { fr: 'Pouple – tes demandes Slack, prises en charge par Codex', en: 'Pouple – your Slack requests, handled by Codex' };
+      const VERSION = { fr: 'macOS 14 ou plus récent', en: 'macOS 14 or later' };
+      let language = 'fr';
+      function setLanguage(next) {
+        language = next;
+        const table = next === 'en' ? EN : FR;
+        for (const node of nodes) node.textContent = table[node.dataset.i18n];
+        document.documentElement.lang = next;
+        document.title = TITLES[next];
+        document.getElementById('version').dataset.suffix = VERSION[next];
+        const version = document.getElementById('version');
+        version.textContent = version.dataset.name ? `${version.dataset.name} · ${VERSION[next]}` : VERSION[next];
+        for (const button of document.querySelectorAll('.lang button')) button.setAttribute('aria-pressed', String(button.dataset.lang === next));
+        try { localStorage.setItem('pouple-lang', next); } catch { /* private mode: the choice just is not remembered */ }
+      }
+      for (const button of document.querySelectorAll('.lang button')) button.addEventListener('click', () => setLanguage(button.dataset.lang));
+      try { const saved = localStorage.getItem('pouple-lang'); if (saved === 'en') setLanguage('en'); } catch { /* ignore */ }
+
       // Point the button at the newest disk image; the plain releases page stays as the fallback.
       (async () => {
         try {
@@ -171,7 +207,9 @@
           const dmg = (release.assets || []).find((asset) => asset.name.endsWith('.dmg'));
           if (!dmg) return;
           document.getElementById('download').href = dmg.browser_download_url;
-          document.getElementById('version').textContent = `${release.name || release.tag_name} · macOS 14 or later`;
+          const version = document.getElementById('version');
+          version.dataset.name = release.name || release.tag_name;
+          version.textContent = `${version.dataset.name} · ${VERSION[language]}`;
         } catch {
           // Offline or rate limited: the fallback link still works.
         }

@@ -27,6 +27,8 @@ type Options struct {
 	Token string
 	// UI serves the web interface; index.html receives the token.
 	UI fs.FS
+	// Language returns the interface language ("fr" or "en"); the shell and the web app follow it.
+	Language func() string
 	// Mount adds more routes (the assistant engine) under the same protection.
 	Mount func(mux *http.ServeMux)
 }
@@ -143,7 +145,11 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 			complete = false
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"setupComplete": complete, "steps": steps})
+	language := "fr"
+	if s.opts.Language != nil {
+		language = s.opts.Language()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"setupComplete": complete, "steps": steps, "language": language})
 }
 
 func (s *Server) connectors(w http.ResponseWriter, _ *http.Request) {
