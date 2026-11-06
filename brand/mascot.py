@@ -202,7 +202,7 @@ def favicon():
     head = f'<path d="{HEAD_PATH}" fill="#fff" stroke="#fff" stroke-width="11" stroke-linejoin="round"/>{HEAD}<g transform="translate(0 -15)">{eyes("open")}</g>'
     return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="24 4 152 132">{head}</svg>'
 
-if __name__ == "__main__":
+if __name__ == "__main__" and False:  # superseded by pouple.py (the final drawing); kept for its props
     out = pathlib.Path(__file__).parent
     for name in POSES:
         (out / f"mascot-{name}.svg").write_text(svg(name) + "\n")
