@@ -15,6 +15,9 @@ cd pouple-app
 bash scripts/install-local.sh
 ```
 
+If you use NVM, run `nvm install` from the checkout before running the installer. The `.nvmrc` selects Node.js 24.
+If pnpm is missing after switching Node versions, run `npm install --global pnpm@10`.
+
 The script builds and verifies the app, installs it at `~/Applications/Pouple.app`, and launches it. It preserves
 application data and the macOS security settings.
 

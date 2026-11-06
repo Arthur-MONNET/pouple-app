@@ -50,7 +50,7 @@ if ! xcode-select -p >/dev/null 2>&1 || ! xcrun --find swift >/dev/null 2>&1; th
 fi
 command -v go >/dev/null || die "Install Go $required_go or later and make sure go is on PATH."
 (cd "$root/core" && go version) || die "Go could not load the toolchain required by core/go.mod ($required_go)."
-command -v node >/dev/null || die "Install Node.js 22.12 or later and make sure node is on PATH."
+command -v node >/dev/null || die "Install Node.js 22.12 or later. If you use NVM, run nvm install from the Pouple checkout, then retry."
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)' \
   || die "Node.js 22.12 or later is required (found $(node --version))."
 pnpm_version="$(pnpm --version 2>/dev/null || true)"

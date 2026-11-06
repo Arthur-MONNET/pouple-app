@@ -178,6 +178,7 @@
             <span class="copy-status" role="status"></span>
           </div>
           <p data-i18n="cloneHint">Copie ces commandes dans le Terminal. Le script compile Pouple, l’installe dans ~/Applications et le lance. Si tu utilisais une autre copie, quitte-la avant de lancer le script.</p>
+          <p data-i18n="nvmHint">Tu utilises NVM ? Après le clone, lance nvm install dans le dossier pouple-app avant le script. Si pnpm manque, lance npm install --global pnpm@10.</p>
           <div class="command">
             <pre><code id="install-command" class="language-bash"><span class="shell-command">git clone</span> <span class="shell-string">https://github.com/Arthur-MONNET/pouple-app.git</span>
 <span class="shell-command">cd</span> <span class="shell-string">pouple-app</span>
@@ -223,6 +224,7 @@
         requirements: 'You need the Xcode Command Line Tools, Go 1.27.3 or later, Node.js 22.12 or later, and pnpm 10.',
         brewHint: 'If you use Homebrew, the following command installs Go, Node.js, and pnpm. Run xcode-select --install if you need the Xcode tools.',
         cloneHint: 'Paste these commands into Terminal. The script builds Pouple, installs it in ~/Applications, and launches it. Quit any other copy before running the script.',
+        nvmHint: 'Using NVM? After cloning, run nvm install from the pouple-app folder before running the script. If pnpm is missing, run npm install --global pnpm@10.',
         updateHint: 'To update, quit Pouple and run these commands from the pouple-app folder.',
         copy: 'Copy',
         s2t: 'Connect Slack', s2p: 'The setup wizard guides you through creating the Slack app and pasting your token. Your workspace may require an administrator to approve the installation.',
