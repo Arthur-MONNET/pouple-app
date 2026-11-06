@@ -1,0 +1,27 @@
+{
+  "status": { "active": true, "problem": null, "notices": [] },
+  "requests": [
+    {
+      "id": "w1",
+      "source": { "origin": "mention", "channelId": "C2", "channelName": "ops", "senderId": "U2", "senderName": "Camille", "ts": "1.0", "permalink": null },
+      "text": "can you check the deploy?", "receivedAt": "2026-11-06T09:00:00Z", "updatedAt": "2026-11-06T09:00:30Z",
+      "status": "analyzing", "summary": null, "draftReply": null, "questions": [], "proposal": null,
+      "entries": [{ "id": "e0", "role": "assistant", "kind": "step", "text": "$ gh run list --limit 3" }], "error": null
+    },
+    {
+      "id": "a",
+      "source": { "origin": "thread-reply", "channelId": "C1", "channelName": "front", "senderId": "U9", "senderName": "Morgan", "ts": "1.1", "permalink": null },
+      "text": "any update on the login bug?", "receivedAt": "2026-11-06T09:01:00Z", "updatedAt": "2026-11-06T09:02:00Z",
+      "status": "awaiting-user", "summary": "Found it: the **email trim** is missing on the login form.",
+      "draftReply": null,
+      "questions": [{ "id": "q1", "text": "Which flow should I fix first?", "options": [{ "id": "A", "label": "Email login", "description": "The form on /login" }, { "id": "B", "label": "Magic link", "description": null }] }],
+      "proposal": null, "entries": [], "error": null
+    },
+    {
+      "id": "f1",
+      "source": { "origin": "direct-message", "channelId": "D1", "channelName": null, "senderId": "U3", "senderName": "Lea", "ts": "1.2", "permalink": null },
+      "text": "ping", "receivedAt": "2026-11-06T09:02:00Z", "updatedAt": "2026-11-06T09:03:00Z",
+      "status": "failed", "summary": null, "draftReply": null, "questions": [], "proposal": null, "entries": [], "error": "Codex hit its usage limit."
+    }
+  ]
+}

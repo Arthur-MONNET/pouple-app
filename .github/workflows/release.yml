@@ -1,0 +1,74 @@
+name: Release
+
+# Publish a version by pushing a tag: `git tag v0.1.0 && git push origin v0.1.0`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build the web interface into the core
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build:embed
+
+      - name: Build the core for both architectures
+        working-directory: core
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p ../build
+          GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o ../build/pouple-core-arm64 ./cmd/pouple-core
+          GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../build/pouple-core-amd64 ./cmd/pouple-core
+          lipo -create -output ../build/pouple-core ../build/pouple-core-arm64 ../build/pouple-core-amd64
+
+      # Without these secrets the app is signed ad hoc: it works, but macOS asks the user to confirm the first
+      # opening (right-click, Open). With a Developer ID certificate it is signed and notarized.
+      - name: Import the signing certificate
+        if: env.CERTIFICATE_P12 != ''
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm certificate.p12
+
+      - name: Build the app and the disk image
+        env:
+          PROUPLE_SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+          PROUPLE_NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
+        run: |
+          scripts/build-app.sh --core build/pouple-core --universal
+          scripts/make-dmg.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/Pouple.dmg --generate-notes --title "Pouple ${GITHUB_REF_NAME#v}"
