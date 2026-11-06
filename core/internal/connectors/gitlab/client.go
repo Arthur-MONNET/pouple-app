@@ -128,6 +128,17 @@ func pipelineStatus(raw json.RawMessage) string {
 	return pipeline.Status
 }
 
+// ownLink keeps a link only when it points at the configured GitLab server: what the server says about other
+// addresses is not something to hand to the assistant (it could copy a phishing link into a reply).
+func (c *Client) ownLink(raw string) string {
+	base, err := url.Parse(c.api)
+	link, err2 := url.Parse(raw)
+	if err != nil || err2 != nil || link.Scheme != "https" || !strings.EqualFold(link.Host, base.Host) {
+		return ""
+	}
+	return raw
+}
+
 func (p mergeRequestPayload) toMergeRequest() (MergeRequest, bool) {
 	if p.IID == 0 || p.Title == "" || p.WebURL == "" {
 		return MergeRequest{}, false
@@ -213,11 +224,13 @@ func (c *Client) Overview(ctx context.Context) (Overview, error) {
 	overview := Overview{MineTotal: mineTotal, ToReviewTotal: reviewTotal}
 	for _, payload := range mine {
 		if mr, ok := payload.toMergeRequest(); ok {
+			mr.WebURL = c.ownLink(mr.WebURL)
 			overview.Mine = append(overview.Mine, mr)
 		}
 	}
 	for _, payload := range review {
 		if mr, ok := payload.toMergeRequest(); ok {
+			mr.WebURL = c.ownLink(mr.WebURL)
 			overview.ToReview = append(overview.ToReview, mr)
 		}
 	}

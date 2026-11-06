@@ -3,6 +3,7 @@ package svchttp
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -101,5 +102,35 @@ func TestOversizedAndMalformedAnswers(t *testing.T) {
 	defer bad.Close()
 	if _, err := GetJSON(context.Background(), NewPublicClient(), "Slite", bad.URL, nil, &out); !errors.Is(err, ErrUnexpected) {
 		t.Fatalf("malformed: %v", err)
+	}
+}
+
+func TestThisNetworkAndTheMacsOwnAddressesAreForbidden(t *testing.T) {
+	if !Forbidden(netip.MustParseAddr("0.1.2.3")) {
+		t.Error("0.0.0.0/8 must be refused")
+	}
+	if Forbidden(netip.MustParseAddr("10.20.30.40")) {
+		t.Error("private ranges stay allowed: an internal GitLab lives there")
+	}
+	addresses, _ := net.InterfaceAddrs()
+	checked := false
+	for _, address := range addresses {
+		prefix, err := netip.ParsePrefix(address.String())
+		if err != nil || prefix.Addr().IsLoopback() {
+			continue
+		}
+		checked = true
+		if !ownAddress(prefix.Addr().Unmap()) {
+			t.Errorf("%s is an address of this Mac and must be refused", prefix.Addr())
+		}
+		if err := guard("tcp", net.JoinHostPort(prefix.Addr().String(), "443"), nil); err == nil {
+			t.Errorf("the dial guard must refuse %s", prefix.Addr())
+		}
+	}
+	if !checked {
+		t.Skip("no network interface address to try")
+	}
+	if ownAddress(netip.MustParseAddr("203.0.113.9")) {
+		t.Error("a foreign address is not this Mac")
 	}
 }

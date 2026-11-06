@@ -134,3 +134,14 @@ func TestTokenExpiryDateIsLocalized(t *testing.T) {
 		t.Fatalf("got %+v", english)
 	}
 }
+
+func TestASecretFieldNeverTakesADefault(t *testing.T) {
+	descriptor := Descriptor{Fields: []Field{
+		{ID: "url", Default: "https://gitlab.com"},
+		{ID: "token", Secret: true, Default: "leaked-default"},
+	}}
+	filled := withDefaults(descriptor, Values{})
+	if filled["url"] != "https://gitlab.com" || filled["token"] != "" {
+		t.Fatalf("defaults %v", filled)
+	}
+}

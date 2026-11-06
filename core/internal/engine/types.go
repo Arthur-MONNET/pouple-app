@@ -99,6 +99,9 @@ type Request struct {
 type Stored struct {
 	Request
 	ThreadID string `json:"threadId,omitempty"`
+	// ServicesUsed is set when text from Asana, GitLab or Slite was given to the analysis: written by other people, it
+	// may have shaped the proposal, so an automatic approval must not apply it.
+	ServicesUsed bool `json:"servicesUsed,omitempty"`
 	// PendingFiles are Slack files not downloaded yet.
 	PendingFiles []PendingFile `json:"pendingFiles,omitempty"`
 }

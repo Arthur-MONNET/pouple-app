@@ -103,7 +103,7 @@ func withDefaults(descriptor Descriptor, values Values) Values {
 		filled[key] = value
 	}
 	for _, field := range descriptor.Fields {
-		if field.Default != "" && strings.TrimSpace(filled[field.ID]) == "" {
+		if field.Default != "" && !field.Secret && strings.TrimSpace(filled[field.ID]) == "" {
 			filled[field.ID] = field.Default
 		}
 	}

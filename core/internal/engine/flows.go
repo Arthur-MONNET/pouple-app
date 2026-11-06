@@ -223,7 +223,8 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 			r.Entries = append(r.Entries, summary)
 		})
 		if s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() {
-			if request, ok := s.deps.Store.Get(id); ok && request.Source.Origin == "note-to-self" {
+			// Never when other people's text (their tasks, notes, merge requests) went into the analysis: a person must read it.
+			if request, ok := s.deps.Store.Get(id); ok && request.Source.Origin == "note-to-self" && !request.ServicesUsed {
 				// They asked for it themselves, in writing: the approval step would only repeat their request.
 				_ = s.Decide(id, true)
 				return

@@ -137,7 +137,11 @@ func (p taskPayload) task() (Task, bool) {
 	if p.GID == "" || p.Name == "" {
 		return Task{}, false
 	}
-	task := Task{GID: p.GID, Name: p.Name, DueOn: p.DueOn, Completed: p.Completed, PermalinkURL: p.PermalinkURL}
+	task := Task{GID: p.GID, Name: p.Name, DueOn: p.DueOn, Completed: p.Completed}
+	// Only Asana's own address is kept: the assistant must not receive a link to somewhere else.
+	if link, err := url.Parse(p.PermalinkURL); err == nil && link.Scheme == "https" && strings.EqualFold(link.Host, "app.asana.com") {
+		task.PermalinkURL = p.PermalinkURL
+	}
 	if p.Assignee != nil {
 		task.Assignee = p.Assignee.Name
 	}

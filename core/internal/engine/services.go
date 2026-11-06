@@ -61,7 +61,11 @@ func (s *Service) gatherServices(ctx context.Context, request Stored) string {
 		}
 		s.update(request.ID, func(r *Stored) { r.Entries = append(r.Entries, entries...) })
 	}
-	return clipRunes(strings.TrimSpace(result.Text), maxServiceChars)
+	text := clipRunes(strings.TrimSpace(result.Text), maxServiceChars)
+	if text != "" {
+		s.update(request.ID, func(r *Stored) { r.ServicesUsed = true })
+	}
+	return text
 }
 
 // noteServiceSources says in the journal which connected services the answer really relied on.

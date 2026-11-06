@@ -146,10 +146,22 @@ func avatar(base *url.URL, raw string) string {
 		return ""
 	}
 	parsed, err := base.Parse(raw)
-	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil {
+	// The web view fetches this address by itself, without the guard of the HTTP client: https only, and only the
+	// server itself or the picture hosts GitLab uses. Anything else could point the view at this Mac or the network.
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || !pictureHost(base.Hostname(), parsed.Hostname()) {
 		return ""
 	}
 	return parsed.String()
+}
+
+// pictureHost reports whether a picture may be loaded from host: the GitLab server itself, or the hosts gitlab.com serves
+// avatars from.
+func pictureHost(server, host string) bool {
+	switch strings.ToLower(host) {
+	case strings.ToLower(server), "secure.gravatar.com", "www.gravatar.com", "assets.gitlab-static.net":
+		return true
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {

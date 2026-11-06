@@ -38,7 +38,25 @@ var ErrRedirect = errors.New("redirect to another host refused")
 func Forbidden(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	return !ip.IsValid() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || ip == awsIPv6Metadata
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || ip == awsIPv6Metadata || thisNetwork.Contains(ip)
+}
+
+// thisNetwork is 0.0.0.0/8, which some systems route to this machine.
+var thisNetwork = netip.MustParsePrefix("0.0.0.0/8")
+
+// ownAddress reports whether ip is one of this Mac's own network addresses (Wi-Fi, VPN, virtual machine bridge): a
+// service typed at one of them would be a program on this Mac, not a server.
+func ownAddress(ip netip.Addr) bool {
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, address := range addresses {
+		if prefix, err := netip.ParsePrefix(address.String()); err == nil && prefix.Addr().Unmap() == ip {
+			return true
+		}
+	}
+	return false
 }
 
 var awsIPv6Metadata = netip.MustParseAddr("fd00:ec2::254")
@@ -51,7 +69,7 @@ func guard(_, address string, _ syscall.RawConn) error {
 		return errors.New("address refused")
 	}
 	ip, err := netip.ParseAddr(host)
-	if err != nil || Forbidden(ip) {
+	if err != nil || Forbidden(ip) || ownAddress(ip.Unmap()) {
 		return errors.New("address refused: this Mac itself and link-local addresses are not allowed")
 	}
 	return nil
