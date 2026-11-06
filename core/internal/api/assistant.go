@@ -34,6 +34,34 @@ const (
 
 // MountAssistant adds the conversation routes (the contract Cockpit's chat already used).
 func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(mux *http.ServeMux) {
+	return mountAssistant(assistant, attachments, assistant.Message, false)
+}
+
+type localAssistantEngine interface {
+	Assistant
+	MessageFromLocalAPI(id, text string, attachmentIDs []string) error
+}
+
+// LocalAssistant exposes conversation operations to native clients on an owner-only Unix socket.
+func LocalAssistant(assistant localAssistantEngine, attachments *engine.Attachments, language func() string) http.Handler {
+	mux := http.NewServeMux()
+	mountAssistant(assistant, attachments, assistant.MessageFromLocalAPI, true)(mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Err() != nil {
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Host != "localhost" || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		mux.ServeHTTP(w, r.WithContext(i18n.WithLanguage(r.Context(), i18n.Parse(language()))))
+	})
+}
+
+func mountAssistant(assistant Assistant, attachments *engine.Attachments, message func(string, string, []string) error, requireProposalID bool) func(mux *http.ServeMux) {
 	return func(mux *http.ServeMux) {
 		handle := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
 			mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +92,7 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 			if err := decodeBody(r, &body); err != nil {
 				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
 			}
-			return accepted(w, assistant.Message(r.PathValue("id"), body.Text, body.AttachmentIDs))
+			return accepted(w, message(r.PathValue("id"), body.Text, body.AttachmentIDs))
 		})
 		handle("POST /api/assistant/requests/{id}/proposal", func(w http.ResponseWriter, r *http.Request) error {
 			var body struct {
@@ -73,6 +101,9 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 			}
 			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
 				return i18n.Wrap(engine.ErrInput, `"decision" must be "approve" or "decline"`)
+			}
+			if requireProposalID && body.ProposalID == "" {
+				return i18n.Wrap(engine.ErrInput, `"proposalId" is required`)
 			}
 			return accepted(w, assistant.DecideProposal(r.PathValue("id"), body.Decision == "approve", body.ProposalID))
 		})

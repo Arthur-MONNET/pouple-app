@@ -12,6 +12,7 @@ if [ ! -f "$go_license" ]; then
   go_license="$goroot/../LICENSE"
 fi
 websocket_module="$(go list -m -f '{{.Dir}}' github.com/coder/websocket)"
+sys_module="$(go list -m -f '{{.Dir}}' golang.org/x/sys)"
 node_modules="$root/web/node_modules"
 
 mkdir -p "$licenses"
@@ -23,3 +24,5 @@ cp "$node_modules/tailwindcss/LICENSE" "$licenses/TailwindCSS.txt"
 cp "$go_license" "$licenses/Go.txt"
 cp "$goroot/PATENTS" "$licenses/GoPatents.txt"
 cp "$websocket_module/LICENSE.txt" "$licenses/CoderWebSocket.txt"
+cp "$sys_module/LICENSE" "$licenses/GoSys.txt"
+cp "$sys_module/PATENTS" "$licenses/GoSysPatents.txt"

@@ -17,6 +17,8 @@ The first launch guides you through two connections, with a confirmation card sh
 
 More connectors can be added later from the Connectors page.
 
+Local tools can read and interact with Pouple conversations through the [local Assistant API](docs/LOCAL-API.md).
+
 Slack can wake Pouple as soon as an event arrives. In the Slack setup, add an optional app-level token
 (`xapp-`) with `connections:write`. The generated manifest enables Socket Mode and subscribes to user
 message events. For an existing Slack app, follow the Socket Mode instructions in Pouple’s Slack setup and

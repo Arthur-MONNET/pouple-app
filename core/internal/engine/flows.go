@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -289,6 +290,15 @@ func answersText(questions []Question, answers []Answer) string {
 
 // Message handles something the user typed: a go-ahead for a waiting proposal, or a follow-up for Codex.
 func (s *Service) Message(id, text string, attachmentIDs []string) error {
+	return s.message(id, text, attachmentIDs, true)
+}
+
+// MessageFromLocalAPI leaves proposal decisions to the endpoint that requires a fingerprint.
+func (s *Service) MessageFromLocalAPI(id, text string, attachmentIDs []string) error {
+	return s.message(id, text, attachmentIDs, false)
+}
+
+func (s *Service) message(id, text string, attachmentIDs []string, allowConfirmation bool) error {
 	text = strings.TrimSpace(text)
 	if text == "" && len(attachmentIDs) == 0 {
 		return i18n.Wrap(ErrInput, "write something or add a file")
@@ -305,11 +315,12 @@ func (s *Service) Message(id, text string, attachmentIDs []string) error {
 	}
 	if request.Status == StatusAwaitingUser && request.Proposal != nil && len(attachmentIDs) == 0 {
 		// Typed by the user in the app, a short "yes" is as much their decision as a click on the button.
-		switch ConfirmationOf(text) {
-		case Approve:
-			return s.Decide(id, true)
-		case Decline:
-			return s.Decide(id, false)
+		decision := ConfirmationOf(text)
+		if decision == Approve || decision == Decline {
+			if !allowConfirmation {
+				return i18n.Wrap(ErrState, "use the proposal action to approve or decline this change")
+			}
+			return s.Decide(id, decision == Approve)
 		}
 	}
 	if err := s.requireActive(); err != nil {
@@ -337,7 +348,8 @@ func (s *Service) Message(id, text string, attachmentIDs []string) error {
 
 // ProposalFingerprint identifies a proposal, so that a decision can name the one the user actually read.
 func ProposalFingerprint(p Proposal) string {
-	sum := sha256.Sum256([]byte(p.ProjectID + "\x00" + p.Title + "\x00" + p.Description))
+	fields, _ := json.Marshal([3]string{p.ProjectID, p.Title, p.Description})
+	sum := sha256.Sum256(fields)
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -351,35 +363,38 @@ func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
 			return err
 		}
 	}
-	request, err := s.require(id)
-	if err != nil {
+	if _, err := s.require(id); err != nil {
 		return err
 	}
-	if request.Status != StatusAwaitingUser || request.Proposal == nil {
-		return i18n.Wrap(ErrState, "no change is waiting for a decision")
+	var proposal Proposal
+	var stale bool
+	status, label := StatusReady, "Declined: %s"
+	if approve {
+		status, label = StatusApplying, "Approved: %s"
 	}
-	proposal := *request.Proposal
-	if wanted != "" && wanted != ProposalFingerprint(proposal) {
+	started := s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) bool {
+		if r.Proposal == nil {
+			return false
+		}
+		proposal = *r.Proposal
+		stale = wanted != "" && wanted != ProposalFingerprint(proposal)
+		if stale {
+			return false
+		}
+		r.Status, r.Proposal = status, nil
+		r.Entries = append(r.Entries, s.entry("user", "text", s.text(label, proposal.Title)))
+		r.UpdatedAt = s.now()
+		return true
+	})
+	if stale {
 		return i18n.Wrap(ErrState, "the proposal changed since you read it")
 	}
-	if !approve {
-		s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) {
-			r.Status, r.Proposal = StatusReady, nil
-			r.Entries = append(r.Entries, s.entry("user", "text", s.text("Declined: %s", proposal.Title)))
-			r.UpdatedAt = s.now()
-		})
-		return nil
-	}
-	// Check and set in one step: two approvals at once must not start two writes.
-	started := s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) {
-		r.Status, r.Proposal = StatusApplying, nil
-		r.Entries = append(r.Entries, s.entry("user", "text", s.text("Approved: %s", proposal.Title)))
-		r.UpdatedAt = s.now()
-	})
 	if !started {
 		return i18n.Wrap(ErrState, "no change is waiting for a decision")
 	}
-	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.apply(ctx, id, proposal) })
+	if approve {
+		s.enqueue(id, Interactive, func(ctx context.Context) error { return s.apply(ctx, id, proposal) })
+	}
 	return nil
 }
 

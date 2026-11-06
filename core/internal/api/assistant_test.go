@@ -40,6 +40,9 @@ func (f *fakeAssistant) Answer(id string, a []engine.Answer) error {
 func (f *fakeAssistant) Message(id, text string, ids []string) error {
 	return f.record("message", id, text, len(ids))
 }
+func (f *fakeAssistant) MessageFromLocalAPI(id, text string, ids []string) error {
+	return f.record("local message", id, text, len(ids))
+}
 func (f *fakeAssistant) DecideProposal(id string, ok bool, proposal string) error {
 	return f.record("decide", id, ok, proposal)
 }
@@ -92,6 +95,37 @@ func TestAssistantRoutesCallTheEngineAndMapItsErrors(t *testing.T) {
 		if want == 500 && strings.Contains(response.Body.String(), "secret detail") {
 			t.Error("an unexpected error must not leak its detail")
 		}
+	}
+}
+
+func TestLocalAssistantOnlyExposesConversationRoutesAndRequiresProposalID(t *testing.T) {
+	fake := &fakeAssistant{}
+	handler := LocalAssistant(fake, engine.NewAttachments(t.TempDir()), func() string { return "en" })
+	for _, tc := range []struct {
+		method, host, path, origin, body string
+		code                             int
+	}{
+		{"GET", "localhost", "/api/assistant", "", "", 200},
+		{"GET", "localhost", "/api/connectors", "", "", 404},
+		{"GET", "localhost", "/api/settings", "", "", 404},
+		{"GET", "example.test", "/api/assistant", "", "", 403},
+		{"GET", "localhost", "/api/assistant", "https://example.test", "", 403},
+		{"POST", "localhost", "/api/assistant/requests/r1/proposal", "", `{"decision":"approve"}`, 400},
+		{"POST", "localhost", "/api/assistant/requests/r1/proposal", "", `{"decision":"approve","proposalId":"p1"}`, 202},
+		{"POST", "localhost", "/api/assistant/requests/r1/messages", "", `{"text":"yes"}`, 202},
+	} {
+		req := httptest.NewRequest(tc.method, "http://"+tc.host+tc.path, strings.NewReader(tc.body))
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != tc.code {
+			t.Errorf("%s %s: got %d, want %d", tc.method, tc.path, res.Code, tc.code)
+		}
+	}
+	if len(fake.calls) != 2 || fake.calls[0] != "decide r1 true p1" || fake.calls[1] != "local message r1 yes 0" {
+		t.Fatalf("unexpected engine calls: %v", fake.calls)
 	}
 }
 

@@ -574,6 +574,9 @@ func TestTwoApprovalsStartOneWriteAndAStaleOneIsRefused(t *testing.T) {
 	if request.Proposal == nil || request.Proposal.ID == "" {
 		t.Fatalf("a listed proposal carries an id: %+v", request.Proposal)
 	}
+	if err := h.svc.MessageFromLocalAPI(request.ID, "yes", nil); !errors.Is(err, ErrState) {
+		t.Fatalf("the local API must require an explicit proposal decision, got %v", err)
+	}
 	if err := h.svc.DecideProposal(request.ID, true, "not-the-one"); !errors.Is(err, ErrState) {
 		t.Fatalf("a decision for another proposal must be refused: %v", err)
 	}

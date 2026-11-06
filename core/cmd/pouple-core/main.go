@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -113,25 +114,57 @@ func run() error {
 		return err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
+	defer listener.Close()
+	var assistantSocket *net.UnixListener
+	if tokenFromShell && (runtime.GOOS == "darwin" || runtime.GOOS == "linux") {
+		socket, closeSocket, err := openAssistantSocket(dir)
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return err
+		}
+		if err != nil {
+			log.Printf("local assistant API unavailable: %v", err)
+		} else {
+			defer closeSocket()
+			assistantSocket = socket
+		}
+	}
 	service, attachments, err := newAssistant(dir, registry, settings, log.Printf)
 	if err != nil {
 		return err
 	}
 	mountAssistant := api.MountAssistant(service, attachments)
 	mountSettings := api.MountSettings(settings)
+	language := func() string {
+		current, err := settings.Load()
+		if err != nil || current.UILanguage == "" {
+			return "fr"
+		}
+		return current.UILanguage
+	}
 	handler := api.New(api.Options{
-		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell,
-		Language: func() string {
-			current, err := settings.Load()
-			if err != nil || current.UILanguage == "" {
-				return "fr"
-			}
-			return current.UILanguage
-		},
+		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
 		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux) },
 	}, port)
-	// No write timeout: the event stream stays open on purpose.
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// No write timeout: event streams stay open until the client disconnects or the core stops.
+	newServer := func(handler http.Handler) *http.Server {
+		return &http.Server{
+			Handler: handler, ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute,
+			BaseContext: func(net.Listener) context.Context { return ctx },
+		}
+	}
+	server := newServer(handler)
+	var local *http.Server
+	if assistantSocket != nil {
+		local = newServer(api.LocalAssistant(service, attachments, language))
+		go func() {
+			if err := local.Serve(assistantListener{assistantSocket}); !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("local assistant API: %v", err)
+			}
+		}()
+	}
 
 	// The app reads this line to learn where the core listens.
 	ready, _ := json.Marshal(map[string]any{"ready": true, "port": port})
@@ -140,8 +173,6 @@ func run() error {
 		log.Printf("open http://127.0.0.1:%d/ (token generated for this run)", port)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	// The app owns our standard input: when it closes (the app quit or crashed), so do we.
 	go func() {
 		_, _ = io.Copy(io.Discard, input)
@@ -150,14 +181,29 @@ func run() error {
 	wake := make(chan struct{}, 1)
 	go watchSlackLive(ctx, registry, wake)
 	go runAssistant(ctx, service, settings, wake)
+	shutdownComplete := make(chan struct{})
 	go func() {
+		defer close(shutdownComplete)
 		<-ctx.Done()
-		service.Shutdown()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = server.Shutdown(shutdown)
+		var servers sync.WaitGroup
+		drain := func(httpServer *http.Server) {
+			if err := httpServer.Shutdown(shutdown); err != nil {
+				_ = httpServer.Close()
+			}
+		}
+		servers.Go(func() { drain(server) })
+		if local != nil {
+			servers.Go(func() { drain(local) })
+		}
+		servers.Wait()
+		service.Shutdown()
 	}()
-	if err := server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+	err = server.Serve(listener)
+	stop()
+	<-shutdownComplete
+	if !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
