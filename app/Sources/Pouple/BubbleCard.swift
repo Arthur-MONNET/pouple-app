@@ -215,7 +215,7 @@ struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(filled ? Color.black.opacity(0.85) : Theme.muted)
+            .foregroundStyle(filled ? Theme.onAccent : Theme.muted)
             .frame(width: 22, height: 22)
             .background(Circle().fill(filled ? Theme.accent : Color.white.opacity(configuration.isPressed ? 0.16 : 0.06)))
     }

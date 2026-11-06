@@ -1,0 +1,64 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import type { ConnectorStatus } from '../api/types';
+import { relativeTime } from '../lib/format';
+import AppButton from './AppButton.vue';
+import ProfileAvatar from './ProfileAvatar.vue';
+
+defineProps<{ connector: ConnectorStatus; busy: boolean }>();
+defineEmits<{ reconnect: []; disconnect: [] }>();
+
+const confirming = ref(false);
+</script>
+
+<template>
+  <article class="flex flex-col gap-4 rounded-xl border border-line bg-surface p-4" :aria-label="connector.descriptor.name" data-testid="connector-card">
+    <div class="flex items-start gap-3">
+      <ProfileAvatar :name="connector.profile?.name ?? connector.descriptor.name" :url="connector.profile?.avatarUrl" />
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-semibold text-ink">{{ connector.descriptor.name }}</h2>
+          <span
+            class="rounded-full px-2 py-0.5 text-2xs font-medium"
+            :class="connector.connected ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn'"
+          >
+            {{ connector.connected ? 'Connected' : 'Not connected' }}
+          </span>
+          <span v-if="connector.descriptor.required" class="text-2xs text-ink-dim">Required</span>
+        </div>
+        <p class="text-xs text-ink-dim">{{ connector.descriptor.tagline }}</p>
+      </div>
+    </div>
+
+    <div v-if="connector.connected && connector.profile" class="rounded-lg bg-canvas px-3 py-2.5">
+      <p class="text-sm text-ink">{{ connector.profile.name }}</p>
+      <p v-if="connector.profile.subtitle" class="text-xs text-ink-muted">{{ connector.profile.subtitle }}</p>
+      <ul v-if="(connector.profile.facts ?? []).length > 0" class="mt-2 flex flex-col gap-0.5 text-xs text-ink-dim">
+        <li v-for="fact in connector.profile.facts ?? []" :key="fact.label" class="flex justify-between gap-3">
+          <span>{{ fact.label }}</span>
+          <span class="truncate text-ink-muted">{{ fact.value }}</span>
+        </li>
+      </ul>
+      <p v-if="(connector.profile.warnings ?? []).length > 0" class="mt-2 text-xs text-warn">
+        {{ (connector.profile.warnings ?? []).length }} warning{{ (connector.profile.warnings ?? []).length === 1 ? '' : 's' }}:
+        {{ (connector.profile.warnings ?? []).map((w) => w.title).join(', ') }}
+      </p>
+      <p v-if="connector.connectedAt" class="mt-2 text-2xs text-ink-dim">Connected {{ relativeTime(connector.connectedAt) }}</p>
+    </div>
+
+    <div class="mt-auto flex flex-wrap items-center gap-2">
+      <template v-if="!confirming">
+        <AppButton variant="outline" size="sm" :disabled="busy" @click="$emit('reconnect')">{{ connector.connected ? 'Reconnect' : 'Connect' }}</AppButton>
+        <AppButton v-if="connector.connected" variant="ghost" size="sm" :disabled="busy" @click="confirming = true">Disconnect</AppButton>
+      </template>
+      <template v-else>
+        <p class="w-full text-xs text-ink-muted" role="alert">
+          Disconnect {{ connector.descriptor.name }}? Its saved secrets are removed from the keychain.
+          <template v-if="connector.descriptor.required"> Pouple stops working until you connect it again.</template>
+        </p>
+        <AppButton variant="danger" size="sm" :disabled="busy" data-testid="confirm-disconnect" @click="(confirming = false), $emit('disconnect')">Yes, disconnect</AppButton>
+        <AppButton variant="ghost" size="sm" @click="confirming = false">Cancel</AppButton>
+      </template>
+    </div>
+  </article>
+</template>

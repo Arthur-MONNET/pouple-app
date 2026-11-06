@@ -20,13 +20,19 @@ struct PlaceholderView: View {
         VStack(spacing: 14) {
             switch model.mode {
             case .starting:
+                mascot("sleep")
                 ProgressView().controlSize(.large)
                 Text("Starting Pouple…").font(.system(size: 15, weight: .medium))
             case .loading:
+                mascot("sleep")
                 ProgressView().controlSize(.large)
                 Text("Loading…").font(.system(size: 15, weight: .medium))
             case let .failed(message):
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(Theme.warn)
+                if let image = Mascot.image("oops") {
+                    Image(nsImage: image).resizable().scaledToFit().frame(width: 140, height: 140)
+                } else {
+                    Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(Theme.warn)
+                }
                 Text("Pouple could not start").font(.system(size: 15, weight: .semibold))
                 Text(message)
                     .font(.system(size: 12))
@@ -41,6 +47,12 @@ struct PlaceholderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(WindowBackground.color)
         .environment(\.colorScheme, .dark)
+    }
+}
+
+private extension PlaceholderView {
+    @ViewBuilder func mascot(_ name: String) -> some View {
+        if let image = Mascot.image(name) { Image(nsImage: image).resizable().scaledToFit().frame(width: 140, height: 140) }
     }
 }
 

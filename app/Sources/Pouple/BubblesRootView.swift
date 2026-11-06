@@ -32,7 +32,7 @@ struct BubblesRootView: View {
     /// The grip to move the panel, small enough to stay out of the way.
     private func handle(_ layout: BubbleLayout) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal").font(.system(size: 9, weight: .bold))
+            OctopusHead(size: 14)
             Text(layout.overflow > 0 ? "Pouple · +\(layout.overflow) more" : "Pouple").font(.system(size: 10, weight: .medium))
             if !store.connected { Image(systemName: "wifi.slash").font(.system(size: 9)) }
         }

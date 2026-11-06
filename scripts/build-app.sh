@@ -89,17 +89,14 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
-echo "==> icon"
+echo "==> icon and mascots"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-swift "$root/scripts/make-icon.swift" "$work/icon-1024.png"
-iconset="$work/AppIcon.iconset"
-mkdir "$iconset"
-for size in 16 32 128 256 512; do
-  sips -z "$size" "$size" "$work/icon-1024.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
-  sips -z "$((size * 2))" "$((size * 2))" "$work/icon-1024.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+swift "$root/scripts/make-icon.swift" "$root/brand/app-icon.svg" "$work/AppIcon.iconset"
+iconutil -c icns "$work/AppIcon.iconset" -o "$app/Contents/Resources/AppIcon.icns"
+# The placeholder screens show these.
+mkdir -p "$app/Contents/Resources/Mascots"
+cp "$root"/brand/mascot-*.svg "$app/Contents/Resources/Mascots/"
 
 echo "==> signing"
 if [ -n "${PROUPLE_SIGN_IDENTITY:-}" ]; then
