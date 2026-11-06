@@ -4,6 +4,7 @@ import { createApi } from './api';
 import { createConnectorsStore } from './composables/useConnectors';
 import { provideConnectors } from './composables/useConnectorsStore';
 import { provideApi } from './composables/useApi';
+import { createUpdateStore, provideUpdate } from './composables/useUpdate';
 import { i18n, languageEpoch } from './i18n';
 import { createAppRouter } from './router';
 import './style.css';
@@ -15,9 +16,13 @@ window.addEventListener('pouple:language-changed', () => {
 });
 // The core owns the language: read it before the first screen, so nobody sees the wrong one flash by.
 await connectors.refreshState().catch(() => undefined);
+const updates = createUpdateStore(api);
 const app = createApp(App);
 app.use(i18n);
 provideApi(app, api);
 provideConnectors(app, connectors);
+provideUpdate(app, updates);
 app.use(createAppRouter(connectors));
 app.mount('#app');
+// Once at startup, then every 30 minutes while the window is open; never awaited, errors ignored.
+updates.startPolling();

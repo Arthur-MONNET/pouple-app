@@ -134,3 +134,13 @@ describe('http api', () => {
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ text: 'hi', attachmentIds: ['a'] });
   });
 });
+
+describe('http api, update', () => {
+  it('reads the state with GET and forces a check with POST', async () => {
+    const { fetch, calls } = recorder(() => json(200, { supported: true, available: false }));
+    const api = createHttpApi(fetch);
+    await api.getUpdate();
+    await api.checkUpdate();
+    expect(calls.map((c) => [c.path, c.init.method ?? 'GET'])).toEqual([['/api/update', 'GET'], ['/api/update/check', 'POST']]);
+  });
+});

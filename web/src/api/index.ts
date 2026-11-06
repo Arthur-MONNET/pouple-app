@@ -9,6 +9,8 @@ export async function createApi(): Promise<PoupleApi> {
   const view = import.meta.env.VITE_MOCK_VIEW;
   if (!mode) return createHttpApi();
   const { createMockApi } = await import('./mock');
+  const { isUpdateScenario, installMockBridge } = await import('./mockUpdate');
+  const update = import.meta.env.VITE_MOCK_UPDATE;
   if (mode === 'assistant') {
     const real = createHttpApi();
     const mock = createMockApi({ connectors: false });
@@ -27,5 +29,6 @@ export async function createApi(): Promise<PoupleApi> {
       getAttachment: mock.getAttachment,
     };
   }
-  return createMockApi({ ready: import.meta.env.VITE_MOCK_READY === '1', ...(view === 'empty' || view === 'paused' ? { view } : {}) });
+  if (import.meta.env.VITE_MOCK_BRIDGE !== '0') installMockBridge();
+  return createMockApi({ ready: import.meta.env.VITE_MOCK_READY === '1', ...(view === 'empty' || view === 'paused' ? { view } : {}), ...(isUpdateScenario(update) ? { update } : {}) });
 }

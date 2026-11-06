@@ -261,3 +261,36 @@ export interface Settings {
 }
 
 export type SettingsPatch = Partial<Settings>;
+
+// ---------------------------------------------------------------------------------------------------------------
+// In-app update (/api/update)
+// ---------------------------------------------------------------------------------------------------------------
+
+export type UpdateUnsupportedReason = '' | 'not-installed-from-source' | 'checkout-missing' | 'checkout-invalid';
+
+export type UpdateBlockerCode = 'local-changes' | 'not-on-main' | 'diverged';
+
+export interface UpdateBlocker {
+  code: UpdateBlockerCode;
+  /** Already localized by the core. */
+  message: string;
+}
+
+/** GET /api/update and POST /api/update/check (the check may take up to 30 s). Every string is already localized. */
+export interface UpdateInfo {
+  supported: boolean;
+  reason: UpdateUnsupportedReason;
+  /** Why updating is not possible here; only meaningful when `supported` is false. */
+  message: string;
+  installed: { version: string; commit: string; installedAt: string };
+  latest: { commit: string };
+  available: boolean;
+  /** How many commits the checkout is behind. */
+  behind: number;
+  /** Subjects of the new commits, at most 15. */
+  changes: string[];
+  blockers: UpdateBlocker[];
+  checkedAt: string | null;
+  checking: boolean;
+  error: string | null;
+}
