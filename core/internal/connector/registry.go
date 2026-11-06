@@ -1,0 +1,193 @@
+package connector
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
+)
+
+// ErrUnknown is returned for a connector id nobody registered.
+var ErrUnknown = errors.New("unknown connector")
+
+// Saved is what the registry remembers about a connected service; a Persistence implementation stores it.
+type Saved struct {
+	Values      map[string]string
+	Profile     Profile
+	ConnectedAt time.Time
+}
+
+// Persistence stores the non-secret part of a connection.
+type Persistence interface {
+	Load(id string) (Saved, bool, error)
+	Save(id string, saved Saved) error
+	Remove(id string) error
+}
+
+// Registry holds the connectors and ties validation, secrets and persistence together.
+type Registry struct {
+	connectors map[string]Connector
+	secrets    secrets.Store
+	store      Persistence
+	now        func() time.Time
+}
+
+func NewRegistry(secretStore secrets.Store, store Persistence, connectors ...Connector) *Registry {
+	registry := &Registry{connectors: map[string]Connector{}, secrets: secretStore, store: store, now: time.Now}
+	for _, c := range connectors {
+		registry.connectors[c.Descriptor().ID] = c
+	}
+	return registry
+}
+
+// Status is a connector with what is known about its connection.
+type Status struct {
+	Descriptor  Descriptor `json:"descriptor"`
+	Connected   bool       `json:"connected"`
+	Profile     *Profile   `json:"profile,omitempty"`
+	ConnectedAt *time.Time `json:"connectedAt,omitempty"`
+}
+
+func (r *Registry) Get(id string) (Connector, error) {
+	c, ok := r.connectors[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrUnknown, id)
+	}
+	return c, nil
+}
+
+// List returns every connector in setup order.
+func (r *Registry) List() ([]Status, error) {
+	statuses := make([]Status, 0, len(r.connectors))
+	for _, c := range r.connectors {
+		status, err := r.Status(c.Descriptor().ID)
+		if err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, status)
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Descriptor.Order < statuses[j].Descriptor.Order })
+	return statuses, nil
+}
+
+func (r *Registry) Status(id string) (Status, error) {
+	c, err := r.Get(id)
+	if err != nil {
+		return Status{}, err
+	}
+	status := Status{Descriptor: c.Descriptor()}
+	saved, ok, err := r.store.Load(id)
+	if err != nil {
+		return status, err
+	}
+	if ok {
+		status.Connected, status.Profile, status.ConnectedAt = true, &saved.Profile, &saved.ConnectedAt
+	}
+	return status, nil
+}
+
+// checkFields refuses what the form itself can already tell is wrong, before the service is called.
+func checkFields(descriptor Descriptor, values Values) error {
+	for _, field := range descriptor.Fields {
+		value := values[field.ID]
+		if value == "" {
+			return Invalid(field.ID, "%s is required", field.Label)
+		}
+		if field.Pattern != "" && !regexp.MustCompile(field.Pattern).MatchString(value) {
+			hint := field.PatternHint
+			if hint == "" {
+				hint = "does not look right"
+			}
+			return Invalid(field.ID, "%s %s", field.Label, hint)
+		}
+	}
+	return nil
+}
+
+// Validate checks the values and returns the profile they connect to. Nothing is saved.
+func (r *Registry) Validate(ctx context.Context, id string, values Values) (Profile, error) {
+	c, err := r.Get(id)
+	if err != nil {
+		return Profile{}, err
+	}
+	if err := checkFields(c.Descriptor(), values); err != nil {
+		return Profile{}, err
+	}
+	return c.Validate(ctx, values)
+}
+
+// Save validates, then stores the secrets in the keychain and the rest in the settings.
+func (r *Registry) Save(ctx context.Context, id string, values Values) (Profile, error) {
+	profile, err := r.Validate(ctx, id, values)
+	if err != nil {
+		return Profile{}, err
+	}
+	descriptor := r.connectors[id].Descriptor()
+	plain := map[string]string{}
+	for _, field := range descriptor.Fields {
+		if field.Secret {
+			if err := r.secrets.Set(SecretName(id, field.ID), values[field.ID]); err != nil {
+				return Profile{}, fmt.Errorf("could not save %s in the keychain: %w", field.Label, err)
+			}
+		} else {
+			plain[field.ID] = values[field.ID]
+		}
+	}
+	if err := r.store.Save(id, Saved{Values: plain, Profile: profile, ConnectedAt: r.now()}); err != nil {
+		return Profile{}, err
+	}
+	return profile, nil
+}
+
+// Remove forgets a connection and its secrets.
+func (r *Registry) Remove(id string) error {
+	c, err := r.Get(id)
+	if err != nil {
+		return err
+	}
+	for _, field := range c.Descriptor().Fields {
+		if field.Secret {
+			if err := r.secrets.Delete(SecretName(id, field.ID)); err != nil {
+				return err
+			}
+		}
+	}
+	return r.store.Remove(id)
+}
+
+// Values returns what a connected service was set up with, secrets included: for the engine, never for the API.
+func (r *Registry) Values(id string) (Values, error) {
+	c, err := r.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	saved, ok, err := r.store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("%s is not connected", id)
+	}
+	values := Values{}
+	for key, value := range saved.Values {
+		values[key] = value
+	}
+	for _, field := range c.Descriptor().Fields {
+		if !field.Secret {
+			continue
+		}
+		secret, err := r.secrets.Get(SecretName(id, field.ID))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", field.Label, err)
+		}
+		values[field.ID] = secret
+	}
+	return values, nil
+}
+
+// SecretName is the keychain name of a connector field.
+func SecretName(connectorID, fieldID string) string { return connectorID + "." + fieldID }

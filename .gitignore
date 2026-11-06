@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+web/dist/
+build/
+*.dmg
+.swiftpm/
+.build/
+core/pouple-core
+core/internal/ui/dist/*
+!core/internal/ui/dist/index.html
