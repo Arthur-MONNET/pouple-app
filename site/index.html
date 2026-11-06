@@ -115,6 +115,89 @@
       .copy-button:hover { color: var(--ink); }
       .copy-status { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
       .copy-status:not(:empty) { margin-top: 8px; }
+
+      /* ---- Install flow ---- */
+      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+      #install { scroll-margin-top: 16px; }
+      .install-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; margin-bottom: 26px; }
+      .install-head h2 { margin: 0 0 6px; font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -0.03em; }
+      .install-head p { margin: 0; color: var(--muted); max-width: 40em; }
+      .progress { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+      .progress .bar { width: 120px; height: 6px; border-radius: 99px; background: var(--raised); overflow: hidden; }
+      .progress .bar i { display: block; height: 100%; width: 0; background: var(--ok); transition: width 300ms ease; }
+
+      .flow { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 36px; align-items: start; }
+      .rail { position: sticky; top: 24px; display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+      .rail a { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 12px; color: var(--muted); text-decoration: none; font-size: 14px; }
+      .rail a:hover { background: var(--surface); color: var(--ink); }
+      .rail a[aria-current="step"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); font-weight: 600; }
+      .rail .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; background: var(--raised); border: 1px solid var(--line); }
+      .rail a[aria-current="step"] .n { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+      .rail a.done .n { background: var(--ok); color: #0e0f12; border-color: transparent; }
+      .rail a.done .n::before { content: "✓"; }
+      .rail a.done .n span { display: none; }
+
+      .steps-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0; }
+      .step { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px 24px 24px; scroll-margin-top: 20px; }
+      .step-top { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 16px; align-items: center; margin-bottom: 16px; }
+      .chip { width: 64px; height: 64px; border-radius: 18px; background: var(--lav); display: grid; place-items: center; overflow: hidden; }
+      .chip img { width: 58px; height: 58px; display: block; }
+      .step-top .kicker { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+      .step-top h3 { margin: 2px 0 0; font-size: 21px; letter-spacing: -0.02em; }
+      .step p { margin: 0 0 14px; color: var(--muted); }
+      .step p b { color: var(--ink); font-weight: 600; }
+      .time { display: inline-block; font-size: 12px; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; margin-left: 8px; vertical-align: middle; }
+
+      .cmd { position: relative; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--canvas); overflow: hidden; }
+      .cmd .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 8px 7px 14px; border-bottom: 1px solid var(--line); background: var(--raised); font-size: 12px; color: var(--muted); }
+      .cmd .dots { display: inline-flex; gap: 5px; margin-right: 8px; vertical-align: middle; }
+      .cmd .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+      .cmd pre { max-width: 100%; margin: 0; padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; }
+      .cmd pre.out { color: var(--muted); border-top: 1px dashed var(--line); background: transparent; }
+      .cmd .ok { color: var(--ok); }
+      .cmd .ko { color: var(--accent); }
+      .copy-button { min-height: 30px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+      .copy-button:hover { border-color: var(--accent); }
+      .copy-button.copied { background: var(--ok); color: #0e0f12; border-color: transparent; }
+
+      .tabs [role="tablist"] { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--raised); margin-bottom: 14px; }
+      .tabs [role="tab"] { font: inherit; font-size: 13.5px; font-weight: 600; color: var(--muted); background: transparent; border: 0; border-radius: 9px; padding: 7px 14px; cursor: pointer; }
+      .tabs [role="tab"][aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+
+      details.more { border: 1px solid var(--line); border-radius: 14px; margin: 0 0 12px; background: var(--canvas); }
+      details.more summary { cursor: pointer; padding: 12px 16px; font-size: 14.5px; font-weight: 600; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      details.more summary::-webkit-details-marker { display: none; }
+      details.more summary::after { content: "+"; font-size: 18px; color: var(--muted); }
+      details.more[open] summary::after { content: "–"; }
+      details.more .body { padding: 0 16px 14px; color: var(--muted); font-size: 14.5px; }
+      details.more .body p { margin: 0 0 10px; }
+      details.more .cmd { margin-bottom: 10px; }
+
+      .done-btn { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 12px; padding: 9px 16px; cursor: pointer; margin-top: 4px; }
+      .done-btn:hover { border-color: var(--ok); }
+      .done-btn[aria-pressed="true"] { background: var(--ok); color: #0e0f12; border-color: transparent; }
+
+      .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px; padding: 0; list-style: none; }
+      .three li { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--canvas); }
+      .three b { display: block; margin-bottom: 4px; font-size: 14.5px; }
+      .three span { color: var(--muted); font-size: 13.5px; display: block; }
+      .three em { font-style: normal; display: inline-block; margin-bottom: 8px; font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
+
+      .why { display: flex; gap: 12px; align-items: flex-start; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 12px 16px; background: var(--surface); color: var(--muted); font-size: 14.5px; margin-bottom: 18px; }
+      .why b { color: var(--ink); }
+      .notmac { display: none; border: 1px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; color: var(--ink); background: var(--surface); }
+      .notmac.show { display: block; }
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+      @media (max-width: 860px) {
+        .flow { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+        .rail { position: static; display: flex; flex-wrap: wrap; gap: 6px; }
+        .rail a { grid-template-columns: 22px auto; padding: 6px 12px 6px 8px; border: 1px solid var(--line); border-radius: 99px; font-size: 13px; }
+        .rail .n { width: 22px; height: 22px; font-size: 11.5px; }
+        .three { grid-template-columns: 1fr; }
+        .step { padding: 18px 16px 20px; }
+      }
       footer { padding: 36px 0 56px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--line); margin-top: 24px; }
 
       @media (max-width: 820px) {
@@ -143,7 +226,7 @@
             </p>
             <div class="cta">
               <a class="button" href="#install" data-i18n="installButton">Installer sur macOS</a>
-              <span class="meta" data-i18n="compatibility">Compilation locale · macOS 14+ · Intel et Apple Silicon</span>
+              <span class="meta" data-i18n="compatibility">3 étapes · quelques minutes · macOS 14+ · Intel et Apple Silicon</span>
             </div>
             <a class="link" href="https://github.com/Arthur-MONNET/pouple-app/releases" data-i18n="versions">Toutes les versions sur GitHub</a>
           </div>
@@ -168,35 +251,141 @@
         </section>
 
         <section id="install" aria-labelledby="start">
-          <h2 id="start" data-i18n="start">Installer depuis les sources</h2>
-          <p data-i18n="requirements">Il te faut les outils de ligne de commande Xcode, Go 1.27.3 ou plus récent, Node.js 22.12 ou plus récent et pnpm 10.</p>
-          <p data-i18n="brewHint">Si tu utilises Homebrew, tu peux installer Go, Node.js et pnpm avec la commande suivante. Pour les outils Xcode, lance xcode-select --install si nécessaire.</p>
-          <div class="command">
-            <pre><code id="tools-command" class="language-bash"><span class="shell-command">brew install</span> go node pnpm@10
-<span class="shell-command">export</span> <span class="shell-variable">PATH</span>=<span class="shell-string">"$(<span class="shell-command">brew</span> <span class="shell-option">--prefix</span> pnpm@10)/bin:<span class="shell-variable">$PATH</span>"</span></code></pre>
-            <button class="copy-button" type="button" data-copy="tools-command" data-i18n="copy">Copier</button>
-            <span class="copy-status" role="status"></span>
+          <div class="install-head">
+            <div>
+              <h2 id="start" data-i18n="start">Installer Pouple sur ton Mac</h2>
+              <p data-i18n="startLead">Trois étapes, quelques commandes à copier-coller dans le Terminal. Pouple se compile sur ton Mac : rien n’est envoyé nulle part, et le code que tu lances est celui que tu peux lire.</p>
+            </div>
+            <div class="progress" aria-live="polite"><span><span id="progress-count">0</span>/3 <span data-i18n="progressLabel">étapes faites</span></span><span class="bar" aria-hidden="true"><i id="progress-bar"></i></span></div>
           </div>
-          <p data-i18n="cloneHint">Copie ces commandes dans le Terminal. Le script compile Pouple, l’installe dans ~/Applications et le lance. Si tu utilisais une autre copie, quitte-la avant de lancer le script.</p>
-          <p data-i18n="nvmHint">Tu utilises NVM ? Après le clone, lance nvm install dans le dossier pouple-app avant le script. Si pnpm manque, lance npm install --global pnpm@10.</p>
-          <div class="command">
-            <pre><code id="install-command" class="language-bash"><span class="shell-command">git clone</span> <span class="shell-string">https://github.com/Arthur-MONNET/pouple-app.git</span>
-<span class="shell-command">cd</span> <span class="shell-string">pouple-app</span>
-<span class="shell-command">bash</span> <span class="shell-string">scripts/install-local.sh</span></code></pre>
-            <button class="copy-button" type="button" data-copy="install-command" data-i18n="copy">Copier</button>
-            <span class="copy-status" role="status"></span>
+
+          <p class="notmac" id="notmac" role="note"><b data-i18n="notMacTitle">Pouple fonctionne uniquement sur macOS 14 ou plus récent.</b> <span data-i18n="notMacText">Tu peux lire la page, mais l’installation se fait depuis un Mac.</span></p>
+
+          <div class="flow">
+            <ol class="rail" aria-label="Étapes" id="rail">
+              <li><a href="#step-1" data-step="1"><span class="n"><span>1</span></span><span data-i18n="rail1">Préparer ton Mac</span></a></li>
+              <li><a href="#step-2" data-step="2"><span class="n"><span>2</span></span><span data-i18n="rail2">Installer Pouple</span></a></li>
+              <li><a href="#step-3" data-step="3"><span class="n"><span>3</span></span><span data-i18n="rail3">Connecter Slack et Codex</span></a></li>
+              <li><a href="#step-4" data-step="4"><span class="n"><span>✦</span></span><span data-i18n="rail4">C’est prêt</span></a></li>
+            </ol>
+
+            <div class="steps-col">
+              <article class="step" id="step-1" aria-labelledby="t1">
+                <div class="step-top">
+                  <div class="chip" aria-hidden="true"><img src="assets/mascot-investigate.svg" alt="" width="58" height="58"></div>
+                  <div><div class="kicker" data-i18n="k1">Étape 1</div><h3 id="t1"><span data-i18n="h1s">Vérifie ce qu’il te manque</span><span class="time" data-i18n="time1">2 min</span></h3></div>
+                </div>
+                <p data-i18n="s1p">Colle cette commande : elle liste les outils nécessaires et te dit lesquels sont déjà là (<b>✓</b>) ou à installer (<b>✗</b>).</p>
+                <div class="cmd">
+                  <div class="bar"><span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal</span><button class="copy-button" type="button" data-copy="check-command" data-i18n="copy">Copier</button></div>
+                  <pre><code id="check-command">printf '%s\n' \
+  "$(xcode-select -p >/dev/null 2>&amp;1 &amp;&amp; echo '✓ Xcode CLT' || echo '✗ Xcode CLT')" \
+  "$(command -v go >/dev/null &amp;&amp; echo "✓ Go $(go env GOVERSION)" || echo '✗ Go')" \
+  "$(command -v node >/dev/null &amp;&amp; echo "✓ Node $(node -v)" || echo '✗ Node')" \
+  "$(command -v pnpm >/dev/null &amp;&amp; echo "✓ pnpm $(pnpm -v)" || echo '✗ pnpm')"</code></pre>
+                  <pre class="out" aria-label="Exemple de résultat"><span class="ok">✓ Xcode CLT</span>
+<span class="ok">✓ Go go1.27.3</span>
+<span class="ok">✓ Node v24.1.0</span>
+<span class="ko">✗ pnpm</span>   <span data-i18n="outHint">← celui-ci est à installer</span></pre>
+                </div>
+                <p data-i18n="s1need">Il faut : les outils de ligne de commande Xcode, Go 1.27.3+, Node.js 22.12+ et pnpm 10. Tout est ✓ ? Passe à l’étape suivante.</p>
+
+                <div class="tabs" id="tools-tabs">
+                  <div role="tablist" aria-label="Méthode d’installation des outils">
+                    <button role="tab" id="tab-brew" aria-controls="panel-brew" aria-selected="true" data-i18n="tabBrew">J’ai Homebrew</button>
+                    <button role="tab" id="tab-nobrew" aria-controls="panel-nobrew" aria-selected="false" tabindex="-1" data-i18n="tabNoBrew">Je n’ai pas Homebrew</button>
+                  </div>
+                  <div role="tabpanel" id="panel-brew" aria-labelledby="tab-brew">
+                    <div class="cmd">
+                      <div class="bar"><span data-i18n="installMissing">Installer ce qui manque</span><button class="copy-button" type="button" data-copy="tools-command" data-i18n="copy">Copier</button></div>
+                      <pre><code id="tools-command">brew install go node pnpm@10
+export PATH="$(brew --prefix pnpm@10)/bin:$PATH"</code></pre>
+                    </div>
+                  </div>
+                  <div role="tabpanel" id="panel-nobrew" aria-labelledby="tab-nobrew" hidden>
+                    <p data-i18n="brewFirst">Installe d’abord Homebrew (le gestionnaire de paquets de référence sur Mac), puis reviens à l’onglet précédent.</p>
+                    <div class="cmd">
+                      <div class="bar"><span>Homebrew</span><button class="copy-button" type="button" data-copy="brew-command" data-i18n="copy">Copier</button></div>
+                      <pre><code id="brew-command">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"</code></pre>
+                    </div>
+                  </div>
+                </div>
+                <details class="more">
+                  <summary data-i18n="xcodeQ">Il manque les outils Xcode ?</summary>
+                  <div class="body"><p data-i18n="xcodeA">Cette commande ouvre une fenêtre d’installation de macOS (quelques minutes, sans compte Apple). Relance ensuite la vérification.</p>
+                    <div class="cmd"><div class="bar"><span>Terminal</span><button class="copy-button" type="button" data-copy="xcode-command" data-i18n="copy">Copier</button></div><pre><code id="xcode-command">xcode-select --install</code></pre></div></div>
+                </details>
+                <button class="done-btn" type="button" data-done="1" aria-pressed="false"><span class="tick" aria-hidden="true">○</span><span data-i18n="doneBtn">Étape faite</span></button>
+              </article>
+
+              <article class="step" id="step-2" aria-labelledby="t2">
+                <div class="step-top">
+                  <div class="chip" aria-hidden="true"><img src="assets/mascot-multitask.svg" alt="" width="58" height="58"></div>
+                  <div><div class="kicker" data-i18n="k2">Étape 2</div><h3 id="t2"><span data-i18n="h2s">Installe Pouple</span><span class="time" data-i18n="time2">quelques minutes de compilation</span></h3></div>
+                </div>
+                <p data-i18n="s2lead">Une seule commande : elle télécharge le code, le compile, installe l’app dans <b>~/Applications</b> et la lance.</p>
+                <div class="cmd">
+                  <div class="bar"><span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Terminal</span><button class="copy-button" type="button" data-copy="install-command" data-i18n="copy">Copier</button></div>
+                  <pre><code id="install-command">git clone https://github.com/Arthur-MONNET/pouple-app.git &amp;&amp; cd pouple-app &amp;&amp; bash scripts/install-local.sh</code></pre>
+                </div>
+                <p data-i18n="s2wait">Laisse la fenêtre ouverte jusqu’à ce que Pouple se lance tout seul. Si tu avais déjà une copie ouverte, quitte-la d’abord.</p>
+                <details class="more">
+                  <summary data-i18n="nvmQ">Tu utilises NVM ?</summary>
+                  <div class="body"><p data-i18n="nvmA">Après le <code>git clone</code>, place-toi dans le dossier et laisse NVM choisir la bonne version de Node avant de lancer le script.</p>
+                    <div class="cmd"><div class="bar"><span>Terminal</span><button class="copy-button" type="button" data-copy="nvm-command" data-i18n="copy">Copier</button></div><pre><code id="nvm-command">git clone https://github.com/Arthur-MONNET/pouple-app.git &amp;&amp; cd pouple-app
+nvm install &amp;&amp; npm install --global pnpm@10
+bash scripts/install-local.sh</code></pre></div></div>
+                </details>
+                <details class="more">
+                  <summary data-i18n="whyQ">Pourquoi compiler sur mon Mac ?</summary>
+                  <div class="body"><p data-i18n="whyA">Il n’existe pas encore de version signée par Apple. Compiler toi-même évite l’avertissement de sécurité de macOS et te garantit que l’app correspond au code publié. Une version prête à télécharger arrivera plus tard.</p></div>
+                </details>
+                <details class="more">
+                  <summary data-i18n="errQ">Une erreur s’affiche ?</summary>
+                  <div class="body">
+                    <p data-i18n="errA">Le script dit précisément ce qui manque. Les plus fréquents :</p>
+                    <p><b data-i18n="err1t">« Install the Xcode Command Line Tools »</b> — <span data-i18n="err1">lance <code>xcode-select --install</code>, puis recommence.</span></p>
+                    <p><b data-i18n="err2t">« Node.js 22.12 or later is required »</b> — <span data-i18n="err2">installe Node avec <code>brew install node</code> (ou <code>nvm install</code>).</span></p>
+                    <p><b data-i18n="err3t">« pnpm 10 is required »</b> — <span data-i18n="err3">lance <code>npm install --global pnpm@10</code>.</span></p>
+                    <p><b data-i18n="err4t">« Quit Pouple from its menu »</b> — <span data-i18n="err4">quitte Pouple (icône dans la barre de menus, puis Quitter) et relance la commande.</span></p>
+                  </div>
+                </details>
+                <button class="done-btn" type="button" data-done="2" aria-pressed="false"><span class="tick" aria-hidden="true">○</span><span data-i18n="doneBtn">Étape faite</span></button>
+              </article>
+
+              <article class="step" id="step-3" aria-labelledby="t3">
+                <div class="step-top">
+                  <div class="chip" aria-hidden="true"><img src="assets/mascot-done.svg" alt="" width="58" height="58"></div>
+                  <div><div class="kicker" data-i18n="k3">Étape 3</div><h3 id="t3"><span data-i18n="h3s">Connecte Slack et Codex</span><span class="time" data-i18n="time3">3 min</span></h3></div>
+                </div>
+                <p data-i18n="s3lead">Pouple s’ouvre et te guide. Tu n’as rien à configurer à la main : à chaque étape, il te montre qui est connecté pour que tu vérifies que c’est le bon compte.</p>
+                <ol class="three">
+                  <li><em>Slack</em><b data-i18n="a1t">Crée l’app Slack</b><span data-i18n="a1p">Un clic ouvre Slack avec les bonnes permissions. Colle le jeton qu’il te donne. Selon ton espace, un administrateur peut devoir approuver.</span></li>
+                  <li><em>Codex</em><b data-i18n="a2t">Connecte ChatGPT</b><span data-i18n="a2p">Pouple télécharge Codex si besoin. Connecte-toi dans ton navigateur : Pouple a sa propre connexion et ne touche pas à la tienne.</span></li>
+                  <li><em data-i18n="a3k">Projets</em><b data-i18n="a3t">Choisis ton dossier</b><span data-i18n="a3p">Indique le dossier qui contient tes projets. Codex le lit en lecture seule ; rien n’est modifié sans ton accord.</span></li>
+                </ol>
+                <details class="more">
+                  <summary data-i18n="instantQ">Facultatif : réagir à l’instant</summary>
+                  <div class="body"><p data-i18n="instantA">Dans l’étape Slack, tu peux ajouter un jeton d’application (<code>xapp-</code>) : Pouple réagit alors dès qu’un message arrive, au lieu de vérifier régulièrement. Tu peux l’ajouter plus tard.</p></div>
+                </details>
+                <button class="done-btn" type="button" data-done="3" aria-pressed="false"><span class="tick" aria-hidden="true">○</span><span data-i18n="doneBtn">Étape faite</span></button>
+              </article>
+
+              <article class="step" id="step-4" aria-labelledby="t4">
+                <div class="step-top">
+                  <div class="chip" aria-hidden="true"><img src="assets/mascot-sleep.svg" alt="" width="58" height="58"></div>
+                  <div><div class="kicker" data-i18n="k4">Et ensuite</div><h3 id="t4" data-i18n="h4s">Pouple travaille, tu décides</h3></div>
+                </div>
+                <p data-i18n="s4lead">Une bulle apparaît dans un coin de ton écran quand quelqu’un te demande quelque chose. Elle reste discrète ; tu peux la déplacer, la masquer ou arrêter Codex à tout moment depuis l’icône de la barre de menus.</p>
+                <details class="more">
+                  <summary data-i18n="updQ">Mettre à jour Pouple</summary>
+                  <div class="body"><p data-i18n="updA">Quitte Pouple, puis, depuis le dossier <code>pouple-app</code> :</p>
+                    <div class="cmd"><div class="bar"><span>Terminal</span><button class="copy-button" type="button" data-copy="update-command" data-i18n="copy">Copier</button></div><pre><code id="update-command">cd pouple-app &amp;&amp; git pull --ff-only &amp;&amp; bash scripts/install-local.sh</code></pre></div></div>
+                </details>
+              </article>
+              <span class="sr-only" id="copy-live" role="status" aria-live="polite"></span>
+            </div>
           </div>
-          <p data-i18n="updateHint">Pour mettre à jour, quitte Pouple et lance ces commandes depuis le dossier pouple-app.</p>
-          <div class="command">
-            <pre><code id="update-command" class="language-bash"><span class="shell-command">git pull</span> <span class="shell-option">--ff-only</span>
-<span class="shell-command">bash</span> <span class="shell-string">scripts/install-local.sh</span></code></pre>
-            <button class="copy-button" type="button" data-copy="update-command" data-i18n="copy">Copier</button>
-            <span class="copy-status" role="status"></span>
-          </div>
-          <ol class="steps">
-            <li><div><b data-i18n="s2t">Connecte Slack</b><span data-i18n="s2p">L’assistant te guide pour créer l’app Slack et coller ton jeton. Selon ton espace, un administrateur peut devoir approuver l’installation.</span></div></li>
-            <li><div><b data-i18n="s3t">Connecte Codex</b><span data-i18n="s3p">Pouple télécharge Codex si nécessaire. Connecte-toi ensuite avec ChatGPT dans ton navigateur et choisis le dossier de tes projets.</span></div></li>
-          </ol>
         </section>
 
         <section>
@@ -214,32 +403,57 @@
         h1: 'Eight arms. Your Slack requests, handled.',
         lead: 'Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what it found in a corner of your screen. You only take the decisions.',
         installButton: 'Install on macOS',
-        compatibility: 'Local build · macOS 14 or later · Intel and Apple Silicon', versions: 'All versions on GitHub',
+        compatibility: '3 steps · a few minutes · macOS 14+ · Intel and Apple Silicon', versions: 'All versions on GitHub',
         b_from: 'Morgan · #front', b_title: 'Needs your decision',
         b_text: 'SSO sign-in fails.', b_a: 'Fix it', b_b: 'Retry',
         what: 'What it does', c1t: 'Listens like Slack does', c1p: 'Mentions, direct messages, notes to yourself, group chats and the threads you take part in.',
         c2t: 'Investigates with Codex', c2p: 'Reads your projects read-only, finds the answer, and writes the short version. Nothing is changed before you approve.',
         c3t: 'Stays out of the way', c3p: 'Floating bubbles in a screen corner, a window for the full conversations, and a Stop button at any moment.',
-        start: 'Install from source',
-        requirements: 'You need the Xcode Command Line Tools, Go 1.27.3 or later, Node.js 22.12 or later, and pnpm 10.',
-        brewHint: 'If you use Homebrew, the following command installs Go, Node.js, and pnpm. Run xcode-select --install if you need the Xcode tools.',
-        cloneHint: 'Paste these commands into Terminal. The script builds Pouple, installs it in ~/Applications, and launches it. Quit any other copy before running the script.',
-        nvmHint: 'Using NVM? After cloning, run nvm install from the pouple-app folder before running the script. If pnpm is missing, run npm install --global pnpm@10.',
-        updateHint: 'To update, quit Pouple and run these commands from the pouple-app folder.',
-        copy: 'Copy',
-        s2t: 'Connect Slack', s2p: 'The setup wizard guides you through creating the Slack app and pasting your token. Your workspace may require an administrator to approve the installation.',
-        s3t: 'Connect Codex', s3p: 'Pouple downloads Codex if needed. Then sign in with ChatGPT in your browser and select your projects folder.',
+        start: 'Install Pouple on your Mac',
+        startLead: 'Three steps, a few commands to paste into Terminal. Pouple is built on your Mac: nothing is sent anywhere, and the code you run is code you can read.',
+        progressLabel: 'steps done',
+        notMacTitle: 'Pouple only runs on macOS 14 or later.', notMacText: 'You can read this page, but the installation has to be done from a Mac.',
+        rail1: 'Prepare your Mac', rail2: 'Install Pouple', rail3: 'Connect Slack and Codex', rail4: 'You are set',
+        k1: 'Step 1', h1s: 'Check what is missing', time1: '2 min',
+        s1p: 'Paste this command: it lists the tools you need and tells you which ones are already there (<b>✓</b>) or still to install (<b>✗</b>).',
+        outHint: '← this one needs installing',
+        s1need: 'You need: the Xcode command line tools, Go 1.27.3+, Node.js 22.12+ and pnpm 10. All ✓? Go to the next step.',
+        tabBrew: 'I have Homebrew', tabNoBrew: 'I don’t have Homebrew', installMissing: 'Install what is missing',
+        brewFirst: 'Install Homebrew first (the standard package manager on Mac), then come back to the previous tab.',
+        xcodeQ: 'Missing the Xcode tools?', xcodeA: 'This command opens a macOS installer window (a few minutes, no Apple account needed). Then run the check again.',
+        doneBtn: 'Step done',
+        k2: 'Step 2', h2s: 'Install Pouple', time2: 'a few minutes to build',
+        s2lead: 'One command: it downloads the code, builds it, installs the app in <b>~/Applications</b> and launches it.',
+        s2wait: 'Keep the window open until Pouple launches by itself. If another copy is already open, quit it first.',
+        nvmQ: 'Do you use NVM?', nvmA: 'After the <code>git clone</code>, move into the folder and let NVM pick the right Node version before running the script.',
+        whyQ: 'Why build on my Mac?', whyA: 'There is no Apple-signed version yet. Building it yourself avoids the macOS security warning and guarantees the app matches the published code. A ready-to-download version will come later.',
+        errQ: 'An error shows up?', errA: 'The script says exactly what is missing. The most common ones:',
+        err1t: '“Install the Xcode Command Line Tools”', err1: 'run <code>xcode-select --install</code>, then try again.',
+        err2t: '“Node.js 22.12 or later is required”', err2: 'install Node with <code>brew install node</code> (or <code>nvm install</code>).',
+        err3t: '“pnpm 10 is required”', err3: 'run <code>npm install --global pnpm@10</code>.',
+        err4t: '“Quit Pouple from its menu”', err4: 'quit Pouple (menu bar icon, then Quit) and run the command again.',
+        k3: 'Step 3', h3s: 'Connect Slack and Codex', time3: '3 min',
+        s3lead: 'Pouple opens and guides you. Nothing to configure by hand: at each step it shows who is connected so you can check it is the right account.',
+        a1t: 'Create the Slack app', a1p: 'One click opens Slack with the right permissions. Paste the token it gives you. Depending on your workspace, an administrator may need to approve.',
+        a2t: 'Connect ChatGPT', a2p: 'Pouple downloads Codex if needed. Sign in in your browser: Pouple has its own login and never touches yours.',
+        a3k: 'Projects', a3t: 'Pick your folder', a3p: 'Tell Pouple which folder holds your projects. Codex reads it read-only; nothing changes without your approval.',
+        instantQ: 'Optional: react instantly', instantA: 'In the Slack step you can add an app-level token (<code>xapp-</code>): Pouple then reacts as soon as a message arrives instead of checking regularly. You can add it later.',
+        k4: 'Then', h4s: 'Pouple works, you decide',
+        s4lead: 'A bubble appears in a corner of your screen when someone asks you something. It stays discreet; you can move it, hide it or stop Codex at any time from the menu bar icon.',
+        updQ: 'Update Pouple', updA: 'Quit Pouple, then from the <code>pouple-app</code> folder:',
+        copy: 'Copy', copied: 'Copied ✓',
         note: "Your Slack token stays in your Mac’s keychain. Codex uses a login dedicated to Pouple. GitHub is used to download Codex and check for app updates.",
         foot: 'Made by Arthur Monnet.',
       };
       const nodes = [...document.querySelectorAll('[data-i18n]')];
-      const FR = Object.fromEntries(nodes.map((node) => [node.dataset.i18n, node.textContent]));
+      // French is the text already in the page: remember it, and put English markup back and forth the same way.
+      const FR = Object.fromEntries(nodes.map((node) => [node.dataset.i18n, node.innerHTML]));
       const TITLES = { fr: 'Pouple – tes demandes Slack, prises en charge par Codex', en: 'Pouple – your Slack requests, handled by Codex' };
       let language = 'fr';
       function setLanguage(next) {
         language = next;
         const table = next === 'en' ? EN : FR;
-        for (const node of nodes) node.textContent = table[node.dataset.i18n];
+        for (const node of nodes) if (table[node.dataset.i18n] !== undefined) node.innerHTML = table[node.dataset.i18n];
         document.documentElement.lang = next;
         document.title = TITLES[next];
         for (const button of document.querySelectorAll('.lang button')) button.setAttribute('aria-pressed', String(button.dataset.lang === next));
@@ -248,18 +462,85 @@
       for (const button of document.querySelectorAll('.lang button')) button.addEventListener('click', () => setLanguage(button.dataset.lang));
       try { const saved = localStorage.getItem('pouple-lang'); if (saved === 'en') setLanguage('en'); } catch { /* ignore */ }
 
+      // Copy buttons: the label turns green for a moment, and a screen reader hears it too.
+      const live = document.getElementById('copy-live');
       for (const button of document.querySelectorAll('[data-copy]')) {
         button.addEventListener('click', async () => {
-          const status = button.nextElementSibling;
+          const original = button.innerHTML;
           try {
             await navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent);
-            status.textContent = language === 'en' ? 'Copied.' : 'Copié.';
+            button.textContent = language === 'en' ? EN.copied : 'Copié ✓';
+            button.classList.add('copied');
+            live.textContent = button.textContent;
           } catch {
-            status.textContent = language === 'en' ? 'Select the commands to copy them.' : 'Sélectionne les commandes pour les copier.';
+            live.textContent = language === 'en' ? 'Select the command to copy it.' : 'Sélectionne la commande pour la copier.';
           }
+          setTimeout(() => { button.innerHTML = original; button.classList.remove('copied'); }, 1800);
         });
       }
 
+      // Tabs (Homebrew or not): arrows move between them.
+      const tabs = [...document.querySelectorAll('#tools-tabs [role="tab"]')];
+      function selectTab(tab) {
+        for (const other of tabs) {
+          const on = other === tab;
+          other.setAttribute('aria-selected', String(on));
+          other.tabIndex = on ? 0 : -1;
+          document.getElementById(other.getAttribute('aria-controls')).hidden = !on;
+        }
+      }
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => selectTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+          const next = tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+          selectTab(next); next.focus();
+        });
+      });
+
+      // Progress: the user ticks the steps they finished (remembered on this browser only).
+      const STORE = 'pouple-install-done';
+      let done = new Set();
+      try { done = new Set(JSON.parse(localStorage.getItem(STORE) || '[]')); } catch { /* ignore */ }
+      function paint() {
+        for (const button of document.querySelectorAll('[data-done]')) {
+          const on = done.has(button.dataset.done);
+          button.setAttribute('aria-pressed', String(on));
+          button.querySelector('.tick').textContent = on ? '✓' : '○';
+          document.querySelector(`.rail a[data-step="${button.dataset.done}"]`)?.classList.toggle('done', on);
+        }
+        document.getElementById('progress-count').textContent = String(done.size);
+        document.getElementById('progress-bar').style.width = `${(done.size / 3) * 100}%`;
+        try { localStorage.setItem(STORE, JSON.stringify([...done])); } catch { /* ignore */ }
+      }
+      for (const button of document.querySelectorAll('[data-done]')) {
+        button.addEventListener('click', () => {
+          const id = button.dataset.done;
+          if (done.has(id)) done.delete(id); else {
+            done.add(id);
+            // Finishing a step takes the reader to the next one.
+            document.getElementById(`step-${Number(id) + 1}`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+          }
+          paint();
+        });
+      }
+      paint();
+
+      // The rail follows the step being read.
+      const links = [...document.querySelectorAll('.rail a')];
+      if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver((entries) => {
+          for (const entry of entries) if (entry.isIntersecting) {
+            for (const link of links) {
+              if (link.getAttribute('href') === `#${entry.target.id}`) link.setAttribute('aria-current', 'step'); else link.removeAttribute('aria-current');
+            }
+          }
+        }, { rootMargin: '-35% 0px -55% 0px' });
+        document.querySelectorAll('.step').forEach((step) => observer.observe(step));
+      }
+
+      // Not on a Mac: say it, without hiding the page.
+      if (!/Mac/i.test(`${navigator.userAgentData?.platform ?? ''} ${navigator.platform} ${navigator.userAgent}`)) document.getElementById('notmac').classList.add('show');
     </script>
   </body>
 </html>
