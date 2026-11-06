@@ -20,6 +20,8 @@ public enum L10n {
         case updateCheck, updateChecking, updateAvailable, updateOpenInstructions, updateInstallInstructions
         case updateUpToDate, updateInstalledVersion, updateUnavailable, updateInvalidInstalledVersion
         case updateReleaseUnavailable, updateFailed, updateTryAgain, updateBrowserFailed
+        case updateNow, updateNotFromSource, updateCheckoutMissing, updateTerminalFailed
+        case scriptQuitting, scriptFetching, scriptBuilding, scriptDone, scriptNotQuit, scriptBadOrigin, scriptPullFailed, scriptInstallFailed, scriptClose
         // Window, placeholder, dialogs
         case windowTitle, placeholderStarting, placeholderLoading, placeholderFailedTitle, retry
         case dialogOK, dialogCancel
@@ -125,6 +127,19 @@ public enum L10n {
         .updateFailed: "La mise à jour n’a pas abouti",
         .updateTryAgain: "Impossible de vérifier les mises à jour sur GitHub. Vérifie ta connexion et réessaie dans un instant.",
         .updateBrowserFailed: "Les instructions d’installation n’ont pas pu être ouvertes dans ton navigateur.",
+        .updateNow: "Mettre à jour maintenant",
+        .updateNotFromSource: "Cette copie de Pouple n’a pas été installée depuis les sources : la mise à jour automatique n’est pas possible. Relance la commande d’installation dans Terminal.",
+        .updateCheckoutMissing: "Le dossier des sources (%@) est introuvable. Relance la commande d’installation depuis une copie de pouple-app.",
+        .updateTerminalFailed: "Terminal n’a pas pu s’ouvrir : %@",
+        .scriptQuitting: "Fermeture de Pouple…",
+        .scriptFetching: "Récupération du nouveau code…",
+        .scriptBuilding: "Compilation et installation de Pouple (quelques minutes, garde cette fenêtre ouverte)…",
+        .scriptDone: "Terminé : tes connexions et tes réglages sont conservés. Pouple se rouvre.",
+        .scriptNotQuit: "Pouple ne s’est pas fermé. Quitte-le depuis la barre de menus, puis relance la mise à jour.",
+        .scriptBadOrigin: "Ce dossier ne vient pas du dépôt Pouple : mise à jour annulée par sécurité.",
+        .scriptPullFailed: "git pull a échoué (modifications locales ?). Corrige, puis lance : git pull --ff-only && bash scripts/install-local.sh",
+        .scriptInstallFailed: "L’installation a échoué. Relance : bash scripts/install-local.sh",
+        .scriptClose: "Appuie sur Entrée pour fermer cette fenêtre.",
         .appHide: "Masquer Pouple",
         .appHideOthers: "Masquer les autres",
         .appQuit: "Quitter Pouple",
@@ -236,6 +251,19 @@ public enum L10n {
         .updateFailed: "The update could not be completed",
         .updateTryAgain: "Could not check for updates on GitHub. Check your connection and try again shortly.",
         .updateBrowserFailed: "The installation instructions could not be opened in your browser.",
+        .updateNow: "Update now",
+        .updateNotFromSource: "This copy of Pouple was not installed from the sources, so it cannot update itself. Run the install command again in Terminal.",
+        .updateCheckoutMissing: "The source folder (%@) could not be found. Run the install command again from a copy of pouple-app.",
+        .updateTerminalFailed: "Terminal could not be opened: %@",
+        .scriptQuitting: "Quitting Pouple…",
+        .scriptFetching: "Fetching the new code…",
+        .scriptBuilding: "Building and installing Pouple (a few minutes, keep this window open)…",
+        .scriptDone: "Done: your connections and settings are kept. Pouple is reopening.",
+        .scriptNotQuit: "Pouple did not quit. Quit it from the menu bar, then run the update again.",
+        .scriptBadOrigin: "This folder does not come from the Pouple repository: update cancelled for safety.",
+        .scriptPullFailed: "git pull failed (local changes?). Fix it, then run: git pull --ff-only && bash scripts/install-local.sh",
+        .scriptInstallFailed: "The install failed. Run again: bash scripts/install-local.sh",
+        .scriptClose: "Press Return to close this window.",
         .appHide: "Hide Pouple",
         .appHideOthers: "Hide Others",
         .appQuit: "Quit Pouple",

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let setup = SetupMonitor()
     private let store = BubbleStore()
     private let updates = AppUpdateController()
+    private let updateLauncher = UpdateLauncher()
     private var windowController: MainWindowController?
     private var panelController: PanelController?
     private var statusController: StatusItemController?
@@ -39,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MainMenu.install(updates: updates, reload: { [weak self] in self?.windowController?.reload() })
         languageSubscription()
+        updates.onUpdateNow = { [weak self] in self?.updateLauncher.launch() }
         store.openApp = { [weak self] in self?.showMainWindow() }
         store.start()
         panelController = PanelController(store: store, corner: Self.argument("--corner").flatMap(Corner.init(rawValue:)))
@@ -106,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController()
         controller.onClose = { NSApp.setActivationPolicy(.accessory) }
         controller.onRetry = { [weak self] in self?.supervisor.retryNow() }
+        controller.onUpdateRequested = { [weak self] in self?.updateLauncher.launch() }
         controller.coreChanged(supervisor.state, token: supervisor.connection?.token)
         windowController = controller
         return controller

@@ -4,6 +4,8 @@ import PoupleCore
 @MainActor
 final class AppUpdateController: NSObject, NSMenuItemValidation {
     private let checker = UpdateChecker()
+    /// Called when the user chooses "Update now" in the alert (the app knows how to update itself).
+    var onUpdateNow: () -> Void = {}
     private var checkTask: Task<Void, Never>?
 
     @objc func checkForUpdates() {
@@ -41,9 +43,14 @@ final class AppUpdateController: NSObject, NSMenuItemValidation {
             let alert = NSAlert()
             alert.messageText = L10n.text(.updateAvailable, version)
             alert.informativeText = L10n.text(.updateInstallInstructions)
+            let canUpdateHere = UpdateLauncher.isAvailable()
+            if canUpdateHere { alert.addButton(withTitle: L10n.text(.updateNow)) }
             alert.addButton(withTitle: L10n.text(.updateOpenInstructions))
             alert.addButton(withTitle: L10n.text(.dialogCancel))
-            if alert.runModal() == .alertFirstButtonReturn, !NSWorkspace.shared.open(instructionsURL) {
+            let choice = alert.runModal()
+            if canUpdateHere, choice == .alertFirstButtonReturn {
+                onUpdateNow()
+            } else if choice == (canUpdateHere ? .alertSecondButtonReturn : .alertFirstButtonReturn), !NSWorkspace.shared.open(instructionsURL) {
                 show(.updateFailed, detail: L10n.text(.updateBrowserFailed))
             }
         }
