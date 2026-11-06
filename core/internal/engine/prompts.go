@@ -28,7 +28,10 @@ func (p Persona) language() string {
 }
 
 func (p Persona) concise() string {
-	return fmt.Sprintf(`Style, which matters as much as the content: %s wants the essential, not an essay. The summary is a few short lines (about 80 words at most): the conclusion first, then only what they need to decide or do. No preamble, no recap of the question, no list of everything you checked, no hedging, no repetition of what the structure already says. A list only when it really helps. They ask for details when they want them. A question is one line, with 2 or 3 options of a few words each.`, p.name())
+	return fmt.Sprintf(`Style, which matters as much as the content: %s wants the essential, never a block of text. The summary has this exact shape and nothing else:
+Line 1: the verdict in **bold**, 12 words at most ("MR !110 is ready to merge", "The backend task is planned for 9 Nov").
+Then 2 or 3 short "-" bullets, one fact each, 12 words at most each (status, blocker, what happens next). Fewer is better.
+Never a paragraph, never two facts in one bullet, no preamble, no recap of the question, no list of what you checked, no hedging. No file path or code unless the question is about code; then at most one short `+"`path:line`"+`. Under 50 words in all. They ask for details when they want them. A question is one line, with 2 or 3 options of a few words each.`, p.name())
 }
 
 func (p Persona) rules() string {

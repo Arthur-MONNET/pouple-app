@@ -14,8 +14,9 @@
         --line: #2e323a;
         --ink: #ecedef;
         --muted: #a4a9b3;
-        --accent: #8ea2ff;
+        --accent: #f2668b;
         --accent-ink: #0e0f12;
+        --lav: #c9c6ff;
         --ok: #5dc98f;
       }
       @media (prefers-color-scheme: light) {
@@ -26,7 +27,7 @@
           --line: #d8dce4;
           --ink: #16181d;
           --muted: #566070;
-          --accent: #3b50d6;
+          --accent: #c8325f;
           --accent-ink: #ffffff;
           --ok: #1f9d63;
         }
@@ -43,8 +44,8 @@
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
       .wrap { width: min(980px, 100% - 32px); margin-inline: auto; }
       header { padding: 22px 0; display: flex; align-items: center; justify-content: space-between; }
-      .mark { font-weight: 700; letter-spacing: -0.02em; font-size: 20px; display: flex; align-items: center; gap: 10px; }
-      .mark i { width: 26px; height: 26px; border-radius: 9px; background: linear-gradient(140deg, var(--accent), #c79bf2); display: inline-block; }
+      .mark { font-weight: 650; letter-spacing: -0.02em; font-size: 22px; display: flex; align-items: center; gap: 10px; }
+      .mark img { width: 30px; height: 30px; }
       header a.link { color: var(--muted); text-decoration: none; font-size: 14px; }
       header a.link:hover { color: var(--ink); }
 
@@ -60,10 +61,10 @@
       .meta { color: var(--muted); font-size: 13px; }
 
       /* A stylised bubble, to show what appears in the corner of the screen. */
-      .stage { position: relative; min-height: 300px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; }
-      .stage::before { content: ""; position: absolute; inset: 0; background: radial-gradient(420px 220px at 85% 100%, color-mix(in srgb, var(--accent) 22%, transparent), transparent); }
+      .stage { position: relative; min-height: 380px; border-radius: 24px; background: var(--lav); overflow: hidden; display: grid; place-items: center; }
+      .stage .mascot { width: 340px; max-width: 86%; height: auto; display: block; margin-top: -24px; }
       .bubble {
-        position: absolute; right: 18px; bottom: 18px; width: min(300px, 86%); padding: 14px 16px; border-radius: 16px;
+        position: absolute; right: 16px; bottom: 16px; width: min(270px, 78%); padding: 14px 16px; border-radius: 16px;
         background: var(--raised); border: 1px solid var(--line); box-shadow: 0 18px 40px rgb(0 0 0 / 0.28);
       }
       .bubble small { color: var(--muted); display: block; font-size: 12px; }
@@ -103,14 +104,14 @@
   <body>
     <div class="wrap">
       <header>
-        <div class="mark"><i aria-hidden="true"></i> Pouple</div>
+        <div class="mark"><img src="assets/app-icon.svg" alt="" width="30" height="30"> Pouple</div>
         <a class="link" href="https://github.com/Arthur-MONNET/pouple">GitHub</a>
       </header>
 
       <main>
         <div class="hero">
           <div>
-            <h1>Your Slack requests, looked into for you.</h1>
+            <h1>Eight arms. Your Slack requests, handled.</h1>
             <p class="lead">
               Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what
               it found in a corner of your screen. You only take the decisions.
@@ -121,6 +122,7 @@
             </div>
           </div>
           <div class="stage" aria-hidden="true">
+            <img class="mascot" src="assets/mascot-multitask.svg" alt="" width="380" height="380">
             <div class="bubble">
               <small>Request from Morgan in #front</small>
               <strong><span class="dot"></span>Needs your decision</strong>
