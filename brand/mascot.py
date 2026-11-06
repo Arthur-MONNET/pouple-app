@@ -22,39 +22,40 @@ def tube(d, width=15, color=PINK):
 def suckers(points, r=2.2):
     return "".join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="{PINK_SHADE}"/>' for x, y in points)
 
-SHADOW = f'<ellipse cx="100" cy="190" rx="78" ry="6" fill="{NAVY}" opacity=".12"/>'
+SHADOW = f'<ellipse cx="100" cy="184" rx="80" ry="6" fill="{NAVY}" opacity=".12"/>'
 
-# One silhouette: a wide dome that flows straight into two broad centre arms (meeting in a V) and two short outer
-# arms that flare out and curl up. No neck, no flat base: the arms are part of the head, as in a sticker.
-BODY_PATH = (
-    "M36 100 C30 54 58 14 100 14 C142 14 170 54 164 100 "
-    "C170 112 186 114 192 124 C196 134 186 142 176 138 C172 142 170 146 166 148 "
-    # three tentacle tips along the bottom (an odd number, so there is a bump in the middle, never a cleft);
-    # the two side ones hook outward like the tip of an arm
-    "C167 162 160 171 149 171 C139 171 134 163 139 157 C134 158 129 156 126 150 "
-    "C124 162 114 170 100 170 C86 170 76 162 74 150 "
-    "C71 156 66 158 61 157 C66 163 61 171 51 171 C40 171 33 162 34 148 "
-    "C30 146 28 142 24 138 C14 142 4 134 8 124 C14 114 30 112 36 100 Z"
-)
+HEAD_PATH = "M38 74 C38 36 66 14 100 14 C134 14 162 36 162 74 C162 100 144 126 100 127 C56 126 38 100 38 74 Z"
 
-LOWER = ""  # kept for the icon: the arms are now part of BODY
+# Six arms fan out from under the head, each sweeping outward and hooking away from the centre. The inner pair
+# stay clear of each other, so nothing in the middle can read as a cleft.
+LIMBS = [
+    "M56 108 C38 114 30 128 31 142 C32 151 24 156 17 151",      # left, outer
+    "M72 120 C60 134 58 148 64 160 C67 167 59 174 51 169",      # left, middle
+    "M90 124 C86 138 88 150 93 160 C96 166 91 173 83 170",      # left, inner
+    "M144 108 C162 114 170 128 169 142 C168 151 176 156 183 151",  # right, outer
+    "M128 120 C140 134 142 148 136 160 C133 167 141 174 149 169",  # right, middle
+    "M110 124 C114 138 112 150 107 160 C104 166 109 173 117 170",  # right, inner
+]
+LIMB_WIDTH = 17
+
+LOWER = "".join(tube(d, LIMB_WIDTH) for d in LIMBS)
 
 def halo():
-    """A white sticker edge around the body: it also keeps the outline readable on dark surfaces."""
-    return f'<path d="{BODY_PATH}" fill="#fff" stroke="#fff" stroke-width="11" stroke-linejoin="round"/>'
+    """A white sticker edge around the whole figure: it also keeps the outline readable on dark surfaces."""
+    edge = "".join(f'<path d="{d}" fill="none" stroke="#fff" stroke-width="{LIMB_WIDTH + 14}" stroke-linecap="round" stroke-linejoin="round"/>' for d in LIMBS)
+    return edge + f'<path d="{HEAD_PATH}" fill="#fff" stroke="#fff" stroke-width="11" stroke-linejoin="round"/>'
 
 HEAD = (
-    f'<path d="{BODY_PATH}" fill="{PINK}" stroke="{NAVY}" stroke-width="4" stroke-linejoin="round"/>'
-    # small creases on the outer arms only; nothing runs down the middle
-    f'<path d="M176 122 C181 127 181 132 178 136" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
-    f'<path d="M24 122 C19 127 19 132 22 136" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
+    f'<path d="{HEAD_PATH}" fill="{PINK}" stroke="{NAVY}" stroke-width="4" stroke-linejoin="round"/>'
     # shine, and spots on the dome
-    f'<path d="M132 34 C146 40 156 52 160 68" fill="none" stroke="{PINK_LIGHT}" stroke-width="7" stroke-linecap="round"/>'
-    f'<ellipse cx="62" cy="52" rx="10" ry="6" transform="rotate(-35 62 52)" fill="{PINK_SHADE}"/>'
-    f'<circle cx="80" cy="36" r="4" fill="{PINK_SHADE}"/><circle cx="50" cy="70" r="3.2" fill="{PINK_SHADE}"/>'
-    f'<circle cx="94" cy="28" r="2.6" fill="{PINK_SHADE}"/>'
-    f'{suckers([(146, 156), (136, 154), (100, 160), (110, 158), (55, 154), (65, 152)], 2.2)}'
+    f'<path d="M132 30 C146 36 156 48 160 64" fill="none" stroke="{PINK_LIGHT}" stroke-width="7" stroke-linecap="round"/>'
+    f'<ellipse cx="62" cy="48" rx="10" ry="6" transform="rotate(-35 62 48)" fill="{PINK_SHADE}"/>'
+    f'<circle cx="80" cy="32" r="4" fill="{PINK_SHADE}"/><circle cx="50" cy="66" r="3.2" fill="{PINK_SHADE}"/>'
+    f'<circle cx="94" cy="24" r="2.6" fill="{PINK_SHADE}"/>'
 )
+
+# Suckers on the limbs, drawn after the head so they stay on the arms.
+SUCKERS = (suckers([(26, 148), (33, 140)]) + suckers([(174, 148), (167, 140)]) + suckers([(60, 160), (62, 152)]) + suckers([(140, 160), (138, 152)]))
 
 def eyes(kind):
     # Big, wide-set eyes in the lower half of the dome: it is what makes the head read as friendly.
@@ -140,43 +141,39 @@ def check_badge(x, y):
             f'<path d="M{x - 7} {y + 1} L{x - 2} {y + 6} L{x + 8} {y - 6}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>')
 
 POSES = {
-    # name: (arms drawn behind the head, face, props drawn in front)
+    # name: (raised arms drawn behind the head, face, props drawn in front)
     "multitask": (
-        tube("M56 112 C34 112 26 98 30 82") + tube("M144 112 C166 112 174 98 170 82") +
-        tube("M52 126 C34 134 28 146 34 156") + tube("M148 126 C168 134 174 146 168 156"),
+        tube("M58 98 C36 100 26 86 30 68") + tube("M142 98 C164 100 174 86 170 68"),
         "open",
-        phone(14, 38, -12) + envelope(148, 56, 10) + pencil(36, 160, 35) + mug(158, 138) + laptop() +
-        suckers([(34, 104), (36, 96)]),
+        phone(14, 28, -12) + envelope(150, 40, 10) + pencil(14, 160, 40) + mug(154, 138) + laptop(),
     ),
     "investigate": (
-        tube("M144 112 C164 108 172 92 164 76") + tube("M56 118 C38 122 30 134 34 146"),
+        tube("M142 98 C164 94 172 78 164 62"),
         "open",
-        document(10, 124, -10) + magnifier(158, 62) + suckers([(36, 150)]),
+        document(0, 118, -10) + magnifier(158, 48),
     ),
     "done": (
-        tube("M56 108 C34 100 26 80 34 58") + tube("M144 108 C166 100 174 80 166 58") +
-        tube("M60 128 C46 140 44 152 52 160") + tube("M140 128 C154 140 156 152 148 160"),
+        tube("M58 96 C36 90 28 70 36 48") + tube("M142 96 C164 90 172 70 164 48"),
         "happy",
-        sparkle(20, 42, 1.2, YELLOW) + sparkle(182, 40, 1.2, "#fff") + sparkle(180, 108, 0.8, YELLOW) + sparkle(24, 100, 0.8, "#fff") + check_badge(100, 12),
+        sparkle(20, 36, 1.2, YELLOW) + sparkle(182, 34, 1.2, "#fff") + sparkle(184, 100, 0.8, YELLOW) + sparkle(18, 96, 0.8, "#fff") + check_badge(100, 10),
     ),
     "sleep": (
-        tube("M56 120 C40 128 34 142 40 152") + tube("M144 124 C158 124 162 132 160 142"),
+        "",
         "closed",
-        mug(150, 138).replace('opacity=".9"', 'opacity=".9"') +
+        mug(154, 138) +
         f'<g fill="{NAVY}" font-family="ui-rounded, Arial Rounded MT Bold, system-ui, sans-serif" font-weight="800">'
-        f'<text x="150" y="38" font-size="22">Z</text><text x="166" y="22" font-size="16">z</text><text x="178" y="10" font-size="11">z</text></g>',
+        f'<text x="150" y="30" font-size="22">Z</text><text x="166" y="14" font-size="16">z</text><text x="178" y="4" font-size="11">z</text></g>',
     ),
     "stop": (
-        tube("M144 112 C166 108 176 90 168 66") + tube("M56 124 C38 130 32 144 38 154"),
+        tube("M142 98 C164 94 176 76 168 52"),
         "serious",
-        sign_stop(146, 22),
+        sign_stop(146, 14),
     ),
     "oops": (
-        tube("M144 112 C164 110 172 96 166 80") + tube("M56 122 C38 124 28 138 34 150"),
+        tube("M142 98 C162 96 172 82 166 66"),
         "oops",
-        sign_warning(146, 40) +
-        f'<path d="M150 62 q6 12 0 16 q-6 -4 0 -16 Z" fill="#8ED4FF" stroke="{NAVY}" stroke-width="2.5" transform="translate(-92 -2)"/>'
-        f'<path d="M30 120 q4 8 0 12 q-4 -4 0 -12 Z" fill="#8ED4FF" stroke="{NAVY}" stroke-width="2.5" opacity="0"/>',
+        sign_warning(146, 30) +
+        f'<path d="M150 62 q6 12 0 16 q-6 -4 0 -16 Z" fill="#8ED4FF" stroke="{NAVY}" stroke-width="2.5" transform="translate(-92 -2)"/>',
     ),
 }
 
@@ -187,23 +184,29 @@ def svg(pose, background=None, shadow=True, dark=False):
     arms, face, props = POSES[pose]
     bg = f'<rect width="200" height="200" fill="{background}"/>' if background else ""
     out = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
-           f'{bg}{SHADOW if shadow and not dark else ""}{halo()}{arms}{HEAD}<g transform="translate(0 -15)">{eyes(face)}</g>{props}</svg>')
+           f'{bg}{SHADOW if shadow and not dark else ""}{halo()}{arms}{LOWER}{HEAD}{SUCKERS}<g transform="translate(0 -15)">{eyes(face)}</g>{props}</svg>')
     if dark:
         out = out.replace(f'stroke="{NAVY}"', f'stroke="{OUTLINE_ON_DARK}"').replace(f'<g fill="{NAVY}" font-family', f'<g fill="{LAVENDER}" font-family')
     return out
 
 def icon():
     """The app icon: the octopus on a soft lavender squircle (1024 x 1024)."""
-    body = f'{halo()}{HEAD}<g transform="translate(0 -15)">{eyes("open")}</g>'
+    body = f'{halo()}{LOWER}{HEAD}{SUCKERS}<g transform="translate(0 -15)">{eyes("open")}</g>'
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Pouple">'
             '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#DAD8FF"/><stop offset="1" stop-color="#A8A2FF"/></linearGradient></defs>'
             '<rect x="64" y="64" width="896" height="896" rx="200" fill="url(#g)"/>'
-            f'<g transform="translate(72 46) scale(4.4)">{body}</g></svg>')
+            f'<g transform="translate(72 62) scale(4.4)">{body}</g></svg>')
+
+def favicon():
+    """Head only: the arms are too fine at 16px."""
+    head = f'<path d="{HEAD_PATH}" fill="#fff" stroke="#fff" stroke-width="11" stroke-linejoin="round"/>{HEAD}<g transform="translate(0 -15)">{eyes("open")}</g>'
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="24 4 152 132">{head}</svg>'
 
 if __name__ == "__main__":
     out = pathlib.Path(__file__).parent
     for name in POSES:
         (out / f"mascot-{name}.svg").write_text(svg(name) + "\n")
         (out / f"mascot-{name}-dark.svg").write_text(svg(name, dark=True) + "\n")
+    (out / "favicon.svg").write_text(favicon() + "\n")
     (out / "app-icon.svg").write_text(icon() + "\n")
     print("written:", ", ".join(POSES))
