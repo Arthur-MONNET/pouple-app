@@ -43,7 +43,7 @@ const STEPS = [
 
     <div class="relative flex min-h-80 items-center justify-center overflow-hidden bg-lavender" aria-hidden="true">
       <div class="absolute size-[26rem] rounded-full bg-lavender-soft" />
-      <PouMascot pose="multitask" surface="lavender" class="relative w-4/5 max-w-md motion-safe:animate-rise" />
+      <PouMascot pose="multitask" class="relative w-4/5 max-w-md motion-safe:animate-rise" />
       <p class="absolute bottom-8 left-6 rounded-2xl rounded-bl-sm bg-white px-4 py-3 text-sm font-medium text-on-lavender shadow-lg">{{ $t('welcome.chip') }}</p>
     </div>
   </div>

@@ -13,7 +13,7 @@ const NEXT = [
 
 <template>
   <div class="mx-auto flex max-w-2xl flex-col items-center gap-6 py-8 text-center min-[700px]:py-12">
-    <div class="flex h-48 w-full max-w-sm items-center justify-center rounded-3xl bg-lavender"><PouMascot pose="done" surface="lavender" class="h-40" /></div>
+    <div class="flex h-48 w-full max-w-sm items-center justify-center rounded-3xl bg-lavender"><PouMascot pose="done" class="h-40" /></div>
     <div class="flex flex-col gap-2">
       <h1 class="font-display text-4xl font-semibold text-ink">{{ $t('done.title') }}</h1>
       <p class="text-base text-ink-muted">{{ $t('done.subtitle') }}</p>

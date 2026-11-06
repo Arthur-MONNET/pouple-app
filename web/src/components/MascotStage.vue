@@ -11,6 +11,6 @@ withDefaults(defineProps<{ pose: MascotPose; size?: 'sm' | 'md' | 'lg' }>(), { s
     :class="{ 'size-12 p-1': size === 'sm', 'size-20 p-1.5': size === 'md', 'h-56 w-full p-3': size === 'lg' }"
     aria-hidden="true"
   >
-    <PouMascot :pose="pose" surface="dark" class="h-full max-w-full" />
+    <PouMascot :pose="pose" class="h-full max-w-full" />
   </span>
 </template>

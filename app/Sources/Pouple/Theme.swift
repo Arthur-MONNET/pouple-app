@@ -22,7 +22,6 @@ enum Theme {
     static let dim = Color(hex: 0x868B95)
     /// The dark stage the mascot sits on.
     static let stage = Color(hex: 0x1E1D3F)
-    static let outlineOnDark = Color(hex: 0x9D98E8)
 }
 
 struct PillButtonStyle: ButtonStyle {

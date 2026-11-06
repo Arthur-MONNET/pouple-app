@@ -3,10 +3,10 @@ import SwiftUI
 
 /// The mascot SVGs bundled in `Contents/Resources/Mascots`. Missing in a development run: callers then show text only.
 enum Mascot {
-    /// The `-dark` variant (lavender outline), for the dark app surfaces.
+    /// The same drawing everywhere, with its navy outline.
     static func image(_ name: String) -> NSImage? {
         guard let folder = Bundle.main.resourceURL?.appendingPathComponent("Mascots") else { return nil }
-        return NSImage(contentsOf: folder.appendingPathComponent("mascot-\(name)-dark.svg"))
+        return NSImage(contentsOf: folder.appendingPathComponent("mascot-\(name).svg"))
     }
 }
 
@@ -23,8 +23,7 @@ struct OctopusHead: View {
             head.addCurve(to: CGPoint(x: 18.5 * unit, y: 17 * unit), control1: CGPoint(x: 15 * unit, y: 1.5 * unit), control2: CGPoint(x: 18.5 * unit, y: 7 * unit))
             head.closeSubpath()
             context.fill(head, with: .color(Color(hex: 0xF2668B)))
-            // The navy outline of the light artwork vanishes on the dark card: the dark-surface lavender instead.
-            context.stroke(head, with: .color(Color(hex: 0x9D98E8)), lineWidth: 1.2 * unit)
+            context.stroke(head, with: .color(Color(hex: 0x231F52)), lineWidth: 1.2 * unit)
             for x in [6.6, 13.4] as [CGFloat] {
                 context.fill(Path(ellipseIn: CGRect(x: (x - 1.7) * unit, y: 9 * unit, width: 3.4 * unit, height: 3.4 * unit)), with: .color(Color(hex: 0x231F52)))
                 context.fill(Path(ellipseIn: CGRect(x: (x - 0.2) * unit, y: 9.4 * unit, width: 1.1 * unit, height: 1.1 * unit)), with: .color(.white))

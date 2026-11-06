@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Pouple mascot, final drawing: eight tapered tentacles in a curly fan, one silhouette with the head.
 
-Generates brand/mascot-<pose>.svg, mascot-<pose>-dark.svg, app-icon.svg and favicon.svg. The body comes from
+Generates brand/mascot-<pose>.svg, app-icon.svg and favicon.svg (one drawing, navy outline, on every surface). The body comes from
 fan.py (CURLY_RIGHT / CURLY_LEFT), the face from the first version (mascot_v1), the props from mascot.py.
 """
 import pathlib
@@ -10,7 +10,6 @@ import mascot as m
 import mascot_v1 as v
 
 NAVY, PINK, LAVENDER = v.NAVY, v.PINK, v.LAVENDER
-OUTLINE_ON_DARK = "#9D98E8"
 
 def body_parts():
     order = []
@@ -81,14 +80,10 @@ POSES = {
         f'<path d="M150 62 q6 12 0 16 q-6 -4 0 -16 Z" fill="#8ED4FF" stroke="{NAVY}" stroke-width="2.5" transform="translate(-86 -4)"/>'),
 }
 
-def svg(pose, dark=False):
+def svg(pose):
     face, props = POSES[pose]
-    out = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
-           f'{"" if dark else SHADOW}{LAYERS}{HEAD}{v.eyes(face)}{props}</svg>')
-    if dark:
-        # the navy outline vanishes on dark surfaces (contrast 1.2): strokes turn lavender, the face stays navy
-        out = out.replace(f'stroke="{NAVY}"', f'stroke="{OUTLINE_ON_DARK}"').replace(f'<g fill="{NAVY}" font-family', f'<g fill="{LAVENDER}" font-family')
-    return out
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
+            f'{SHADOW}{LAYERS}{HEAD}{v.eyes(face)}{props}</svg>')
 
 def icon():
     body = f'{LAYERS}{HEAD}{v.eyes("open")}'
@@ -105,7 +100,6 @@ if __name__ == "__main__":
     out = pathlib.Path(__file__).parent
     for name in POSES:
         (out / f"mascot-{name}.svg").write_text(svg(name) + "\n")
-        (out / f"mascot-{name}-dark.svg").write_text(svg(name, dark=True) + "\n")
     (out / "app-icon.svg").write_text(icon() + "\n")
     (out / "favicon.svg").write_text(favicon() + "\n")
-    print("written:", ", ".join(POSES), "+ dark variants, app-icon, favicon")
+    print("written:", ", ".join(POSES), "+ app-icon, favicon")
