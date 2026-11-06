@@ -6,8 +6,17 @@ decisions: nothing is changed in your code before you approve it, and a Stop but
 
 ## Install
 
-Download [Pouple.zip](https://arthur-monnet.github.io/pouple-app/), open it, then drag Pouple to Applications.
-Pouple supports macOS 14 or later on Intel and Apple Silicon.
+Pouple builds locally on macOS 14 or later, on Intel and Apple Silicon. Install the Xcode Command Line Tools,
+Go 1.27.3 or later, Node.js 22.12 or later, and pnpm 10. Run `xcode-select --install` if you need the Xcode tools.
+
+```sh
+git clone https://github.com/Arthur-MONNET/pouple-app.git
+cd pouple-app
+bash scripts/install-local.sh
+```
+
+The script builds and verifies the app, installs it at `~/Applications/Pouple.app`, and launches it. It preserves
+application data and the macOS security settings.
 
 The first launch guides you through two connections, with a confirmation card showing whose account you connected:
 
@@ -26,8 +35,14 @@ save the connection again. Pouple still checks Slack periodically to catch messa
 
 ## Updates
 
-Open **Pouple → Check for Updates…**. If a newer release is available, download its ZIP, quit Pouple, and move the
-new app into Applications. Choose **Replace** when Finder asks. Settings and conversations live in Application
+Open **Pouple → Check for Updates…**. Quit Pouple before updating, then run the following from the source directory:
+
+```sh
+git pull --ff-only
+bash scripts/install-local.sh
+```
+
+The installer replaces the previous build at the same location. Settings and conversations live in Application
 Support, and Slack tokens are stored in Keychain.
 
 ## Security
@@ -47,8 +62,8 @@ Support, and Slack tokens are stored in Keychain.
 | `core/` | Go: connectors, Slack inbox, Codex runner, assistant engine, local API. One static binary. |
 | `web/` | Vue 3 + Tailwind: setup wizard, conversations, connectors, settings. Embedded in the core. |
 | `app/` | Swift: the macOS shell (window, menu bar, floating bubbles). |
-| `site/` | The download page (GitHub Pages). |
-| `scripts/` | App bundle and disk image. |
+| `site/` | The installation page (GitHub Pages). |
+| `scripts/` | Local installation and app bundling. |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 
@@ -59,7 +74,6 @@ cd core && go test -race ./...
 cd web && pnpm install && pnpm test && pnpm build:embed
 cd core && go build -o /tmp/pouple-core ./cmd/pouple-core
 scripts/build-app.sh --core /tmp/pouple-core    # build/Pouple.app
-scripts/make-dmg.sh                              # build/Pouple.dmg
 ```
 
 Run the core alone with a fixed port and token for web development:
@@ -67,22 +81,6 @@ Run the core alone with a fixed port and token for web development:
 
 ## Release
 
-Run the **Release** workflow manually to build a universal test ZIP without publishing a release. The
-`Pouple-validation` artifact contains `Pouple.zip`. The default build is ad hoc signed. Gatekeeper may require
-manual approval in **System Settings → Privacy & Security** on the test Mac. Enable `sign_and_notarize` to
-rehearse the Apple signing process with the test ZIP.
-
-Push a version tag such as `v0.1.0` to build, sign, notarize, and publish both `Pouple.zip` and `Pouple.dmg`.
-Configure these GitHub Actions secrets first:
-
-| Secret | Value |
-|---|---|
-| `CERTIFICATE_P12` | Base64-encoded Developer ID Application certificate and private key in PKCS#12 format |
-| `CERTIFICATE_PASSWORD` | Password for the PKCS#12 file |
-| `SIGN_IDENTITY` | Full Developer ID Application signing identity |
-| `APPLE_ID` | Apple Account used by the notary service |
-| `APPLE_TEAM_ID` | Apple Developer Team ID |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for the Apple Account |
-
-Enable GitHub Pages with **GitHub Actions** as its source and run the **Site** workflow to publish the download
-page. The page and the in-app update check use the public GitHub Releases channel.
+Push a version tag such as `v0.1.1` to the public repository. The **Release** workflow publishes its source
+release, which the in-app update check uses to announce new versions. GitHub Pages hosts the
+[installation instructions](https://arthur-monnet.github.io/pouple-app/#install).

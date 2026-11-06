@@ -3,19 +3,18 @@ import Foundation
 public struct UpdateChecker {
     public enum Result: Equatable {
         case upToDate
-        case available(version: String, downloadURL: URL)
+        case available(version: String, instructionsURL: URL)
     }
 
     public enum Failure: Error, Equatable {
         case invalidInstalledVersion
         case releaseUnavailable
-        case archiveUnavailable
         case unexpectedResponse
     }
 
     private static let repository = "Arthur-MONNET/pouple-app"
-    private static let archiveName = "Pouple.zip"
     private static let releaseEndpoint = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    private static let instructionsURL = URL(string: "https://arthur-monnet.github.io/pouple-app/#install")!
 
     private let load: (URLRequest) async throws -> (Data, URLResponse)
 
@@ -43,34 +42,22 @@ public struct UpdateChecker {
             throw Failure.unexpectedResponse
         }
         guard !release.draft, !release.prerelease else { throw Failure.releaseUnavailable }
-        guard release.tagName.hasPrefix("v"),
-              let published = ReleaseVersion(String(release.tagName.dropFirst())) else {
-            throw Failure.unexpectedResponse
-        }
+        guard release.tagName.hasPrefix("v") else { throw Failure.unexpectedResponse }
+        let version = String(release.tagName.dropFirst())
+        guard let published = ReleaseVersion(version) else { throw Failure.unexpectedResponse }
         guard installed.components.lexicographicallyPrecedes(published.components) else { return .upToDate }
-        guard release.assets.contains(where: { $0.name == Self.archiveName && $0.state == "uploaded" }) else {
-            throw Failure.archiveUnavailable
-        }
 
-        // Build the link from the validated numeric tag rather than trusting a URL supplied in the response.
-        let downloadURL = URL(string: "https://github.com/\(Self.repository)/releases/download/\(release.tagName)/\(Self.archiveName)")!
-        return .available(version: String(release.tagName.dropFirst()), downloadURL: downloadURL)
+        return .available(version: version, instructionsURL: Self.instructionsURL)
     }
 
     private struct Release: Decodable {
-        struct Asset: Decodable {
-            let name: String
-            let state: String
-        }
-
         let tagName: String
         let draft: Bool
         let prerelease: Bool
-        let assets: [Asset]
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
-            case draft, prerelease, assets
+            case draft, prerelease
         }
     }
 

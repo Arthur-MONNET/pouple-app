@@ -93,6 +93,10 @@
       ol.steps span { color: var(--muted); font-size: 14.5px; }
 
       .note { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 14px 18px; color: var(--muted); font-size: 14.5px; }
+      .command { margin: 14px 0 22px; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+      .command pre { overflow-x: auto; margin: 0 0 12px; font-size: 14px; }
+      .command button { cursor: pointer; }
+      .copy-status { margin-inline-start: 10px; color: var(--muted); font-size: 14px; }
       footer { padding: 36px 0 56px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--line); margin-top: 24px; }
 
       @media (max-width: 820px) {
@@ -120,8 +124,8 @@
               <span data-i18n="lead">Pouple surveille les messages qui te notifieraient, demande à Codex, sur ton Mac, de les examiner, et affiche ce qu'il a trouvé dans un coin de ton écran. Toi, tu ne prends que les décisions.</span>
             </p>
             <div class="cta">
-              <a class="button" id="download" href="https://github.com/Arthur-MONNET/pouple-app/releases/download/pilot-0.1.0/Pouple.zip" data-i18n="download">Télécharger le pilote pour macOS</a>
-              <span class="meta" data-i18n="compatibility">ZIP · macOS 14 ou plus récent · Intel et Apple Silicon</span>
+              <a class="button" href="#install" data-i18n="installButton">Installer sur macOS</a>
+              <span class="meta" data-i18n="compatibility">Compilation locale · macOS 14+ · Intel et Apple Silicon</span>
             </div>
             <a class="link" href="https://github.com/Arthur-MONNET/pouple-app/releases" data-i18n="versions">Toutes les versions sur GitHub</a>
           </div>
@@ -145,10 +149,32 @@
           </div>
         </section>
 
-        <section aria-labelledby="start">
-          <h2 id="start" data-i18n="start">Prêt en quelques minutes</h2>
+        <section id="install" aria-labelledby="start">
+          <h2 id="start" data-i18n="start">Installer depuis les sources</h2>
+          <p data-i18n="requirements">Il te faut les outils de ligne de commande Xcode, Go 1.27.3 ou plus récent, Node.js 22.12 ou plus récent et pnpm 10.</p>
+          <p data-i18n="brewHint">Si tu utilises Homebrew, tu peux installer Go, Node.js et pnpm avec la commande suivante. Pour les outils Xcode, lance xcode-select --install si nécessaire.</p>
+          <div class="command">
+            <pre><code id="tools-command">brew install go node pnpm@10
+export PATH="$(brew --prefix pnpm@10)/bin:$PATH"</code></pre>
+            <button class="button" type="button" data-copy="tools-command" data-i18n="copyTools">Copier les prérequis</button>
+            <span class="copy-status" role="status"></span>
+          </div>
+          <p data-i18n="cloneHint">Copie ces commandes dans le Terminal. Le script compile Pouple, l’installe dans ~/Applications et le lance. Si tu utilisais une autre copie, quitte-la avant de lancer le script.</p>
+          <div class="command">
+            <pre><code id="install-command">git clone https://github.com/Arthur-MONNET/pouple-app.git
+cd pouple-app
+bash scripts/install-local.sh</code></pre>
+            <button class="button" type="button" data-copy="install-command" data-i18n="copyInstall">Copier l’installation</button>
+            <span class="copy-status" role="status"></span>
+          </div>
+          <p data-i18n="updateHint">Pour mettre à jour, quitte Pouple et lance ces commandes depuis le dossier pouple-app.</p>
+          <div class="command">
+            <pre><code id="update-command">git pull --ff-only
+bash scripts/install-local.sh</code></pre>
+            <button class="button" type="button" data-copy="update-command" data-i18n="copyUpdate">Copier la mise à jour</button>
+            <span class="copy-status" role="status"></span>
+          </div>
           <ol class="steps">
-            <li><div><b data-i18n="s1t">Télécharge et ouvre Pouple</b><span data-i18n="s1p">Ouvre le ZIP, glisse Pouple dans Applications, puis lance l’app.</span></div></li>
             <li><div><b data-i18n="s2t">Connecte Slack</b><span data-i18n="s2p">L’assistant te guide pour créer l’app Slack et coller ton jeton. Selon ton espace, un administrateur peut devoir approuver l’installation.</span></div></li>
             <li><div><b data-i18n="s3t">Connecte Codex</b><span data-i18n="s3p">Pouple télécharge Codex si nécessaire. Connecte-toi ensuite avec ChatGPT dans ton navigateur et choisis le dossier de tes projets.</span></div></li>
           </ol>
@@ -168,14 +194,19 @@
       const EN = {
         h1: 'Eight arms. Your Slack requests, handled.',
         lead: 'Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what it found in a corner of your screen. You only take the decisions.',
-        download: 'Download the macOS pilot', stableDownload: 'Download for macOS',
-        compatibility: 'ZIP · macOS 14 or later · Intel and Apple Silicon', versions: 'All versions on GitHub',
+        installButton: 'Install on macOS',
+        compatibility: 'Local build · macOS 14 or later · Intel and Apple Silicon', versions: 'All versions on GitHub',
         b_from: 'Request from Morgan in #front', b_title: 'Needs your decision',
         b_text: 'The login fails only with SSO accounts. Fix it in the callback, or add a retry?', b_a: 'Fix the callback', b_b: 'Add a retry',
         what: 'What it does', c1t: 'Listens like Slack does', c1p: 'Mentions, direct messages, notes to yourself, group chats and the threads you take part in.',
         c2t: 'Investigates with Codex', c2p: 'Reads your projects read-only, finds the answer, and writes the short version. Nothing is changed before you approve.',
         c3t: 'Stays out of the way', c3p: 'Floating bubbles in a screen corner, a window for the full conversations, and a Stop button at any moment.',
-        start: 'Ready in a few minutes', s1t: 'Download and open Pouple', s1p: 'Open the ZIP, drag Pouple into Applications, then launch the app.',
+        start: 'Install from source',
+        requirements: 'You need the Xcode Command Line Tools, Go 1.27.3 or later, Node.js 22.12 or later, and pnpm 10.',
+        brewHint: 'If you use Homebrew, the following command installs Go, Node.js, and pnpm. Run xcode-select --install if you need the Xcode tools.',
+        cloneHint: 'Paste these commands into Terminal. The script builds Pouple, installs it in ~/Applications, and launches it. Quit any other copy before running the script.',
+        updateHint: 'To update, quit Pouple and run these commands from the pouple-app folder.',
+        copyTools: 'Copy prerequisites', copyInstall: 'Copy install commands', copyUpdate: 'Copy update commands',
         s2t: 'Connect Slack', s2p: 'The setup wizard guides you through creating the Slack app and pasting your token. Your workspace may require an administrator to approve the installation.',
         s3t: 'Connect Codex', s3p: 'Pouple downloads Codex if needed. Then sign in with ChatGPT in your browser and select your projects folder.',
         note: "Your Slack token stays in your Mac’s keychain. Codex uses a login dedicated to Pouple. GitHub is used to download Codex and check for app updates.",
@@ -183,7 +214,6 @@
       };
       const nodes = [...document.querySelectorAll('[data-i18n]')];
       const FR = Object.fromEntries(nodes.map((node) => [node.dataset.i18n, node.textContent]));
-      FR.stableDownload = 'Télécharger pour macOS';
       const TITLES = { fr: 'Pouple – tes demandes Slack, prises en charge par Codex', en: 'Pouple – your Slack requests, handled by Codex' };
       let language = 'fr';
       function setLanguage(next) {
@@ -198,17 +228,17 @@
       for (const button of document.querySelectorAll('.lang button')) button.addEventListener('click', () => setLanguage(button.dataset.lang));
       try { const saved = localStorage.getItem('pouple-lang'); if (saved === 'en') setLanguage('en'); } catch { /* ignore */ }
 
-      const download = document.getElementById('download');
-      fetch('https://api.github.com/repos/Arthur-MONNET/pouple-app/releases/latest', { signal: AbortSignal.timeout(4000) })
-        .then(response => response.ok ? response.json() : null)
-        .then(release => {
-          if (!release || !Array.isArray(release.assets) ||
-              !release.assets.some(asset => asset.name === 'Pouple.zip' && asset.state === 'uploaded')) return;
-          download.href = 'https://github.com/Arthur-MONNET/pouple-app/releases/latest/download/Pouple.zip';
-          download.dataset.i18n = 'stableDownload';
-          download.textContent = (language === 'en' ? EN : FR).stableDownload;
-        })
-        .catch(() => { /* The pilot remains downloadable if the release API is unavailable. */ });
+      for (const button of document.querySelectorAll('[data-copy]')) {
+        button.addEventListener('click', async () => {
+          const status = button.nextElementSibling;
+          try {
+            await navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent);
+            status.textContent = language === 'en' ? 'Copied.' : 'Copié.';
+          } catch {
+            status.textContent = language === 'en' ? 'Select the commands to copy them.' : 'Sélectionne les commandes pour les copier.';
+          }
+        });
+      }
 
     </script>
   </body>

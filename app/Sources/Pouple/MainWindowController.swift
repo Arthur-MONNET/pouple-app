@@ -52,10 +52,8 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
         container.wantsLayer = true
         container.layer?.backgroundColor = WindowBackground.nsColor.cgColor
         window.contentView = container
-        for view in [webView, placeholderHost] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(view)
-        }
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(webView)
         // The page starts under the title bar, so the traffic lights never cover the web UI.
         let content = window.contentLayoutGuide as! NSLayoutGuide
         NSLayoutConstraint.activate([
@@ -63,14 +61,10 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
             webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            placeholderHost.topAnchor.constraint(equalTo: container.topAnchor),
-            placeholderHost.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            placeholderHost.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            placeholderHost.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.isHidden = true
+        showPlaceholder(.starting)
 
         // A saved frame wins; a first launch is centered.
         if !window.setFrameAutosaveName("PoupleMainWindow") { window.center() }
@@ -155,14 +149,24 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     private func showPlaceholder(_ mode: PlaceholderModel.Mode) {
         pageShown = false
         webView.isHidden = true
-        placeholderHost.isHidden = false
         placeholder.mode = mode
+        guard placeholderHost.superview == nil, let container = window.contentView else { return }
+        let content = window.contentLayoutGuide as! NSLayoutGuide
+        placeholderHost.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(placeholderHost)
+        NSLayoutConstraint.activate([
+            placeholderHost.topAnchor.constraint(equalTo: content.topAnchor),
+            placeholderHost.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            placeholderHost.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            placeholderHost.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
     }
 
     private func showPage() {
         pageShown = true
+        // A hidden hosting view can still win AppKit hit-testing over the web view.
+        placeholderHost.removeFromSuperview()
         webView.isHidden = false
-        placeholderHost.isHidden = true
     }
 
     private func retry() {

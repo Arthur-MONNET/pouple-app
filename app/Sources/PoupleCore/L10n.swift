@@ -17,9 +17,9 @@ public enum L10n {
         case editMenu, undo, redo, cut, copy, paste, selectAll
         case viewMenu, reload, windowMenu, minimize, close
         // Updates
-        case updateCheck, updateChecking, updateAvailable, updateDownload, updateInstallInstructions
+        case updateCheck, updateChecking, updateAvailable, updateOpenInstructions, updateInstallInstructions
         case updateUpToDate, updateInstalledVersion, updateUnavailable, updateInvalidInstalledVersion
-        case updateReleaseUnavailable, updateArchiveUnavailable, updateFailed, updateTryAgain, updateBrowserFailed
+        case updateReleaseUnavailable, updateFailed, updateTryAgain, updateBrowserFailed
         // Window, placeholder, dialogs
         case windowTitle, placeholderStarting, placeholderLoading, placeholderFailedTitle, retry
         case dialogOK, dialogCancel
@@ -115,17 +115,16 @@ public enum L10n {
         .updateCheck: "Rechercher des mises à jour…",
         .updateChecking: "Recherche de mises à jour…",
         .updateAvailable: "Pouple %@ est disponible",
-        .updateDownload: "Télécharger la mise à jour",
-        .updateInstallInstructions: "Après le téléchargement, quitte Pouple, ouvre le ZIP et remplace Pouple.app dans Applications. Rouvre ensuite Pouple.",
+        .updateOpenInstructions: "Voir les instructions",
+        .updateInstallInstructions: "Pour mettre Pouple à jour, relance la commande d’installation dans Terminal. Elle compile la nouvelle version sur ton Mac et remplace l’application installée.",
         .updateUpToDate: "Pouple est à jour",
         .updateInstalledVersion: "Version installée : %@",
         .updateUnavailable: "Mise à jour indisponible",
         .updateInvalidInstalledVersion: "Cette copie n’indique pas de version compatible avec la recherche de mises à jour.",
         .updateReleaseUnavailable: "Aucune version publique de Pouple n’est disponible sur GitHub.",
-        .updateArchiveUnavailable: "Cette version est publiée sur GitHub, mais son ZIP macOS n’est pas disponible.",
         .updateFailed: "La mise à jour n’a pas abouti",
         .updateTryAgain: "Impossible de vérifier les mises à jour sur GitHub. Vérifie ta connexion et réessaie dans un instant.",
-        .updateBrowserFailed: "Le lien de téléchargement n’a pas pu être ouvert dans ton navigateur.",
+        .updateBrowserFailed: "Les instructions d’installation n’ont pas pu être ouvertes dans ton navigateur.",
         .appHide: "Masquer Pouple",
         .appHideOthers: "Masquer les autres",
         .appQuit: "Quitter Pouple",
@@ -227,17 +226,16 @@ public enum L10n {
         .updateCheck: "Check for Updates…",
         .updateChecking: "Checking for Updates…",
         .updateAvailable: "Pouple %@ is available",
-        .updateDownload: "Download Update",
-        .updateInstallInstructions: "After downloading, quit Pouple, open the ZIP and replace Pouple.app in Applications. Then reopen Pouple.",
+        .updateOpenInstructions: "View Instructions",
+        .updateInstallInstructions: "To update Pouple, rerun the install command in Terminal. It builds the new version on your Mac and replaces the installed app.",
         .updateUpToDate: "Pouple is up to date",
         .updateInstalledVersion: "Installed version: %@",
         .updateUnavailable: "Update unavailable",
         .updateInvalidInstalledVersion: "This copy does not report a version that can be checked for updates.",
         .updateReleaseUnavailable: "No public Pouple release is available on GitHub.",
-        .updateArchiveUnavailable: "This release is published on GitHub, but its macOS ZIP is unavailable.",
         .updateFailed: "The update could not be completed",
         .updateTryAgain: "Could not check for updates on GitHub. Check your connection and try again shortly.",
-        .updateBrowserFailed: "The download link could not be opened in your browser.",
+        .updateBrowserFailed: "The installation instructions could not be opened in your browser.",
         .appHide: "Hide Pouple",
         .appHideOthers: "Hide Others",
         .appQuit: "Quit Pouple",

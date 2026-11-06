@@ -37,13 +37,13 @@ final class AppUpdateController: NSObject, NSMenuItemValidation {
         switch result {
         case .upToDate:
             show(.updateUpToDate, detail: L10n.text(.updateInstalledVersion, installedVersion))
-        case let .available(version, downloadURL):
+        case let .available(version, instructionsURL):
             let alert = NSAlert()
             alert.messageText = L10n.text(.updateAvailable, version)
             alert.informativeText = L10n.text(.updateInstallInstructions)
-            alert.addButton(withTitle: L10n.text(.updateDownload))
+            alert.addButton(withTitle: L10n.text(.updateOpenInstructions))
             alert.addButton(withTitle: L10n.text(.dialogCancel))
-            if alert.runModal() == .alertFirstButtonReturn, !NSWorkspace.shared.open(downloadURL) {
+            if alert.runModal() == .alertFirstButtonReturn, !NSWorkspace.shared.open(instructionsURL) {
                 show(.updateFailed, detail: L10n.text(.updateBrowserFailed))
             }
         }
@@ -55,8 +55,6 @@ final class AppUpdateController: NSObject, NSMenuItemValidation {
             show(.updateUnavailable, detail: L10n.text(.updateInvalidInstalledVersion))
         case .releaseUnavailable:
             show(.updateUnavailable, detail: L10n.text(.updateReleaseUnavailable))
-        case .archiveUnavailable:
-            show(.updateUnavailable, detail: L10n.text(.updateArchiveUnavailable))
         default:
             show(.updateFailed, detail: L10n.text(.updateTryAgain))
         }

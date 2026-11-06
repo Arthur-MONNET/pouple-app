@@ -2,14 +2,14 @@ import XCTest
 @testable import PoupleCore
 
 final class UpdateCheckerTests: XCTestCase {
-    func testAReleaseWithANewerNumericVersionUsesTheOfficialDownloadURL() async throws {
+    func testANewerSourceReleaseUsesTheOfficialInstallInstructions() async throws {
         let checker = checker(tag: "v1.10.0")
         let result = try await checker.check(installedVersion: "1.9.12")
         XCTAssertEqual(
             result,
             .available(
                 version: "1.10.0",
-                downloadURL: URL(string: "https://github.com/Arthur-MONNET/pouple-app/releases/download/v1.10.0/Pouple.zip")!
+                instructionsURL: URL(string: "https://arthur-monnet.github.io/pouple-app/#install")!
             )
         )
     }
@@ -28,12 +28,7 @@ final class UpdateCheckerTests: XCTestCase {
         await assertFailure(.releaseUnavailable, checking: checker(prerelease: true))
     }
 
-    func testOnlyTheExactUploadedZipIsEligible() async {
-        await assertFailure(.archiveUnavailable, checking: checker(assetName: "Pouple.dmg"))
-        await assertFailure(.archiveUnavailable, checking: checker(assetState: "starter"))
-    }
-
-    func testMalformedVersionsCannotProduceADownloadURL() async {
+    func testMalformedVersionsCannotOfferAnUpdate() async {
         for tag in ["v2.0.0-rc.1", "v2.0.0/../../redirect", "v02.0.0", "v2..0", "2.0.0"] {
             await assertFailure(.unexpectedResponse, checking: checker(tag: tag))
         }
@@ -50,8 +45,7 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     private func checker(
-        tag: String = "v2.0.0", status: Int = 200, draft: Bool = false, prerelease: Bool = false,
-        assetName: String = "Pouple.zip", assetState: String = "uploaded"
+        tag: String = "v2.0.0", status: Int = 200, draft: Bool = false, prerelease: Bool = false
     ) -> UpdateChecker {
         UpdateChecker { request in
             let url = try XCTUnwrap(request.url)
@@ -60,10 +54,7 @@ final class UpdateCheckerTests: XCTestCase {
             XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
             let data = try JSONSerialization.data(withJSONObject: [
                 "tag_name": tag, "draft": draft, "prerelease": prerelease,
-                "assets": [[
-                    "name": assetName, "state": assetState,
-                    "browser_download_url": "https://example.com/untrusted.zip",
-                ]],
+                "html_url": "https://example.com/untrusted-release",
             ])
             let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
             return (data, response)

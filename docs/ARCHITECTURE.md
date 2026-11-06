@@ -100,11 +100,10 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 
 ## Distribution
 
-- GitHub Actions on a macOS runner: build the core for arm64 and amd64 and `lipo` them, build the Swift app
-  universal, assemble `Pouple.app`, sign (ad-hoc, or Developer ID + notarization when the secrets are set),
-  package `Pouple.dmg`, attach it to the GitHub Release.
-- GitHub Pages serves `site/`: one page, a Download button pointing at the latest release asset.
-- The repository is **private** until the owner makes it public; Pages and public downloads need that switch.
+- GitHub Actions validates the code and publishes source releases from version tags.
+- GitHub Pages serves `site/`, with commands to clone the public repository and run `scripts/install-local.sh`.
+- The installer compiles for the Mac's architecture, signs the local app ad hoc, and verifies it before
+  replacing the installed bundle. Application data lives outside the bundle.
 
 ## Milestones
 
