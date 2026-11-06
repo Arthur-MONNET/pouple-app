@@ -64,18 +64,18 @@
       .button:hover { filter: brightness(1.08); }
       .meta { color: var(--muted); font-size: 13px; }
 
-      /* A stylised bubble, to show what appears in the corner of the screen. */
-      .stage { position: relative; min-height: 380px; border-radius: 24px; background: var(--lav); overflow: hidden; display: grid; place-items: center; }
-      .stage .mascot { width: 340px; max-width: 86%; height: auto; display: block; margin-top: -24px; }
+      /* Keep the example and mascot in separate rows at every viewport width. */
+      .stage { min-width: 0; display: grid; justify-items: center; gap: 12px; padding: 18px; border-radius: 24px; background: var(--lav); }
+      .stage .mascot { display: block; width: min(100%, 246px); height: auto; }
       .bubble {
-        position: absolute; right: 16px; bottom: 16px; width: min(270px, 78%); padding: 14px 16px; border-radius: 16px;
-        background: var(--raised); border: 1px solid var(--line); box-shadow: 0 18px 40px rgb(0 0 0 / 0.28);
+        width: min(100%, 300px); padding: 12px 15px; border-radius: 16px;
+        background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
       }
       .bubble small { color: var(--muted); display: block; font-size: 12px; }
       .bubble strong { display: block; margin: 2px 0 6px; font-size: 14px; }
       .bubble p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink); }
-      .bubble .row { display: flex; gap: 8px; }
-      .pill { font-size: 12px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+      .bubble .row { display: flex; flex-wrap: wrap; gap: 8px; }
+      .pill { font-size: 12px; padding: 5px 11px; white-space: nowrap; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
       .pill.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
       .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
 
@@ -95,6 +95,16 @@
       .note { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 14px 18px; color: var(--muted); font-size: 14.5px; }
       .command { margin: 14px 0 22px; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
       .command pre { overflow-x: auto; margin: 0 0 12px; font-size: 14px; }
+      .shell-command { color: #83d9c3; }
+      .shell-option { color: #c7b5ff; }
+      .shell-string { color: #f5cf87; }
+      .shell-variable { color: #ff9bb5; }
+      @media (prefers-color-scheme: light) {
+        .shell-command { color: #096757; }
+        .shell-option { color: #5841a3; }
+        .shell-string { color: #785100; }
+        .shell-variable { color: #9a2d56; }
+      }
       .command button { cursor: pointer; }
       .copy-status { margin-inline-start: 10px; color: var(--muted); font-size: 14px; }
       footer { padding: 36px 0 56px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--line); margin-top: 24px; }
@@ -132,10 +142,10 @@
           <div class="stage" aria-hidden="true">
             <img class="mascot" src="assets/mascot-multitask.svg" alt="" width="380" height="380">
             <div class="bubble">
-              <small data-i18n="b_from">Demande de Morgan dans #front</small>
+              <small data-i18n="b_from">Morgan · #front</small>
               <strong><span class="dot"></span><span data-i18n="b_title">À toi de décider</span></strong>
-              <p data-i18n="b_text">La connexion échoue seulement avec les comptes SSO. Corriger le callback, ou ajouter une nouvelle tentative ?</p>
-              <div class="row"><span class="pill on" data-i18n="b_a">Corriger le callback</span><span class="pill" data-i18n="b_b">Nouvelle tentative</span></div>
+              <p data-i18n="b_text">Le SSO bloque la connexion.</p>
+              <div class="row"><span class="pill on" data-i18n="b_a">Corriger</span><span class="pill" data-i18n="b_b">Réessayer</span></div>
             </div>
           </div>
         </div>
@@ -154,23 +164,23 @@
           <p data-i18n="requirements">Il te faut les outils de ligne de commande Xcode, Go 1.27.3 ou plus récent, Node.js 22.12 ou plus récent et pnpm 10.</p>
           <p data-i18n="brewHint">Si tu utilises Homebrew, tu peux installer Go, Node.js et pnpm avec la commande suivante. Pour les outils Xcode, lance xcode-select --install si nécessaire.</p>
           <div class="command">
-            <pre><code id="tools-command">brew install go node pnpm@10
-export PATH="$(brew --prefix pnpm@10)/bin:$PATH"</code></pre>
+            <pre><code id="tools-command" class="language-bash"><span class="shell-command">brew install</span> go node pnpm@10
+<span class="shell-command">export</span> <span class="shell-variable">PATH</span>=<span class="shell-string">"$(<span class="shell-command">brew</span> <span class="shell-option">--prefix</span> pnpm@10)/bin:<span class="shell-variable">$PATH</span>"</span></code></pre>
             <button class="button" type="button" data-copy="tools-command" data-i18n="copyTools">Copier les prérequis</button>
             <span class="copy-status" role="status"></span>
           </div>
           <p data-i18n="cloneHint">Copie ces commandes dans le Terminal. Le script compile Pouple, l’installe dans ~/Applications et le lance. Si tu utilisais une autre copie, quitte-la avant de lancer le script.</p>
           <div class="command">
-            <pre><code id="install-command">git clone https://github.com/Arthur-MONNET/pouple-app.git
-cd pouple-app
-bash scripts/install-local.sh</code></pre>
+            <pre><code id="install-command" class="language-bash"><span class="shell-command">git clone</span> <span class="shell-string">https://github.com/Arthur-MONNET/pouple-app.git</span>
+<span class="shell-command">cd</span> <span class="shell-string">pouple-app</span>
+<span class="shell-command">bash</span> <span class="shell-string">scripts/install-local.sh</span></code></pre>
             <button class="button" type="button" data-copy="install-command" data-i18n="copyInstall">Copier l’installation</button>
             <span class="copy-status" role="status"></span>
           </div>
           <p data-i18n="updateHint">Pour mettre à jour, quitte Pouple et lance ces commandes depuis le dossier pouple-app.</p>
           <div class="command">
-            <pre><code id="update-command">git pull --ff-only
-bash scripts/install-local.sh</code></pre>
+            <pre><code id="update-command" class="language-bash"><span class="shell-command">git pull</span> <span class="shell-option">--ff-only</span>
+<span class="shell-command">bash</span> <span class="shell-string">scripts/install-local.sh</span></code></pre>
             <button class="button" type="button" data-copy="update-command" data-i18n="copyUpdate">Copier la mise à jour</button>
             <span class="copy-status" role="status"></span>
           </div>
@@ -196,8 +206,8 @@ bash scripts/install-local.sh</code></pre>
         lead: 'Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what it found in a corner of your screen. You only take the decisions.',
         installButton: 'Install on macOS',
         compatibility: 'Local build · macOS 14 or later · Intel and Apple Silicon', versions: 'All versions on GitHub',
-        b_from: 'Request from Morgan in #front', b_title: 'Needs your decision',
-        b_text: 'The login fails only with SSO accounts. Fix it in the callback, or add a retry?', b_a: 'Fix the callback', b_b: 'Add a retry',
+        b_from: 'Morgan · #front', b_title: 'Needs your decision',
+        b_text: 'SSO sign-in fails.', b_a: 'Fix it', b_b: 'Retry',
         what: 'What it does', c1t: 'Listens like Slack does', c1p: 'Mentions, direct messages, notes to yourself, group chats and the threads you take part in.',
         c2t: 'Investigates with Codex', c2p: 'Reads your projects read-only, finds the answer, and writes the short version. Nothing is changed before you approve.',
         c3t: 'Stays out of the way', c3p: 'Floating bubbles in a screen corner, a window for the full conversations, and a Stop button at any moment.',
