@@ -25,14 +25,52 @@ def body_parts():
 LAYERS, HEAD = body_parts()
 SHADOW = f'<ellipse cx="100" cy="190" rx="86" ry="6" fill="{NAVY}" opacity=".12"/>'
 
+# Props that say what the product does: a Slack message comes in, Codex looks into it, a decision is asked, the
+# key stays in the keychain. (No real logos: a generic speech bubble and a generic terminal card.)
+def chat_bubble(x, y, rot=-8):
+    return (f'<g transform="rotate({rot} {x + 20} {y + 16})">'
+            f'<path d="M{x + 4} {y} H{x + 36} Q{x + 40} {y} {x + 40} {y + 4} V{y + 24} Q{x + 40} {y + 28} {x + 36} {y + 28} H{x + 14} L{x + 4} {y + 38} V{y + 28} Q{x} {y + 28} {x} {y + 24} V{y + 4} Q{x} {y} {x + 4} {y} Z" fill="#fff" stroke="{NAVY}" stroke-width="4" stroke-linejoin="round"/>'
+            f'<text x="{x + 20}" y="{y + 21}" text-anchor="middle" font-family="ui-rounded, Arial Rounded MT Bold, system-ui, sans-serif" font-weight="800" font-size="19" fill="{PINK}">@</text></g>')
+
+def code_card(x, y, rot=8):
+    return (f'<g transform="rotate({rot} {x + 20} {y + 15})">'
+            f'<rect x="{x}" y="{y}" width="40" height="30" rx="5" fill="#15171B" stroke="{NAVY}" stroke-width="4"/>'
+            f'<circle cx="{x + 7}" cy="{y + 7}" r="1.8" fill="#FF8FAE"/><circle cx="{x + 13}" cy="{y + 7}" r="1.8" fill="{m.YELLOW}"/><circle cx="{x + 19}" cy="{y + 7}" r="1.8" fill="#4CC38A"/>'
+            f'<path d="M{x + 9} {y + 15} l5 4 -5 4" fill="none" stroke="#C9C6FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<path d="M{x + 18} {y + 23} h11" stroke="#C9C6FF" stroke-width="3" stroke-linecap="round"/></g>')
+
+def approval_card(x, y, rot=-6):
+    return (f'<g transform="rotate({rot} {x + 18} {y + 14})">'
+            f'<rect x="{x}" y="{y}" width="38" height="28" rx="5" fill="#fff" stroke="{NAVY}" stroke-width="4"/>'
+            f'<circle cx="{x + 11}" cy="{y + 14}" r="6.5" fill="#4CC38A"/>'
+            f'<path d="M{x + 8} {y + 14} l2.4 2.6 4.4 -5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<path d="M{x + 21} {y + 10} h12 M{x + 21} {y + 18} h8" stroke="#B9BFEF" stroke-width="3" stroke-linecap="round"/></g>')
+
+def key(x, y, rot=35):
+    return (f'<g transform="rotate({rot} {x} {y})"><path d="M{x} {y} h22 M{x + 15} {y} v6 M{x + 21} {y} v5" fill="none" stroke="{NAVY}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<path d="M{x} {y} h22 M{x + 15} {y} v6 M{x + 21} {y} v5" fill="none" stroke="{m.YELLOW}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<circle cx="{x - 5}" cy="{y}" r="8" fill="{m.YELLOW}" stroke="{NAVY}" stroke-width="4"/><circle cx="{x - 5}" cy="{y}" r="2.6" fill="{NAVY}"/></g>')
+
+def small_magnifier(x, y):
+    return f'<g transform="translate({x} {y}) scale(.72)">{m.magnifier(0, 0)}</g>'
+
+def screen_laptop():
+    """A laptop seen from the front, its screen showing a few lines of code and a green check."""
+    return (f'<rect x="62" y="122" width="76" height="44" rx="6" fill="#15171B" stroke="{NAVY}" stroke-width="4"/>'
+            f'<path d="M71 133 h22" stroke="#FF8FAE" stroke-width="3.4" stroke-linecap="round"/>'
+            f'<path d="M71 142 h38" stroke="#C9C6FF" stroke-width="3.4" stroke-linecap="round"/>'
+            f'<path d="M71 151 h16" stroke="#8E88E0" stroke-width="3.4" stroke-linecap="round"/>'
+            f'<circle cx="123" cy="148" r="8" fill="#4CC38A"/><path d="M119 148 l3 3 6 -7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<rect x="54" y="166" width="92" height="8" rx="4" fill="#B9BFEF" stroke="{NAVY}" stroke-width="4"/>')
+
 # pose: (face, props). Props sit at the tips of the arms.
 POSES = {
     "multitask": ("open",
-        m.phone(8, 56, -10) + m.envelope(158, 64, 10) + m.laptop() + m.pencil(22, 146, 38) + m.mug(150, 150)),
+        chat_bubble(4, 66) + approval_card(150, 70) + screen_laptop()),
     "investigate": ("open",
-        m.document(0, 100, -10) + m.magnifier(150, 52)),
+        chat_bubble(2, 64) + m.magnifier(150, 52)),
     "done": ("happy",
-        m.sparkle(20, 40, 1.2, m.YELLOW) + m.sparkle(182, 36, 1.2, "#fff") + m.sparkle(186, 130, 0.8, m.YELLOW) + m.sparkle(14, 140, 0.8, "#fff") + m.check_badge(100, 8)),
+        m.sparkle(22, 40, 1.2, m.YELLOW) + m.sparkle(184, 70, 0.9, "#fff") + m.sparkle(186, 128, 0.8, m.YELLOW) + m.sparkle(14, 142, 0.8, "#fff") + m.check_badge(160, 24)),
     "sleep": ("closed",
         m.mug(150, 150) +
         f'<g fill="{NAVY}" font-family="ui-rounded, Arial Rounded MT Bold, system-ui, sans-serif" font-weight="800">'
