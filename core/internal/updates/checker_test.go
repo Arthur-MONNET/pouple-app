@@ -238,7 +238,7 @@ func TestBlockersAreReportedAndDoNotHideTheUpdate(t *testing.T) {
 	fx.git.set("rev-list --count origin/main..HEAD --", "1\n", nil)
 	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "one\ntwo\n", nil)
 	fx.git.set("rev-parse --abbrev-ref HEAD", "feature\n", nil)
-	fx.git.set("status --porcelain", " M core/go.mod\n?? notes.txt\n", nil)
+	fx.git.set("status --porcelain --untracked-files=no", " M core/go.mod\n", nil)
 	s := status(fx.checker().Check(context.Background()))
 	if !s.Available || s.Behind != 2 || len(s.Changes) != 2 {
 		t.Errorf("the update stays visible: %+v", s)
@@ -412,7 +412,7 @@ func TestEveryCommandIsHardenedAndNeverUsesAShell(t *testing.T) {
 		"rev-list --count HEAD..origin/main --",
 		"rev-list --count origin/main..HEAD --",
 		"log --format=%s -n 15 HEAD..origin/main --",
-		"status --porcelain",
+		"status --porcelain --untracked-files=no",
 	}
 	if !reflect.DeepEqual(fx.git.keys(), want) {
 		t.Errorf("commands:\n got %q\nwant %q", fx.git.keys(), want)

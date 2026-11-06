@@ -234,7 +234,7 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 		}
 		changes = subjects(log)
 	}
-	dirty, err := c.run(ctx, root, "status", "--porcelain")
+	dirty, err := c.run(ctx, root, "status", "--porcelain", "--untracked-files=no")
 	if err != nil {
 		return fail(classify(ctx, err))
 	}

@@ -65,6 +65,7 @@ public enum UpdateScript {
         set -u
         ROOT=\(shellQuote(sourceRoot))
         APP_PID=\(appPID)
+        SELF="$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")"
 
         say() { printf '\\n==> %s\\n' "$1"; }
         fail() {
@@ -96,7 +97,7 @@ public enum UpdateScript {
 
         say \(shellQuote(m.done))
         # This file was written for this one run: remove it (and its private folder) once everything went well.
-        rm -f -- "$0"; rmdir -- "$(dirname -- "$0")" 2>/dev/null || true
+        rm -f -- "$SELF"; rmdir -- "$(dirname -- "$SELF")" 2>/dev/null || true
         sleep 2
         exit 0
 

@@ -54,7 +54,7 @@ final class UpdateScriptTests: XCTestCase {
 
     func testTheScriptRemovesItselfOnlyAfterSuccess() {
         let text = UpdateScript.content(sourceRoot: "/x", appPID: 1, messages: messages)
-        let remove = text.range(of: "rm -f -- \"$0\"")!
+        let remove = text.range(of: "rm -f -- \"$SELF\"")!
         XCTAssertGreaterThan(remove.lowerBound, text.range(of: "bash scripts/install-local.sh")!.upperBound)
         XCTAssertFalse(text.contains("rm -rf"), "never a recursive removal")
     }

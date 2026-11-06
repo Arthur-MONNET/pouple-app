@@ -135,7 +135,7 @@ func newFixture(t *testing.T) *fixture {
 	git.set("rev-parse --verify --quiet origin/main^{commit}", latestSHA+"\n", nil)
 	git.set("rev-list --count HEAD..origin/main --", "0\n", nil)
 	git.set("rev-list --count origin/main..HEAD --", "0\n", nil)
-	git.set("status --porcelain", "", nil)
+	git.set("status --porcelain --untracked-files=no", "", nil)
 	return &fixture{dir: dir, root: root, git: git, now: time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)}
 }
 
