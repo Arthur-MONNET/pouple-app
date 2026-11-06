@@ -28,10 +28,20 @@ type Settings struct {
 	PollSeconds int `json:"pollSeconds"`
 	// DailyTurnLimit caps the Codex turns per day; 0 means no limit.
 	DailyTurnLimit int `json:"dailyTurnLimit"`
+	// ProjectsRoot is the folder with one folder per project: where Codex looks, and where approved changes go.
+	ProjectsRoot string `json:"projectsRoot"`
+	// Language is the language of summaries and questions ("French"); empty uses the system language.
+	Language string `json:"language"`
+	// AutoApprove is "off" (always ask) or "own-notes" (apply a change proposed from a note to oneself).
+	AutoApprove string `json:"autoApprove"`
+	// Keywords are words that make a Slack message a request wherever it is posted.
+	Keywords []string `json:"keywords"`
+	// IgnoreChannels are channel ids whose messages are never requests.
+	IgnoreChannels []string `json:"ignoreChannels"`
 }
 
 func Defaults() Settings {
-	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150}
+	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}}
 }
 
 // File reads and writes the settings, one writer at a time.

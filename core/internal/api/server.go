@@ -83,8 +83,16 @@ func (s *Server) allowedHost(host string) bool {
 
 func (s *Server) authorized(r *http.Request) bool {
 	given := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if given == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		// Reads only: an <img> cannot send a header, so the page's own session cookie is accepted for them.
+		if cookie, err := r.Cookie(sessionCookie); err == nil {
+			given = cookie.Value
+		}
+	}
 	return given != "" && subtle.ConstantTimeCompare([]byte(given), []byte(s.opts.Token)) == 1
 }
+
+const sessionCookie = "pouple_session"
 
 // page serves the interface: real files as they are, any other path as index.html (the router lives in the page).
 func (s *Server) page(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +115,8 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	boot, _ := json.Marshal(map[string]string{"token": s.opts.Token})
 	script := "<script>window.__POUPLE__=" + strings.ReplaceAll(string(boot), "<", "\\u003c") + "</script>"
 	index = bytes.Replace(index, []byte("<!--POUPLE_BOOT-->"), []byte(script), 1)
+	// The cookie lets images and downloads load (they cannot carry a header); it is never sent cross-site.
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.opts.Token, Path: "/api/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(index)
 }

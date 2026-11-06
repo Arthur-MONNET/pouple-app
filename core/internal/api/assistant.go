@@ -1,0 +1,220 @@
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/engine"
+)
+
+// Assistant is what the HTTP layer needs from the engine.
+type Assistant interface {
+	Snapshot() engine.Snapshot
+	Subscribe() (<-chan struct{}, func())
+	Answer(id string, answers []engine.Answer) error
+	Message(id, text string, attachmentIDs []string) error
+	Decide(id string, approve bool) error
+	Ignore(id string) error
+	Retry(id string) error
+	Remove(id string) error
+	Stop(id string) error
+}
+
+const (
+	heartbeat     = 15 * time.Second
+	coalesce      = 80 * time.Millisecond
+	maxUploadSize = engine.MaxAttachmentBytes
+)
+
+// MountAssistant adds the conversation routes (the contract Cockpit's chat already used).
+func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(mux *http.ServeMux) {
+	return func(mux *http.ServeMux) {
+		handle := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
+			mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+				if err := fn(w, r); err != nil {
+					writeEngineError(w, err)
+				}
+			})
+		}
+		mux.HandleFunc("GET /api/assistant", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, assistant.Snapshot())
+		})
+		mux.HandleFunc("GET /api/assistant/stream", func(w http.ResponseWriter, r *http.Request) { stream(assistant, w, r) })
+
+		handle("POST /api/assistant/requests/{id}/answers", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Answers []engine.Answer `json:"answers"`
+			}
+			if err := decodeBody(r, &body); err != nil || len(body.Answers) == 0 {
+				return fmt.Errorf("%w: \"answers\" must be a non-empty array", engine.ErrInput)
+			}
+			return accepted(w, assistant.Answer(r.PathValue("id"), body.Answers))
+		})
+		handle("POST /api/assistant/requests/{id}/messages", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Text          string   `json:"text"`
+				AttachmentIDs []string `json:"attachmentIds"`
+			}
+			if err := decodeBody(r, &body); err != nil {
+				return fmt.Errorf("%w: the body is not valid JSON", engine.ErrInput)
+			}
+			return accepted(w, assistant.Message(r.PathValue("id"), body.Text, body.AttachmentIDs))
+		})
+		handle("POST /api/assistant/requests/{id}/proposal", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Decision string `json:"decision"`
+			}
+			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
+				return fmt.Errorf("%w: \"decision\" must be \"approve\" or \"decline\"", engine.ErrInput)
+			}
+			return accepted(w, assistant.Decide(r.PathValue("id"), body.Decision == "approve"))
+		})
+		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
+			return noContent(w, assistant.Ignore(r.PathValue("id")))
+		})
+		handle("POST /api/assistant/requests/{id}/retry", func(w http.ResponseWriter, r *http.Request) error {
+			return accepted(w, assistant.Retry(r.PathValue("id")))
+		})
+		handle("POST /api/assistant/requests/{id}/stop", func(w http.ResponseWriter, r *http.Request) error {
+			return accepted(w, assistant.Stop(r.PathValue("id")))
+		})
+		handle("DELETE /api/assistant/requests/{id}", func(w http.ResponseWriter, r *http.Request) error {
+			return noContent(w, assistant.Remove(r.PathValue("id")))
+		})
+
+		// A file added in the chat: raw bytes in the body, its name in the query. It waits for the message that sends it.
+		handle("POST /api/assistant/requests/{id}/attachments", func(w http.ResponseWriter, r *http.Request) error {
+			if !requestExists(assistant, r.PathValue("id")) {
+				return engine.ErrNotFound
+			}
+			data, err := io.ReadAll(io.LimitReader(r.Body, maxUploadSize+1))
+			if err != nil {
+				return err
+			}
+			name := r.URL.Query().Get("name")
+			if name == "" {
+				name = "file"
+			}
+			ref, err := attachments.Save(name, data)
+			if err != nil {
+				return fmt.Errorf("%w: %s", engine.ErrInput, err)
+			}
+			writeJSON(w, http.StatusCreated, ref)
+			return nil
+		})
+		handle("GET /api/assistant/requests/{id}/attachments/{attachmentId}", func(w http.ResponseWriter, r *http.Request) error {
+			if !requestExists(assistant, r.PathValue("id")) {
+				return engine.ErrNotFound
+			}
+			ref, path, err := attachments.Open(r.PathValue("attachmentId"))
+			if err != nil {
+				return engine.ErrNotFound
+			}
+			// Only what is safe to show is shown: images as images, everything else a download the browser never runs.
+			inline := ref.Kind == "image"
+			contentType, disposition := "application/octet-stream", "attachment"
+			if inline {
+				contentType, disposition = ref.Mime, "inline"
+			}
+			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("Content-Disposition", disposition+"; filename*=UTF-8''"+url.PathEscape(ref.Name))
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			http.ServeFile(w, r, path)
+			return nil
+		})
+	}
+}
+
+func requestExists(assistant Assistant, id string) bool {
+	for _, request := range assistant.Snapshot().Requests {
+		if request.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeBody(r *http.Request, into any) error {
+	return json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(into)
+}
+
+func accepted(w http.ResponseWriter, err error) error {
+	if err == nil {
+		w.WriteHeader(http.StatusAccepted)
+	}
+	return err
+}
+
+func noContent(w http.ResponseWriter, err error) error {
+	if err == nil {
+		w.WriteHeader(http.StatusNoContent)
+	}
+	return err
+}
+
+func writeEngineError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	switch {
+	case errors.Is(err, engine.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, engine.ErrState), errors.Is(err, engine.ErrInactive):
+		status = http.StatusConflict
+	case errors.Is(err, engine.ErrInput):
+		status = http.StatusBadRequest
+	}
+	message := err.Error()
+	if status == http.StatusInternalServerError {
+		message = "Something went wrong"
+	}
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+// stream sends the full snapshot on connect and again after each change; bursts are sent as one.
+func stream(assistant Assistant, w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.WriteHeader(http.StatusOK)
+
+	changes, unsubscribe := assistant.Subscribe()
+	defer unsubscribe()
+	last := ""
+	send := func() {
+		data, _ := json.Marshal(assistant.Snapshot())
+		if string(data) == last {
+			return
+		}
+		last = string(data)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+	send()
+	ticker := time.NewTicker(heartbeat)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-changes:
+			time.Sleep(coalesce)
+			select {
+			case <-changes:
+			default:
+			}
+			send()
+		case <-ticker.C:
+			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		}
+	}
+}
