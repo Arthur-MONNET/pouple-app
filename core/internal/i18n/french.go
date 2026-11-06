@@ -15,9 +15,9 @@ var fr = map[string]string{
 	"Copy the User OAuth Token":                                    "Copier le jeton OAuth utilisateur",
 	"It is on the same page and starts with xoxp-. Paste it here.": "Il est sur la même page et commence par xoxp-. Colle-le ici.",
 	"App-level Token":                                              "Jeton de niveau application",
-	"does not look like an app-level token (it starts with xapp-)": "doit commencer par xapp-",
-	"Slack could not be reached: %s":                               "Slack est injoignable : %s",
-	"Slack answered %d":                                            "Slack a répondu %d",
+	"must be a non-rotating xapp- token. Paste it as issued by Slack, or leave this field empty.": "doit être un jeton xapp- sans rotation. Colle-le tel que Slack l’a fourni ou laisse ce champ vide.",
+	"Slack could not be reached: %s": "Slack est injoignable : %s",
+	"Slack answered %d":              "Slack a répondu %d",
 	"This is a bot token (xoxb-). Pouple needs the User OAuth Token, which starts with xoxp-.": "C’est un jeton de bot (xoxb-). Pouple a besoin du jeton OAuth utilisateur, qui commence par xoxp-.",
 	"Slack does not accept this token. Copy it again from the app's Install App page.":         "Slack n’accepte pas ce jeton. Copie-le à nouveau depuis la page Install App de l’app.",
 	"This token expired. Reinstall the app to the workspace and copy the new token.":           "Ce jeton a expiré. Réinstalle l’app dans l’espace de travail et copie le nouveau jeton.",
@@ -170,11 +170,11 @@ var fr = map[string]string{
 	"Codex exited with %s%s":                      "Codex s’est arrêté (%s)%s",
 
 	// Slack live setup
-	"Optional: enables live Slack notifications. Starts with xapp- and stays in your Mac’s keychain.": "Facultatif. Active la réception en direct des messages Slack. Ce jeton commence par xapp- et reste dans le trousseau de ton Mac.",
+	"Optional. For live updates, paste the non-rotating xapp- token from Slack. It stays in your Mac’s keychain.": "Facultatif. Pour recevoir les messages en direct, colle le jeton xapp- sans rotation fourni par Slack. Il reste dans le trousseau de ton Mac.",
 	"Enable live Slack updates": "Active la réception en direct",
 	"In Basic Information, generate an App-Level Token with connections:write. For an existing Slack app, enable Socket Mode and subscribe to message.channels, message.groups, message.im, and message.mpim under Subscribe to events on behalf of users, then reinstall the app.": "Dans Basic Information, crée un App-Level Token avec connections:write. Pour une application Slack existante, active Socket Mode et abonne-toi à message.channels, message.groups, message.im et message.mpim dans Subscribe to events on behalf of users, puis réinstalle l’application.",
-	"Slack refused this app-level token. Check Socket Mode and the connections:write scope.": "Slack a refusé ce jeton d’application. Vérifie que Socket Mode est activé et que le jeton a la permission connections:write.",
-	"Slack could not verify the app-level token. Try again.":                                 "Slack n’a pas pu vérifier le jeton d’application. Réessaie.",
+	"Slack refused this app-level token. Copy it again from Basic Information in Slack, or leave this field empty to continue without live updates.":                                                                                                                                "Slack a refusé ce jeton d’application. Recopie-le depuis Basic Information dans Slack ou laisse ce champ vide pour continuer sans réception en direct.",
+	"Slack could not verify the app-level token. Try again.": "Slack n’a pas pu vérifier le jeton d’application. Réessaie.",
 
 	// Slack inbox
 	"Threads":                          "Fils de discussion",

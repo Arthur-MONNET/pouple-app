@@ -118,6 +118,7 @@ export const en: MessageTree = {
     found: 'Found {profile}. Is this you?',
     saving: 'Saving {name}…',
     checkToken: 'Check this token',
+    continueWithoutLiveUpdates: 'Continue without live updates',
     check: 'Check',
     yes: "Yes, that's me",
     notMeToken: 'Not me, use another token',

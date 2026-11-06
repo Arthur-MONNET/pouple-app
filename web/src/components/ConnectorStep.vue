@@ -21,6 +21,15 @@ const { flow } = step;
 const confirming = computed(() => flow.value.phase === 'confirm' || flow.value.phase === 'saving');
 
 const descriptor = computed(() => props.connector.descriptor);
+const canContinueWithoutLiveUpdates = computed(() =>
+  descriptor.value.id === 'slack' && Boolean(step.values.appToken && step.fieldErrors.value.appToken),
+);
+
+function continueWithoutLiveUpdates(): void {
+  step.values.appToken = '';
+  void step.check();
+}
+
 /** The words of the status line, announced politely to screen readers. */
 const statusText = computed(() => {
   switch (flow.value.phase) {
@@ -73,9 +82,14 @@ const statusText = computed(() => {
             @enter="step.check()"
           />
           <InlineError v-if="step.generalError.value">{{ step.generalError.value }}</InlineError>
-          <AppButton type="submit" variant="primary" size="lg" class="w-fit" data-testid="check">
-            {{ step.fields.value.some((field) => field.secret) ? $t('connect.checkToken') : $t('connect.check') }}
-          </AppButton>
+          <div class="flex flex-wrap gap-2">
+            <AppButton type="submit" variant="primary" size="lg" data-testid="check">
+              {{ step.fields.value.some((field) => field.secret) ? $t('connect.checkToken') : $t('connect.check') }}
+            </AppButton>
+            <AppButton v-if="canContinueWithoutLiveUpdates" type="button" variant="outline" size="lg" @click="continueWithoutLiveUpdates">
+              {{ $t('connect.continueWithoutLiveUpdates') }}
+            </AppButton>
+          </div>
         </form>
         <ActionsPanel
           v-else

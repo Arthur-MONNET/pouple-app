@@ -107,12 +107,12 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		}, {
 			ID:          AppTokenField,
 			Label:       "App-level Token",
-			Help:        "Optional: enables live Slack notifications. Starts with xapp- and stays in your Mac’s keychain.",
+			Help:        "Optional. For live updates, paste the non-rotating xapp- token from Slack. It stays in your Mac’s keychain.",
 			Placeholder: "xapp-…",
 			Secret:      true,
 			Optional:    true,
 			Pattern:     `^xapp-[A-Za-z0-9-]{20,}$`,
-			PatternHint: "does not look like an app-level token (it starts with xapp-)",
+			PatternHint: "must be a non-rotating xapp- token. Paste it as issued by Slack, or leave this field empty.",
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Create the Slack app", Body: "One click: Slack opens with the name and every permission already filled in. Choose your workspace and confirm.", Link: &connector.Link{Label: "Create the Slack app", URL: CreateAppURL()}},
@@ -220,7 +220,7 @@ func (c *Connector) Validate(ctx context.Context, values connector.Values) (conn
 		live.Base, live.HTTP = c.Base, c.HTTP
 		if err := live.Check(ctx); err != nil {
 			if errors.Is(err, slackrt.ErrToken) {
-				return connector.Profile{}, connector.Invalid(AppTokenField, "Slack refused this app-level token. Check Socket Mode and the connections:write scope.")
+				return connector.Profile{}, connector.Invalid(AppTokenField, "Slack refused this app-level token. Copy it again from Basic Information in Slack, or leave this field empty to continue without live updates.")
 			}
 			return connector.Profile{}, connector.Invalid(AppTokenField, "Slack could not verify the app-level token. Try again.")
 		}

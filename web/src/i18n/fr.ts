@@ -122,6 +122,7 @@ export const fr: MessageTree = {
     found: 'Trouvé : {profile}. Est-ce bien toi ?',
     saving: 'Enregistrement de {name}…',
     checkToken: 'Vérifier ce jeton',
+    continueWithoutLiveUpdates: 'Continuer sans le direct',
     check: 'Vérifier',
     yes: "Oui, c'est moi",
     notMeToken: 'Non, utiliser un autre jeton',

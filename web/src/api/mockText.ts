@@ -107,8 +107,8 @@ const fr: MockText = {
     linkLabel: 'Créer l’app Slack',
     live: {
       label: 'Jeton de niveau application',
-      help: 'Facultatif. Active la réception en direct des messages Slack. Ce jeton commence par xapp- et reste dans le trousseau de ton Mac.',
-      hint: 'doit commencer par xapp-',
+      help: 'Facultatif. Pour recevoir les messages en direct, colle le jeton xapp- sans rotation fourni par Slack. Il reste dans le trousseau de ton Mac.',
+      hint: 'doit être un jeton xapp- sans rotation. Colle-le tel que Slack l’a fourni ou laisse ce champ vide.',
       title: 'Active la réception en direct',
       body: 'Dans Basic Information, crée un App-Level Token avec connections:write. Pour une application Slack existante, active Socket Mode et abonne-toi à message.channels, message.groups, message.im et message.mpim dans Subscribe to events on behalf of users, puis réinstalle l’application.',
     },
@@ -217,8 +217,8 @@ const en: MockText = {
     linkLabel: 'Create the Slack app',
     live: {
       label: 'App-level Token',
-      help: 'Optional: enables live Slack notifications. Starts with xapp- and stays in your Mac’s keychain.',
-      hint: 'does not look like an app-level token (it starts with xapp-)',
+      help: 'Optional. For live updates, paste the non-rotating xapp- token from Slack. It stays in your Mac’s keychain.',
+      hint: 'must be a non-rotating xapp- token. Paste it as issued by Slack, or leave this field empty.',
       title: 'Enable live Slack updates',
       body: 'In Basic Information, generate an App-Level Token with connections:write. For an existing Slack app, enable Socket Mode and subscribe to message.channels, message.groups, message.im, and message.mpim under Subscribe to events on behalf of users, then reinstall the app.',
     },
