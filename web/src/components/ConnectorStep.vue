@@ -7,7 +7,8 @@ import AppButton from './AppButton.vue';
 import AppSpinner from './AppSpinner.vue';
 import FieldInput from './FieldInput.vue';
 import GuideList from './GuideList.vue';
-import PouMascot from './PouMascot.vue';
+import InlineError from './InlineError.vue';
+import MascotStage from './MascotStage.vue';
 import ProfileCard from './ProfileCard.vue';
 
 const props = withDefaults(defineProps<{ connector: ConnectorStatus; compact?: boolean; stepNumber?: number }>(), { compact: false, stepNumber: 1 });
@@ -47,7 +48,7 @@ const statusText = computed(() => {
       <p class="font-mono text-xs uppercase tracking-widest text-accent">Step {{ stepNumber }} &middot; {{ descriptor.name }}</p>
       <h2 id="confirm-title" class="font-display text-4xl font-semibold leading-tight tracking-tight text-ink">Is this you?</h2>
       <p class="text-base leading-relaxed text-ink-muted">{{ descriptor.name }} answered. Check the name before saving: nothing is stored until you say yes.</p>
-      <div v-if="!compact" class="mt-2 flex h-56 items-center justify-center rounded-3xl bg-lavender" aria-hidden="true"><PouMascot pose="done" class="h-48" /></div>
+      <MascotStage v-if="!compact" pose="done" size="lg" class="mt-2" />
     </section>
 
     <section :aria-labelledby="confirming ? 'confirm-title' : 'form-title'" class="flex min-w-0 flex-col gap-5 rounded-2xl border border-line bg-surface/60 p-5 min-[700px]:p-6">
@@ -70,7 +71,7 @@ const statusText = computed(() => {
             @blur="step.touched[field.id] = true"
             @enter="step.check()"
           />
-          <p v-if="step.generalError.value" role="alert" class="text-sm text-fail">{{ step.generalError.value }}</p>
+          <InlineError v-if="step.generalError.value">{{ step.generalError.value }}</InlineError>
           <AppButton type="submit" variant="primary" size="lg" class="w-fit" data-testid="check">
             {{ step.fields.value.some((field) => field.secret) ? 'Check this token' : 'Check' }}
           </AppButton>

@@ -77,7 +77,7 @@ function next(): void {
             <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded border border-line-strong font-mono text-2xs">{{ letter(index) }}</span>
             <span class="min-w-0">
               <span class="block">{{ option.label }}</span>
-              <span v-if="option.description" class="block text-xs text-ink-dim">{{ option.description }}</span>
+              <span v-if="option.description" class="block text-xs text-ink-muted">{{ option.description }}</span>
             </span>
           </button>
         </li>

@@ -59,7 +59,7 @@ struct BubbleCard: View {
                 ReplyField(busy: busy) { store.send(request, $0) }
             }
             if let error = store.errors[request.id] {
-                Text(error).font(.system(size: 11)).foregroundStyle(Theme.fail).fixedSize(horizontal: false, vertical: true)
+                Label(error, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Theme.fail).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
@@ -110,7 +110,10 @@ struct BubbleCard: View {
             if let summary = request.summary { MarkdownView(source: summary) }
             decision
         case .failed:
-            Text(request.error ?? "Something went wrong").font(.system(size: 12)).foregroundStyle(Theme.fail)
+            Label(request.error ?? "Something went wrong", systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.fail)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Investigate again") { store.retry(request) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
                 openButton

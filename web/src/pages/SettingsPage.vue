@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { errorMessage } from '../api/client';
 import type { AutoApprove } from '../api/types';
 import AppButton from '../components/AppButton.vue';
+import InlineError from '../components/InlineError.vue';
 import AppSpinner from '../components/AppSpinner.vue';
 import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
 import { useSettings } from '../composables/useSettings';
@@ -48,7 +49,7 @@ async function submit(): Promise<void> {
         <h1 class="text-title font-semibold text-ink">Settings</h1>
         <p class="text-sm text-ink-muted">How Pouple works with your projects and how much it may do on its own.</p>
       </header>
-      <p v-if="loadError" role="alert" class="rounded-lg border border-fail/40 bg-fail/10 px-3 py-2 text-sm text-fail">The settings could not be read: {{ loadError }}</p>
+      <InlineError v-if="loadError" box>The settings could not be read: {{ loadError }}</InlineError>
 
       <section aria-labelledby="projects-title" class="flex flex-col gap-3 rounded-xl border border-line bg-surface p-5">
         <h2 id="projects-title" class="text-base font-semibold text-ink">Projects</h2>
@@ -89,7 +90,7 @@ async function submit(): Promise<void> {
           <p class="text-xs text-ink-dim">Separate words with commas. A message containing one becomes a request wherever it is posted.</p>
         </div>
 
-        <p v-if="error" role="alert" class="text-sm text-fail" data-testid="settings-error">{{ error }}</p>
+        <InlineError v-if="error" data-testid="settings-error">{{ error }}</InlineError>
         <p v-if="saved" role="status" class="text-sm text-ok">Settings saved.</p>
         <AppButton type="submit" variant="primary" size="lg" class="w-fit" :disabled="saving || !settings">
           <AppSpinner v-if="saving" />

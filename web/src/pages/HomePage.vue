@@ -3,7 +3,8 @@ import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppIcon from '../components/AppIcon.vue';
 import ConversationList from '../components/ConversationList.vue';
-import PouMascot from '../components/PouMascot.vue';
+import InlineError from '../components/InlineError.vue';
+import MascotStage from '../components/MascotStage.vue';
 import ConversationView from '../components/ConversationView.vue';
 import { provideAssistantStore } from '../composables/assistantStore';
 import { useApi } from '../composables/useApi';
@@ -35,12 +36,11 @@ watch(
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div v-if="status?.problem || store.error.value || (status?.notices.length ?? 0) > 0" class="flex items-start gap-3 border-b border-line-soft bg-surface px-4 py-2 text-xs" aria-live="polite" data-testid="status-banner">
-      <PouMascot v-if="status?.problem || store.error.value" pose="oops" class="size-12 shrink-0" />
+      <MascotStage v-if="status?.problem || store.error.value" pose="oops" size="sm" />
       <div class="flex min-w-0 flex-col justify-center gap-1 self-center">
-        <p v-if="store.error.value" role="alert" class="text-fail">Pouple&rsquo;s core is not answering: {{ store.error.value }}</p>
-        <p v-if="status?.problem" role="alert" :class="status.active ? 'text-warn' : 'text-ink-muted'">
-          {{ status.active ? 'Slack check failed: ' : 'Pouple is paused: ' }}{{ status.problem }}
-        </p>
+        <InlineError v-if="store.error.value">Pouple&rsquo;s core is not answering: {{ store.error.value }}</InlineError>
+        <InlineError v-if="status?.problem && status.active">Slack check failed: {{ status.problem }}</InlineError>
+        <p v-else-if="status?.problem" role="status" class="text-ink-muted">Pouple is paused: {{ status.problem }}</p>
         <p v-for="notice in status?.notices ?? []" :key="notice" class="text-ink-muted">{{ notice }}</p>
       </div>
     </div>
@@ -70,7 +70,7 @@ watch(
         <ConversationView v-if="selected" :request="selected" @removed="router.replace({ name: 'home' })" />
         <div v-else class="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-ink-dim">
           <template v-if="store.loaded.value">
-            <PouMascot pose="sleep" class="size-32" />
+            <MascotStage pose="sleep" size="md" class="!size-36" />
             <p class="font-display text-xl font-semibold text-ink">{{ store.requests.value.length === 0 ? 'Nothing to do. Pouple is napping.' : 'Pick a conversation.' }}</p>
             <p class="max-w-sm text-sm text-ink-muted">{{ store.requests.value.length === 0 ? 'The next request that would notify you shows up here.' : 'Or wait for the next request.' }}</p>
           </template>

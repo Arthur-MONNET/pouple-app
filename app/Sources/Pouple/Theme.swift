@@ -16,24 +16,30 @@ enum Theme {
     static let onAccent = Color(hex: 0x0E0F12)
     static let warn = Color(hex: 0xFFC857)
     static let ok = Color(hex: 0x4CC38A)
-    static let fail = Color(red: 0.937, green: 0.42, blue: 0.42)
+    /// Errors only, always next to a word or an icon. Red-orange, far from the coral accent.
+    static let fail = Color(hex: 0xFF5A36)
     static let muted = Color(hex: 0xA4A9B3)
-    static let dim = Color.white.opacity(0.42)
+    static let dim = Color(hex: 0x868B95)
+    /// The dark stage the mascot sits on.
+    static let stage = Color(hex: 0x1E1D3F)
+    static let outlineOnDark = Color(hex: 0x9D98E8)
 }
 
 struct PillButtonStyle: ButtonStyle {
-    enum Role { case primary, secondary, quiet }
+    /// `destructive` (Stop, Delete) is outlined in `fail`, never filled; `primary` is the only filled button.
+    enum Role { case primary, secondary, quiet, destructive }
     var role: Role = .secondary
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: role == .primary ? .semibold : .regular))
-            .foregroundStyle(role == .primary ? Theme.onAccent : Color.white.opacity(role == .quiet ? 0.6 : 0.9))
+            .foregroundStyle(role == .primary ? Theme.onAccent : (role == .destructive ? Theme.fail : Color.white.opacity(role == .quiet ? 0.6 : 0.9)))
             .padding(.horizontal, 11)
             .frame(height: 26)
             .background(
-                Capsule().fill(role == .primary ? Theme.accent : (role == .quiet ? Color.clear : Color.white.opacity(0.1)))
+                Capsule().fill(role == .primary ? Theme.accent : (role == .quiet || role == .destructive ? Color.clear : Color.white.opacity(0.1)))
             )
+            .overlay(Capsule().strokeBorder(Theme.fail, lineWidth: role == .destructive ? 1 : 0))
             .opacity(configuration.isPressed ? 0.7 : 1)
             .contentShape(Capsule())
     }

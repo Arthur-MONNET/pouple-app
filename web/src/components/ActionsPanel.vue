@@ -7,7 +7,8 @@ import ActionLog from './ActionLog.vue';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AppSpinner from './AppSpinner.vue';
-import PouMascot from './PouMascot.vue';
+import InlineError from './InlineError.vue';
+import MascotStage from './MascotStage.vue';
 
 const props = defineProps<{ connectorId: string; actions: ActionInfo[]; checklist: ChecklistItem[]; message: string | null }>();
 /** An action ended well: the step must look again at what is in place. */
@@ -58,9 +59,9 @@ async function start(action: ActionInfo): Promise<void> {
     </div>
 
     <div aria-live="polite" class="flex flex-col gap-3">
-      <div v-if="run.running.value" class="flex items-center gap-3 rounded-xl bg-lavender px-4 py-2 text-navy">
-        <PouMascot pose="investigate" class="size-16 shrink-0" />
-        <p class="flex items-center gap-2 text-sm font-medium">
+      <div v-if="run.running.value" class="flex items-center gap-3">
+        <MascotStage pose="investigate" />
+        <p class="flex items-center gap-2 text-sm font-medium text-ink">
           <AppSpinner />
           {{ run.running.value === 'login' ? 'Waiting for you to sign in in the browser…' : 'Installing. This takes a minute.' }}
         </p>
@@ -69,10 +70,7 @@ async function start(action: ActionInfo): Promise<void> {
         The sign-in page should have opened.
         <button type="button" class="text-accent underline-offset-2 hover:underline" @click="open(run.openUrl.value)">Open the sign-in page</button>
       </p>
-      <p v-if="run.error.value" role="alert" class="flex items-start gap-1.5 text-sm text-fail">
-        <AppIcon name="alert" />
-        <span>{{ run.error.value }}</span>
-      </p>
+      <InlineError v-if="run.error.value">{{ run.error.value }}</InlineError>
     </div>
 
     <ActionLog :lines="run.lines.value" :running="run.running.value !== null" />

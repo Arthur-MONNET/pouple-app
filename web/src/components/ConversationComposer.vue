@@ -7,6 +7,7 @@ import { useComposerFiles } from '../composables/composerFiles';
 import { isWorking, requestTitle } from '../lib/assistantRequests';
 import AppButton from './AppButton.vue';
 import IconButton from './IconButton.vue';
+import InlineError from './InlineError.vue';
 
 const props = defineProps<{ request: AssistantRequest }>();
 const store = useAssistantStore();
@@ -65,7 +66,7 @@ async function onFilesChosen(event: Event): Promise<void> {
 <template>
   <form class="px-4 py-3" @submit.prevent="send" @dragover.prevent @drop.prevent="files.onDrop">
     <p class="mb-1.5 truncate text-2xs text-ink-dim">About: {{ requestTitle(request) }}</p>
-    <p v-if="sendError || files.error.value" role="alert" class="mb-1.5 text-xs text-fail">{{ sendError ?? files.error.value }}</p>
+    <InlineError v-if="sendError || files.error.value" class="mb-1.5">{{ sendError ?? files.error.value }}</InlineError>
     <ul v-if="files.files.value.length > 0" class="mb-2 flex flex-wrap gap-2" aria-label="Files to send">
       <li v-for="file in files.files.value" :key="file.ref.id" class="relative">
         <img v-if="file.preview" :src="file.preview" :alt="file.ref.name" class="size-14 rounded-md border border-line object-cover" />

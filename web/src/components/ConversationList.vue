@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import type { AssistantRequest } from '../api/types';
 import { FILTER_LABELS, matchesFilter, requestTitle, STATUS_LABELS, type ConversationFilter } from '../lib/assistantRequests';
 import { relativeTime } from '../lib/format';
-import PouMascot from './PouMascot.vue';
+import MascotStage from './MascotStage.vue';
 import StatusDot from './StatusDot.vue';
 
 const props = defineProps<{ requests: AssistantRequest[]; selectedId: string | null; attention: number; loaded: boolean }>();
@@ -45,7 +45,7 @@ const EMPTY: Record<ConversationFilter, string> = {
           @click="filter = item"
         >
           {{ FILTER_LABELS[item] }}
-          <span v-if="item === 'needs-me' && attention > 0" class="ml-1 rounded bg-warn/20 px-1 text-2xs text-warn">{{ attention }}</span>
+          <span v-if="item === 'needs-me' && attention > 0" class="ml-1 rounded bg-accent/20 px-1 text-2xs text-accent">{{ attention }}</span>
         </button>
       </div>
     </div>
@@ -63,15 +63,15 @@ const EMPTY: Record<ConversationFilter, string> = {
           <StatusDot :status="request.status" class="mt-1.5" />
           <span class="min-w-0 flex-1">
             <span class="block truncate text-sm text-ink">{{ requestTitle(request) }}</span>
-            <span class="block truncate text-xs text-ink-dim">{{ request.text }}</span>
-            <span class="mt-0.5 block text-2xs text-ink-dim">{{ STATUS_LABELS[request.status] }}</span>
+            <span class="block truncate text-xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ request.text }}</span>
+            <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ STATUS_LABELS[request.status] }}</span>
           </span>
-          <time class="shrink-0 pt-0.5 text-2xs text-ink-dim" :datetime="request.updatedAt">{{ relativeTime(request.updatedAt) }}</time>
+          <time class="shrink-0 pt-0.5 text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'" :datetime="request.updatedAt">{{ relativeTime(request.updatedAt) }}</time>
         </button>
       </li>
     </ul>
     <div v-if="loaded && visible.length === 0 && filter === 'all'" class="flex flex-col items-center gap-2 px-5 py-8 text-center" data-testid="empty-list">
-      <PouMascot pose="sleep" class="size-28" />
+      <MascotStage pose="sleep" size="md" class="!size-28" />
       <p class="font-display text-lg font-semibold text-ink">Nothing to do. Pouple is napping.</p>
       <p class="text-xs leading-relaxed text-ink-muted">{{ EMPTY[filter] }}</p>
     </div>

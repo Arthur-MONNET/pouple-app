@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { errorMessage } from '../api/client';
 import type { ConnectorStatus } from '../api/types';
 import AppIcon from '../components/AppIcon.vue';
+import InlineError from '../components/InlineError.vue';
 import ConnectorCard from '../components/ConnectorCard.vue';
 import ConnectorStep from '../components/ConnectorStep.vue';
 import SideSheet from '../components/SideSheet.vue';
@@ -49,8 +50,8 @@ async function saved(): Promise<void> {
         <p class="text-sm text-ink-muted">The services Pouple reads from and works with. Secrets stay in your keychain.</p>
       </header>
 
-      <p v-if="store.error.value" role="alert" class="rounded-lg border border-fail/40 bg-fail/10 px-3 py-2 text-sm text-fail">The core is not answering: {{ store.error.value }}</p>
-      <p v-if="actionError" role="alert" class="rounded-lg border border-fail/40 bg-fail/10 px-3 py-2 text-sm text-fail">{{ actionError }}</p>
+      <InlineError v-if="store.error.value" box>The core is not answering: {{ store.error.value }}</InlineError>
+      <InlineError v-if="actionError" box>{{ actionError }}</InlineError>
 
       <section aria-labelledby="connected-title" class="flex flex-col gap-3">
         <h2 id="connected-title" class="text-xs font-medium uppercase tracking-wider text-ink-dim">Your connectors</h2>

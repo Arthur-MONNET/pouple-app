@@ -16,7 +16,7 @@ defineProps<{ attention: number }>();
         :class="{ 'bg-raised text-ink': $route.path.startsWith('/c/') }"
       >
         Conversations
-        <span v-if="attention > 0" class="ml-1 rounded bg-warn/20 px-1 text-2xs text-warn">{{ attention }}</span>
+        <span v-if="attention > 0" class="ml-1 rounded bg-accent/20 px-1 text-2xs text-accent">{{ attention }}</span>
       </RouterLink>
       <RouterLink
         to="/connectors"

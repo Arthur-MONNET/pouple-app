@@ -11,7 +11,8 @@ import AssistantQuestionCard from './AssistantQuestionCard.vue';
 import AttachmentList from './AttachmentList.vue';
 import ClampedBox from './ClampedBox.vue';
 import MarkdownText from './MarkdownText.vue';
-import PouMascot from './PouMascot.vue';
+import InlineError from './InlineError.vue';
+import MascotStage from './MascotStage.vue';
 
 const props = defineProps<{ request: AssistantRequest }>();
 const store = useAssistantStore();
@@ -167,14 +168,14 @@ watch(
     />
 
     <div v-if="request.status === 'failed'" class="flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5" data-testid="failed-note">
-      <PouMascot pose="oops" class="size-16 shrink-0" />
-      <p role="alert" class="text-xs text-fail">{{ request.error ?? 'Something went wrong.' }}</p>
+      <MascotStage pose="oops" />
+      <InlineError>{{ request.error ?? 'Something went wrong.' }}</InlineError>
     </div>
     <p v-else-if="stoppedNote && !working" class="flex items-center gap-2 text-xs text-ink-muted" data-testid="stopped-note">
-      <PouMascot pose="stop" class="size-9 shrink-0" />
+      <MascotStage pose="stop" size="sm" />
       Stopped. Nothing else will run on this request.
     </p>
-    <p v-if="actionError" role="alert" class="text-xs text-fail">{{ actionError }}</p>
+    <InlineError v-if="actionError">{{ actionError }}</InlineError>
 
     <div v-if="!working && request.status !== 'awaiting-user'" class="flex gap-1.5">
       <AppButton v-if="canElaborate" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.send(request.id, 'Give me more detail.'))">More detail</AppButton>

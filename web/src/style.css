@@ -29,15 +29,16 @@
   --color-ink-faint: #4a4f59;
   --color-accent: #f2668b;
   --color-accent-hover: #ff9db8;
-  --color-late: #f08a73;
   --color-warn: #ffc857;
   --color-ok: #4cc38a;
-  --color-fail: #ef6b6b;
-  --color-review: #c79bf2;
-  --color-shipped: #5c616b;
+  --color-fail: #ff5a36;
   --color-lavender: #c9c6ff;
   --color-lavender-soft: #dad8ff;
   --color-navy: #231f52;
+  /* The mascot stage everywhere except the welcome and final screens: lavender is for those two only. */
+  --color-stage: #1e1d3f;
+  /* The only text colour allowed on lavender. */
+  --color-on-lavender: #231f52;
 
   --animate-rise: rise 0.6s ease-out both;
 

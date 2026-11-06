@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useConnectorsStore } from '../composables/useConnectorsStore';
 import { afterSave, requiredSteps, resumePosition, type WizardPosition } from '../lib/connectorFlow';
 import AppButton from '../components/AppButton.vue';
+import InlineError from '../components/InlineError.vue';
 import BrandMark from '../components/BrandMark.vue';
 import ConnectorStep from '../components/ConnectorStep.vue';
 import WizardDone from '../components/WizardDone.vue';
@@ -46,10 +47,10 @@ const openMain = (): void => void router.push('/');
     </header>
 
     <main class="mx-auto w-full max-w-5xl flex-1 px-5 pb-10 min-[700px]:px-8">
-      <p v-if="store.error.value" role="alert" class="mb-4 rounded-lg border border-fail/40 bg-fail/10 px-3 py-2 text-sm text-fail">
+      <InlineError v-if="store.error.value" box>
         The core is not answering: {{ store.error.value }}
         <AppButton variant="ghost" size="sm" class="ml-2" @click="store.refresh()">Try again</AppButton>
-      </p>
+      </InlineError>
       <p v-if="position === null && !store.error.value" class="py-20 text-center text-ink-dim" role="status">Loading…</p>
       <ConnectorStep v-else-if="currentConnector" :key="currentConnector.descriptor.id" :connector="currentConnector" :step-number="current + 1" @saved="advance" />
       <WizardProjects v-else-if="position?.kind === 'projects'" @next="position = { kind: 'done' }" />

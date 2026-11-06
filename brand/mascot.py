@@ -28,10 +28,13 @@ SHADOW = f'<ellipse cx="100" cy="190" rx="78" ry="6" fill="{NAVY}" opacity=".12"
 # arms that flare out and curl up. No neck, no flat base: the arms are part of the head, as in a sticker.
 BODY_PATH = (
     "M36 100 C30 54 58 14 100 14 C142 14 170 54 164 100 "
-    "C170 112 186 116 192 126 C195 136 184 142 172 138 "
-    "C166 154 146 166 124 164 C112 163 104 156 100 140 "
-    "C96 156 88 163 76 164 C54 166 34 154 28 138 "
-    "C16 142 5 136 8 126 C14 116 30 112 36 100 Z"
+    "C170 112 186 114 192 124 C196 134 186 142 176 138 C172 142 170 146 166 148 "
+    # three tentacle tips along the bottom (an odd number, so there is a bump in the middle, never a cleft);
+    # the two side ones hook outward like the tip of an arm
+    "C167 162 160 171 149 171 C139 171 134 163 139 157 C134 158 129 156 126 150 "
+    "C124 162 114 170 100 170 C86 170 76 162 74 150 "
+    "C71 156 66 158 61 157 C66 163 61 171 51 171 C40 171 33 162 34 148 "
+    "C30 146 28 142 24 138 C14 142 4 134 8 124 C14 114 30 112 36 100 Z"
 )
 
 LOWER = ""  # kept for the icon: the arms are now part of BODY
@@ -42,9 +45,7 @@ def halo():
 
 HEAD = (
     f'<path d="{BODY_PATH}" fill="{PINK}" stroke="{NAVY}" stroke-width="4" stroke-linejoin="round"/>'
-    # folds that separate the arms
-    f'<path d="M128 124 C130 142 120 155 108 158" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
-    f'<path d="M72 124 C70 142 80 155 92 158" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
+    # small creases on the outer arms only; nothing runs down the middle
     f'<path d="M176 122 C181 127 181 132 178 136" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
     f'<path d="M24 122 C19 127 19 132 22 136" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
     # shine, and spots on the dome
@@ -52,7 +53,7 @@ HEAD = (
     f'<ellipse cx="62" cy="52" rx="10" ry="6" transform="rotate(-35 62 52)" fill="{PINK_SHADE}"/>'
     f'<circle cx="80" cy="36" r="4" fill="{PINK_SHADE}"/><circle cx="50" cy="70" r="3.2" fill="{PINK_SHADE}"/>'
     f'<circle cx="94" cy="28" r="2.6" fill="{PINK_SHADE}"/>'
-    f'{suckers([(150, 150), (142, 157), (50, 150), (58, 157)], 2.2)}'
+    f'{suckers([(146, 156), (136, 154), (100, 160), (110, 158), (55, 154), (65, 152)], 2.2)}'
 )
 
 def eyes(kind):

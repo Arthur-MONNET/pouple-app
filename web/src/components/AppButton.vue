@@ -20,7 +20,7 @@ withDefaults(
       'border border-line-strong bg-raised text-ink hover:bg-selected': variant === 'neutral',
       'border border-line-strong text-ink hover:bg-raised': variant === 'outline',
       'text-ink-muted hover:bg-raised hover:text-ink': variant === 'ghost',
-      'bg-fail/15 text-fail hover:bg-fail/25': variant === 'danger',
+      'border border-fail/55 bg-transparent text-fail hover:bg-fail/10': variant === 'danger',
       'h-7 px-2.5 text-xs': size === 'sm',
       'h-8 px-3 text-sm': size === 'md',
       'h-9 px-3.5 text-sm': size === 'lg',

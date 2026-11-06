@@ -5,6 +5,7 @@ import { useSettings } from '../composables/useSettings';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AppSpinner from './AppSpinner.vue';
+import InlineError from './InlineError.vue';
 
 const props = withDefaults(defineProps<{ skippable?: boolean; saveLabel?: string }>(), { skippable: false, saveLabel: 'Save' });
 const emit = defineEmits<{ saved: []; skip: [] }>();
@@ -57,7 +58,7 @@ async function submit(): Promise<void> {
       <p v-if="error" role="alert" class="flex items-start gap-1.5 text-xs text-fail" data-testid="field-error">
         <AppIcon name="alert" size="sm" /><span>{{ error }}</span>
       </p>
-      <p v-if="loadError" role="alert" class="text-xs text-fail">The current value could not be read: {{ loadError }}</p>
+      <InlineError v-if="loadError">The current value could not be read: {{ loadError }}</InlineError>
     </div>
     <div class="flex flex-wrap gap-2">
       <AppButton type="submit" variant="primary" size="lg" :disabled="saving || path.trim() === ''" data-testid="save-projects">

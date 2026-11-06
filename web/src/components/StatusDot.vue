@@ -10,8 +10,8 @@ defineProps<{ status: AssistantStatus }>();
     class="inline-block size-2 shrink-0 rounded-full"
     :class="{
       'bg-lavender motion-safe:animate-pulse': status === 'queued' || status === 'analyzing' || status === 'applying',
-      'bg-warn': status === 'awaiting-user',
-      'bg-review': status === 'ready',
+      'bg-accent': status === 'awaiting-user',
+      'bg-ink-muted': status === 'ready',
       'bg-ok': status === 'done',
       'bg-ink-faint': status === 'ignored',
       'bg-fail': status === 'failed',

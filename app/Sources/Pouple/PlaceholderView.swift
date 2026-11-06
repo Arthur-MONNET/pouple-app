@@ -29,7 +29,7 @@ struct PlaceholderView: View {
                 Text("Loading…").font(.system(size: 15, weight: .medium))
             case let .failed(message):
                 if let image = Mascot.image("oops") {
-                    Image(nsImage: image).resizable().scaledToFit().frame(width: 140, height: 140)
+                    MascotStage(image: image)
                 } else {
                     Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(Theme.warn)
                 }
@@ -52,7 +52,22 @@ struct PlaceholderView: View {
 
 private extension PlaceholderView {
     @ViewBuilder func mascot(_ name: String) -> some View {
-        if let image = Mascot.image(name) { Image(nsImage: image).resizable().scaledToFit().frame(width: 140, height: 140) }
+        if let image = Mascot.image(name) { MascotStage(image: image) }
+    }
+}
+
+/// The mascot on its dark stage, with a hairline.
+private struct MascotStage: View {
+    let image: NSImage
+
+    var body: some View {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 140, height: 140)
+            .padding(20)
+            .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Theme.stage))
+            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(Color(hex: 0x2E323A)))
     }
 }
 
