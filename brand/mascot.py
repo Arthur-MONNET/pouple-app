@@ -164,11 +164,17 @@ POSES = {
     ),
 }
 
-def svg(pose, background=None, shadow=True):
+OUTLINE_ON_DARK = "#9D98E8"
+
+def svg(pose, background=None, shadow=True, dark=False):
+    """dark=True is for dark surfaces: the navy outline would vanish there (contrast 1.2), so strokes turn lavender."""
     arms, face, props = POSES[pose]
     bg = f'<rect width="200" height="200" fill="{background}"/>' if background else ""
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
-            f'{bg}{SHADOW if shadow else ""}{LOWER}{arms}{HEAD}{eyes(face)}{props}</svg>')
+    out = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
+           f'{bg}{SHADOW if shadow and not dark else ""}{LOWER}{arms}{HEAD}{eyes(face)}{props}</svg>')
+    if dark:
+        out = out.replace(f'stroke="{NAVY}"', f'stroke="{OUTLINE_ON_DARK}"').replace(f'<g fill="{NAVY}" font-family', f'<g fill="{LAVENDER}" font-family')
+    return out
 
 def icon():
     """The app icon: the octopus on a soft lavender squircle (1024 x 1024)."""
@@ -182,5 +188,6 @@ if __name__ == "__main__":
     out = pathlib.Path(__file__).parent
     for name in POSES:
         (out / f"mascot-{name}.svg").write_text(svg(name) + "\n")
+        (out / f"mascot-{name}-dark.svg").write_text(svg(name, dark=True) + "\n")
     (out / "app-icon.svg").write_text(icon() + "\n")
     print("written:", ", ".join(POSES))
