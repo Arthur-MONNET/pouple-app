@@ -22,50 +22,65 @@ def tube(d, width=15, color=PINK):
 def suckers(points, r=2.2):
     return "".join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="{PINK_SHADE}"/>' for x, y in points)
 
-SHADOW = f'<ellipse cx="100" cy="188" rx="74" ry="7" fill="{NAVY}" opacity=".12"/>'
+SHADOW = f'<ellipse cx="100" cy="190" rx="78" ry="6" fill="{NAVY}" opacity=".12"/>'
 
-LOWER = "".join([
-    tube("M64 128 C46 146 28 150 30 168 C32 180 50 184 56 174"),
-    tube("M86 132 C82 154 72 168 80 180 C86 190 100 186 98 176"),
-    tube("M114 132 C118 154 128 168 120 180 C114 190 100 186 102 176"),
-    tube("M136 128 C154 146 172 150 170 168 C168 180 150 184 144 174"),
-    suckers([(36, 160), (41, 168), (50, 174)]),
-    suckers([(164, 160), (159, 168), (150, 174)]),
-])
+# One silhouette: a wide dome that flows straight into two broad centre arms (meeting in a V) and two short outer
+# arms that flare out and curl up. No neck, no flat base: the arms are part of the head, as in a sticker.
+BODY_PATH = (
+    "M36 100 C30 54 58 14 100 14 C142 14 170 54 164 100 "
+    "C170 112 186 116 192 126 C195 136 184 142 172 138 "
+    "C166 154 146 166 124 164 C112 163 104 156 100 140 "
+    "C96 156 88 163 76 164 C54 166 34 154 28 138 "
+    "C16 142 5 136 8 126 C14 116 30 112 36 100 Z"
+)
+
+LOWER = ""  # kept for the icon: the arms are now part of BODY
+
+def halo():
+    """A white sticker edge around the body: it also keeps the outline readable on dark surfaces."""
+    return f'<path d="{BODY_PATH}" fill="#fff" stroke="#fff" stroke-width="11" stroke-linejoin="round"/>'
 
 HEAD = (
-    f'<path d="M42 88 C42 44 68 22 100 22 C132 22 158 44 158 88 C158 112 146 130 130 138 L70 138 C54 130 42 112 42 88 Z" '
-    f'fill="{PINK}" stroke="{NAVY}" stroke-width="4" stroke-linejoin="round"/>'
-    f'<ellipse cx="74" cy="48" rx="14" ry="7.5" transform="rotate(-32 74 48)" fill="{PINK_LIGHT}"/>'
-    f'<circle cx="120" cy="40" r="5" fill="{PINK_SHADE}"/><circle cx="134" cy="55" r="3.4" fill="{PINK_SHADE}"/>'
-    f'<circle cx="104" cy="32" r="2.8" fill="{PINK_SHADE}"/><circle cx="142" cy="72" r="2.6" fill="{PINK_SHADE}"/>'
+    f'<path d="{BODY_PATH}" fill="{PINK}" stroke="{NAVY}" stroke-width="4" stroke-linejoin="round"/>'
+    # folds that separate the arms
+    f'<path d="M128 124 C130 142 120 155 108 158" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
+    f'<path d="M72 124 C70 142 80 155 92 158" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
+    f'<path d="M176 122 C181 127 181 132 178 136" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
+    f'<path d="M24 122 C19 127 19 132 22 136" fill="none" stroke="{NAVY}" stroke-width="3" stroke-linecap="round"/>'
+    # shine, and spots on the dome
+    f'<path d="M132 34 C146 40 156 52 160 68" fill="none" stroke="{PINK_LIGHT}" stroke-width="7" stroke-linecap="round"/>'
+    f'<ellipse cx="62" cy="52" rx="10" ry="6" transform="rotate(-35 62 52)" fill="{PINK_SHADE}"/>'
+    f'<circle cx="80" cy="36" r="4" fill="{PINK_SHADE}"/><circle cx="50" cy="70" r="3.2" fill="{PINK_SHADE}"/>'
+    f'<circle cx="94" cy="28" r="2.6" fill="{PINK_SHADE}"/>'
+    f'{suckers([(150, 150), (142, 157), (50, 150), (58, 157)], 2.2)}'
 )
 
 def eyes(kind):
-    cheeks = (f'<ellipse cx="62" cy="102" rx="7" ry="4.5" fill="{PINK_LIGHT}"/>'
-              f'<ellipse cx="138" cy="102" rx="7" ry="4.5" fill="{PINK_LIGHT}"/>')
-    def open_eyes(r=9.5):
-        return (f'<circle cx="78" cy="86" r="{r}" fill="{NAVY}"/><circle cx="122" cy="86" r="{r}" fill="{NAVY}"/>'
-                f'<circle cx="81" cy="82.5" r="3.2" fill="#fff"/><circle cx="125" cy="82.5" r="3.2" fill="#fff"/>'
-                f'<circle cx="75.5" cy="90" r="1.6" fill="#fff"/><circle cx="119.5" cy="90" r="1.6" fill="#fff"/>')
-    smile = f'<path d="M91 100 Q100 113 109 100 Z" fill="#B83A64" stroke="{NAVY}" stroke-width="3" stroke-linejoin="round"/>'
+    # Big, wide-set eyes in the lower half of the dome: it is what makes the head read as friendly.
+    cheeks = (f'<ellipse cx="52" cy="112" rx="8" ry="5" fill="{PINK_LIGHT}"/>'
+              f'<ellipse cx="148" cy="112" rx="8" ry="5" fill="{PINK_LIGHT}"/>')
+    def open_eyes(r=11.5):
+        return (f'<circle cx="74" cy="98" r="{r}" fill="{NAVY}"/><circle cx="126" cy="98" r="{r}" fill="{NAVY}"/>'
+                f'<circle cx="78" cy="93.5" r="4" fill="#fff"/><circle cx="130" cy="93.5" r="4" fill="#fff"/>'
+                f'<circle cx="71" cy="103" r="2" fill="#fff"/><circle cx="123" cy="103" r="2" fill="#fff"/>')
+    smile = f'<path d="M91 114 Q100 128 109 114 Z" fill="#B83A64" stroke="{NAVY}" stroke-width="3" stroke-linejoin="round"/>'
     if kind == "happy":
-        arcs = "".join(f'<path d="M{x - 9} 90 Q{x} 76 {x + 9} 90" fill="none" stroke="{NAVY}" stroke-width="4.5" stroke-linecap="round"/>' for x in (78, 122))
-        grin = f'<path d="M88 98 Q100 118 112 98 Z" fill="#B83A64" stroke="{NAVY}" stroke-width="3" stroke-linejoin="round"/>'
+        arcs = "".join(f'<path d="M{x - 11} 102 Q{x} 84 {x + 11} 102" fill="none" stroke="{NAVY}" stroke-width="5" stroke-linecap="round"/>' for x in (74, 126))
+        grin = f'<path d="M86 112 Q100 134 114 112 Z" fill="#B83A64" stroke="{NAVY}" stroke-width="3" stroke-linejoin="round"/>'
         return cheeks + arcs + grin
     if kind == "closed":
-        arcs = "".join(f'<path d="M{x - 9} 86 Q{x} 96 {x + 9} 86" fill="none" stroke="{NAVY}" stroke-width="4.5" stroke-linecap="round"/>' for x in (78, 122))
-        return cheeks + arcs + f'<path d="M94 104 Q100 108 106 104" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
+        arcs = "".join(f'<path d="M{x - 11} 98 Q{x} 110 {x + 11} 98" fill="none" stroke="{NAVY}" stroke-width="5" stroke-linecap="round"/>' for x in (74, 126))
+        return cheeks + arcs + f'<path d="M94 118 Q100 122 106 118" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
     if kind == "oops":
-        return (cheeks + open_eyes(7.5) +
-                f'<path d="M66 70 Q78 62 90 70" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
-                f'<path d="M110 70 Q122 62 134 70" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
-                f'<path d="M90 106 Q95 100 100 106 T110 106" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>')
+        return (cheeks + open_eyes(9) +
+                f'<path d="M60 80 Q74 70 88 80" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
+                f'<path d="M112 80 Q126 70 140 80" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
+                f'<path d="M90 120 Q95 114 100 120 T110 120" fill="none" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>')
     if kind == "serious":
         return (cheeks + open_eyes() +
-                f'<path d="M66 72 L90 76" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
-                f'<path d="M134 72 L110 76" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>'
-                f'<path d="M93 105 L107 105" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>')
+                f'<path d="M60 82 L88 87" stroke="{NAVY}" stroke-width="4" stroke-linecap="round"/>'
+                f'<path d="M140 82 L112 87" stroke="{NAVY}" stroke-width="4" stroke-linecap="round"/>'
+                f'<path d="M93 119 L107 119" stroke="{NAVY}" stroke-width="3.5" stroke-linecap="round"/>')
     return cheeks + open_eyes() + smile
 
 def laptop():
@@ -171,14 +186,14 @@ def svg(pose, background=None, shadow=True, dark=False):
     arms, face, props = POSES[pose]
     bg = f'<rect width="200" height="200" fill="{background}"/>' if background else ""
     out = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
-           f'{bg}{SHADOW if shadow and not dark else ""}{LOWER}{arms}{HEAD}{eyes(face)}{props}</svg>')
+           f'{bg}{SHADOW if shadow and not dark else ""}{halo()}{arms}{HEAD}<g transform="translate(0 -15)">{eyes(face)}</g>{props}</svg>')
     if dark:
         out = out.replace(f'stroke="{NAVY}"', f'stroke="{OUTLINE_ON_DARK}"').replace(f'<g fill="{NAVY}" font-family', f'<g fill="{LAVENDER}" font-family')
     return out
 
 def icon():
     """The app icon: the octopus on a soft lavender squircle (1024 x 1024)."""
-    body = f'{LOWER}{HEAD}{eyes("open")}'
+    body = f'{halo()}{HEAD}<g transform="translate(0 -15)">{eyes("open")}</g>'
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Pouple">'
             '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#DAD8FF"/><stop offset="1" stop-color="#A8A2FF"/></linearGradient></defs>'
             '<rect x="64" y="64" width="896" height="896" rx="200" fill="url(#g)"/>'
