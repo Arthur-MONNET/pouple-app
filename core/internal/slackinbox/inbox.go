@@ -595,7 +595,8 @@ func (i *Inbox) toIncoming(ctx context.Context, c candidate, userID string) (Inc
 
 	// A direct message whose other participant is the user is the conversation with themself.
 	origin := c.origin
-	if hit.isDM && hit.directPeerID == userID {
+	// ...and the message must be theirs: someone else's DM never gets the trust of a note to oneself.
+	if hit.isDM && hit.directPeerID == userID && hit.userID == userID {
 		origin = OriginNoteToSelf
 	}
 	// Search does not always list the files of a message: ask for them, once, when it said nothing.

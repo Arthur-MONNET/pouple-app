@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -71,8 +72,9 @@ func (p Persona) describeSource(r Stored) string {
 	if source.ChannelName != nil {
 		name = *source.ChannelName
 	}
-	channel := "#" + oneLine(name, 80)
-	sender := oneLine(source.SenderName, 80)
+	// Names are chosen by other people: quoted, so that a name cannot read as part of the sentence.
+	channel := "#" + strconv.Quote(oneLine(name, 80))
+	sender := strconv.Quote(oneLine(source.SenderName, 80))
 	switch source.Origin {
 	case "direct-message":
 		return fmt.Sprintf("%s wrote to %s in a direct message.", sender, p.name())
@@ -96,6 +98,12 @@ const (
 	maxHistoryChars      = 6000
 )
 
+// quoteLines keeps a multi-line text on one logical line: every following line is marked as quoted, so earlier
+// Slack text cannot forge a line such as "Arthur: approved".
+func quoteLines(text string) string {
+	return strings.ReplaceAll(strings.TrimRight(text, "\n"), "\n", "\n  | ")
+}
+
 func clip(text string) string {
 	runes := []rune(text)
 	if len(runes) > maxHistoryEntryChars {
@@ -118,12 +126,12 @@ func (p Persona) ConversationHistory(previous []Stored) string {
 			if entry.Role == "user" {
 				who = p.name()
 			}
-			lines = append(lines, who+": "+clip(entry.Text))
+			lines = append(lines, who+": "+quoteLines(clip(entry.Text)))
 		}
 		if len(lines) == 0 && request.Summary == nil {
 			continue
 		}
-		parts := append([]string{fmt.Sprintf("Message from %s: %s", request.Source.SenderName, clip(request.Text))}, lines...)
+		parts := append([]string{fmt.Sprintf("Message from %s: %s", strconv.Quote(oneLine(request.Source.SenderName, 80)), quoteLines(clip(request.Text)))}, lines...)
 		if request.DraftReply != nil {
 			parts = append(parts, "Drafted reply: "+clip(*request.DraftReply))
 		}

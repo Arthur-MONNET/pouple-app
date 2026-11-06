@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,11 +62,11 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		},
 		SchemaFile: schemaFile,
 		Redact: func() engine.Redactor {
-			values, err := registry.Values("slack")
-			if err != nil {
-				return engine.NewRedactor()
+			secrets := codexSecrets(filepath.Join(dir, "codex", "auth.json"))
+			if values, err := registry.Values("slack"); err == nil {
+				secrets = append(secrets, values["token"], values["appToken"])
 			}
-			return engine.NewRedactor(values["token"])
+			return engine.NewRedactor(secrets...)
 		},
 		Usage: func() engine.Usage {
 			usage := engine.Usage{Today: meter.Today()}
@@ -137,4 +138,24 @@ func runAssistant(ctx context.Context, service *engine.Service, settings *config
 		}
 		return time.Duration(current.PollSeconds) * time.Second
 	})
+}
+
+// codexSecrets reads the tokens of Pouple's own Codex login, so that a model that read that file cannot repeat them.
+func codexSecrets(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var auth struct {
+		APIKey string `json:"OPENAI_API_KEY"`
+		Tokens struct {
+			ID      string `json:"id_token"`
+			Access  string `json:"access_token"`
+			Refresh string `json:"refresh_token"`
+		} `json:"tokens"`
+	}
+	if json.Unmarshal(data, &auth) != nil {
+		return nil
+	}
+	return []string{auth.APIKey, auth.Tokens.ID, auth.Tokens.Access, auth.Tokens.Refresh}
 }

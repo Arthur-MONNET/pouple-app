@@ -101,6 +101,22 @@ func (s *Store) Update(id string, change func(*Stored)) bool {
 	return false
 }
 
+// Transition applies change only if the request is in the expected status, atomically. It reports whether it did.
+func (s *Store) Transition(id string, from Status, change func(*Stored)) bool {
+	s.mu.Lock()
+	for i := range s.state.Requests {
+		if s.state.Requests[i].ID == id && s.state.Requests[i].Status == from {
+			updated := clone(s.state.Requests[i])
+			change(&updated)
+			s.state.Requests[i] = updated
+			s.changed()
+			return true
+		}
+	}
+	s.mu.Unlock()
+	return false
+}
+
 func (s *Store) Remove(id string) {
 	s.mu.Lock()
 	kept := s.state.Requests[:0:0]

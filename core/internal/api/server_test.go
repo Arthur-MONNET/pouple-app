@@ -169,3 +169,20 @@ func TestActionsStreamEvents(t *testing.T) {
 		t.Fatal("unknown action should be 404")
 	}
 }
+
+func TestThePageNeverCarriesTheTokenWhenTheShellInjectsIt(t *testing.T) {
+	s, _, _ := newServer(t, false)
+	s.opts.TokenFromShell = true
+	recorder := call(s, "GET", "/", "", map[string]string{"Authorization": ""})
+	if strings.Contains(recorder.Body.String(), "secret-token") || strings.Contains(recorder.Body.String(), "__POUPLE__") {
+		t.Fatalf("the page leaked the token: %s", recorder.Body)
+	}
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatal("no session cookie may be handed to an unauthenticated visitor")
+	}
+	// the standalone development mode keeps its convenience, and it is the only one
+	s.opts.TokenFromShell = false
+	if !strings.Contains(call(s, "GET", "/", "", map[string]string{"Authorization": ""}).Body.String(), "secret-token") {
+		t.Fatal("standalone mode should still inject the token")
+	}
+}

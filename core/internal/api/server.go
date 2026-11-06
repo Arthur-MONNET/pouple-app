@@ -27,6 +27,9 @@ type Options struct {
 	Token string
 	// UI serves the web interface; index.html receives the token.
 	UI fs.FS
+	// TokenFromShell is set when the macOS app gives the page its token itself (a user script and a cookie it
+	// controls): the HTML then never carries the token, so another local process that fetches "/" learns nothing.
+	TokenFromShell bool
 	// Language returns the interface language ("fr" or "en"); the shell and the web app follow it.
 	Language func() string
 	// Mount adds more routes (the assistant engine) under the same protection.
@@ -114,11 +117,16 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "interface missing", http.StatusInternalServerError)
 		return
 	}
-	boot, _ := json.Marshal(map[string]string{"token": s.opts.Token})
-	script := "<script>window.__POUPLE__=" + strings.ReplaceAll(string(boot), "<", "\\u003c") + "</script>"
-	index = bytes.Replace(index, []byte("<!--POUPLE_BOOT-->"), []byte(script), 1)
-	// The cookie lets images and downloads load (they cannot carry a header); it is never sent cross-site.
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.opts.Token, Path: "/api/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	if !s.opts.TokenFromShell {
+		// Standalone development only: anyone who can reach this port gets the token from this page.
+		boot, _ := json.Marshal(map[string]string{"token": s.opts.Token})
+		script := "<script>window.__POUPLE__=" + strings.ReplaceAll(string(boot), "<", "\\u003c") + "</script>"
+		index = bytes.Replace(index, []byte("<!--POUPLE_BOOT-->"), []byte(script), 1)
+		// The cookie lets images and downloads load (they cannot carry a header); it is never sent cross-site.
+		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.opts.Token, Path: "/api/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	} else {
+		index = bytes.Replace(index, []byte("<!--POUPLE_BOOT-->"), nil, 1)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(index)
 }

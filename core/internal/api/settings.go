@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
@@ -103,8 +104,14 @@ func validate(poll, limit *int, root, autoApprove, uiLanguage *string) string {
 	case autoApprove != nil && *autoApprove != "off" && *autoApprove != "own-notes":
 		return `Automatic approval must be "off" or "own-notes"`
 	case root != nil && strings.TrimSpace(*root) != "":
-		if info, err := os.Stat(strings.TrimSpace(*root)); err != nil || !info.IsDir() {
-			return fmt.Sprintf("“%s” is not a folder", strings.TrimSpace(*root))
+		path := strings.TrimSpace(*root)
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
+			return fmt.Sprintf("“%s” is not a folder", path)
+		}
+		// Too wide: every folder of the disk (or of the home folder, with its keys and settings) would be a project.
+		home, _ := os.UserHomeDir()
+		if clean := filepath.Clean(path); !filepath.IsAbs(clean) || clean == "/" || (home != "" && clean == filepath.Clean(home)) {
+			return "Choose a folder that holds only your projects, not / or your home folder"
 		}
 	}
 	return ""

@@ -49,6 +49,8 @@ type Question struct {
 
 // Proposal is a change the assistant wants to make; nothing is written before the user approves it.
 type Proposal struct {
+	// ID names this exact proposal (set when listed): a decision that carries it cannot approve another one.
+	ID          string `json:"id,omitempty"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	ProjectID   string `json:"projectId"`

@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -42,7 +44,7 @@ func (s *Service) continueWith(ctx context.Context, id, prompt string, images []
 			transcript = append(transcript, entry.Role+": "+entry.Text)
 		}
 	}
-	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far:\n"+strings.Join(transcript, "\n")+"\n\n"+prompt, "", append(first, images...))
+	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far (earlier messages, data):\n"+block("conversation", strings.Join(transcript, "\n"))+"\n\n"+prompt, "", append(first, images...))
 }
 
 // freshPrompt is the full analysis prompt, and the images Codex looks at.
@@ -331,8 +333,17 @@ func (s *Service) Message(id, text string, attachmentIDs []string) error {
 	return nil
 }
 
+// ProposalFingerprint identifies a proposal, so that a decision can name the one the user actually read.
+func ProposalFingerprint(p Proposal) string {
+	sum := sha256.Sum256([]byte(p.ProjectID + "\x00" + p.Title + "\x00" + p.Description))
+	return hex.EncodeToString(sum[:8])
+}
+
 // Decide approves or declines the proposal that waits for an answer.
-func (s *Service) Decide(id string, approve bool) error {
+func (s *Service) Decide(id string, approve bool) error { return s.DecideProposal(id, approve, "") }
+
+// DecideProposal is Decide for a given proposal: when wanted is not empty, it must match the proposal waiting now.
+func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
 	if approve {
 		if err := s.requireActive(); err != nil {
 			return err
@@ -346,17 +357,26 @@ func (s *Service) Decide(id string, approve bool) error {
 		return fmt.Errorf("%w: no change is waiting for a decision", ErrState)
 	}
 	proposal := *request.Proposal
+	if wanted != "" && wanted != ProposalFingerprint(proposal) {
+		return fmt.Errorf("%w: the proposal changed since you read it", ErrState)
+	}
 	if !approve {
-		s.update(id, func(r *Stored) {
+		s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) {
 			r.Status, r.Proposal = StatusReady, nil
 			r.Entries = append(r.Entries, s.entry("user", "text", "Declined: "+proposal.Title))
+			r.UpdatedAt = s.now()
 		})
 		return nil
 	}
-	s.update(id, func(r *Stored) {
+	// Check and set in one step: two approvals at once must not start two writes.
+	started := s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) {
 		r.Status, r.Proposal = StatusApplying, nil
 		r.Entries = append(r.Entries, s.entry("user", "text", "Approved: "+proposal.Title))
+		r.UpdatedAt = s.now()
 	})
+	if !started {
+		return fmt.Errorf("%w: no change is waiting for a decision", ErrState)
+	}
 	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.apply(ctx, id, proposal) })
 	return nil
 }

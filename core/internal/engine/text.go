@@ -148,7 +148,13 @@ func ConfirmationOf(message string) Confirmation {
 	return Unclear
 }
 
-var tokenPatterns = compile(`xox[a-z]-[A-Za-z0-9-]{10,}`, `xapp-[A-Za-z0-9-]{10,}`, `glpat-[A-Za-z0-9_-]{10,}`, `\bsk-[A-Za-z0-9_-]{20,}`)
+var tokenPatterns = compile(
+	`xox[a-z]-[A-Za-z0-9-]{10,}`, `xapp-[A-Za-z0-9-]{10,}`, `glpat-[A-Za-z0-9_-]{10,}`, `\bsk-[A-Za-z0-9_-]{20,}`,
+	`gh[pousr]_[A-Za-z0-9]{20,}`, `github_pat_[A-Za-z0-9_]{20,}`, `\bAKIA[0-9A-Z]{16}\b`,
+	// a JWT (the Codex login tokens are some) and a private key block
+	`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`,
+	`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`,
+)
 
 const redacted = "[redacted]"
 

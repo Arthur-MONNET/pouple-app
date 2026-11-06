@@ -80,6 +80,9 @@ func run() error {
 	)
 
 	token := os.Getenv("POUPLE_TOKEN")
+	// Children (Codex, npm, brew) must not inherit the API token.
+	_ = os.Unsetenv("POUPLE_TOKEN")
+	tokenFromShell := os.Getenv("POUPLE_SHELL_INJECTS_TOKEN") == "1"
 	if token == "" {
 		if token, err = newToken(); err != nil {
 			return err
@@ -97,7 +100,7 @@ func run() error {
 	mountAssistant := api.MountAssistant(service, attachments)
 	mountSettings := api.MountSettings(settings)
 	handler := api.New(api.Options{
-		Registry: registry, Token: token, UI: ui.Files(),
+		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell,
 		Language: func() string {
 			current, err := settings.Load()
 			if err != nil || current.UILanguage == "" {
@@ -107,12 +110,13 @@ func run() error {
 		},
 		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux) },
 	}, port)
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	// No write timeout: the event stream stays open on purpose.
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	// The app reads this line to learn where the core listens.
 	ready, _ := json.Marshal(map[string]any{"ready": true, "port": port})
 	fmt.Println(string(ready))
-	if os.Getenv("POUPLE_TOKEN") == "" {
+	if !tokenFromShell {
 		log.Printf("open http://127.0.0.1:%d/ (token generated for this run)", port)
 	}
 

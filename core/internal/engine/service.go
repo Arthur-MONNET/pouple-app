@@ -122,7 +122,7 @@ func NewService(deps Deps) *Service {
 }
 
 func gitChanges(ctx context.Context, dir string) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain").Output()
+	out, err := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", "-C", dir, "status", "--porcelain").Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -209,6 +209,11 @@ func (s *Service) Snapshot() Snapshot {
 	for i, request := range stored {
 		view := request.Request
 		view.Continuable = request.ThreadID != ""
+		if view.Proposal != nil {
+			shown := *view.Proposal
+			shown.ID = ProposalFingerprint(shown)
+			view.Proposal = &shown
+		}
 		requests[i] = view
 	}
 	if notices == nil {
@@ -545,11 +550,23 @@ var projectID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // projectPath is the folder of a project, only when it really is a folder directly under the projects root.
 func (s *Service) projectPath(id string) string {
 	root := s.deps.ProjectsRoot()
-	if root == "" || !projectID.MatchString(id) || id == "." || id == ".." {
+	// Hidden folders (.ssh, .git, .config…) are never projects.
+	if root == "" || !projectID.MatchString(id) || strings.HasPrefix(id, ".") {
 		return ""
 	}
-	path := filepath.Join(root, id)
-	if info, err := statDir(path); err != nil || !info {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return ""
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(root, id))
+	if err != nil {
+		return ""
+	}
+	// A symlink that leaves the projects folder is not a project.
+	if relative, err := filepath.Rel(realRoot, path); err != nil || relative == "." || strings.HasPrefix(relative, "..") {
+		return ""
+	}
+	if isDir, err := statDir(path); err != nil || !isDir {
 		return ""
 	}
 	return path

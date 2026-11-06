@@ -18,7 +18,7 @@ type Assistant interface {
 	Subscribe() (<-chan struct{}, func())
 	Answer(id string, answers []engine.Answer) error
 	Message(id, text string, attachmentIDs []string) error
-	Decide(id string, approve bool) error
+	DecideProposal(id string, approve bool, proposalID string) error
 	Ignore(id string) error
 	Retry(id string) error
 	Remove(id string) error
@@ -67,12 +67,13 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 		})
 		handle("POST /api/assistant/requests/{id}/proposal", func(w http.ResponseWriter, r *http.Request) error {
 			var body struct {
-				Decision string `json:"decision"`
+				Decision   string `json:"decision"`
+				ProposalID string `json:"proposalId"`
 			}
 			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
 				return fmt.Errorf("%w: \"decision\" must be \"approve\" or \"decline\"", engine.ErrInput)
 			}
-			return accepted(w, assistant.Decide(r.PathValue("id"), body.Decision == "approve"))
+			return accepted(w, assistant.DecideProposal(r.PathValue("id"), body.Decision == "approve", body.ProposalID))
 		})
 		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
 			return noContent(w, assistant.Ignore(r.PathValue("id")))

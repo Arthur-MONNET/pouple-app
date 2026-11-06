@@ -33,6 +33,10 @@ func runSecurity(stdin string, args ...string) (string, error) {
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
+		// `security -i` may echo the command (which carries the encoded secret): only the lookups keep its message.
+		if len(args) > 0 && args[0] == "-i" {
+			return "", fmt.Errorf("the keychain refused the write (%w)", err)
+		}
 		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(errOut.String()))
 	}
 	return out.String(), nil
