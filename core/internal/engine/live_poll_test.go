@@ -23,6 +23,7 @@ func TestLiveWakeBringsForwardTheNextPoll(t *testing.T) {
 	defer func() {
 		cancel()
 		<-done
+		h.svc.Shutdown()
 	}()
 	cooldown := 40 * time.Millisecond
 	go func() {
