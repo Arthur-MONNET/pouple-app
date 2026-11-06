@@ -63,7 +63,8 @@ public struct SnapshotStream: Sendable {
                         if line.last == 0x0D { line.removeLast() }
                         let text = String(decoding: line, as: UTF8.self)
                         line.removeAll(keepingCapacity: true)
-                        if let event = parser.feed(line: text), event.name == "snapshot" {
+                        // The core names its events "snapshot"; an unnamed one is the same payload and must not be dropped silently.
+                        if let event = parser.feed(line: text), event.name == "snapshot" || event.name == "message" {
                             continuation.yield(try decoder.decode(AssistantSnapshot.self, from: Data(event.data.utf8)))
                         }
                     }

@@ -126,6 +126,26 @@ final class PoupleAPITests: XCTestCase {
         }
     }
 
+    /// What the Go core really sends. The bubbles were silently empty once because the core did not name its events.
+    private func firstSnapshot(from body: String) async throws -> AssistantSnapshot? {
+        StubProtocol.handler = { _ in (200, Data(body.utf8)) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubProtocol.self]
+        let stream = SnapshotStream(request: api().streamRequest(), session: URLSession(configuration: configuration))
+        for try await snapshot in stream.snapshots() { return snapshot }
+        return nil
+    }
+
+    func testTheStreamYieldsTheSnapshotsTheCoreSends() async throws {
+        let compact = ModelsTests.snapshotJSON.replacingOccurrences(of: "\n", with: " ")
+        let named = try await firstSnapshot(from: ": keep-alive\n\nevent: snapshot\ndata: \(compact)\n\n")
+        XCTAssertEqual(named?.requests.count, 2)
+        let unnamed = try await firstSnapshot(from: "data: \(compact)\n\n")
+        XCTAssertEqual(unnamed?.requests.count, 2, "an unnamed event is the same payload and must not be dropped")
+        let other = try await firstSnapshot(from: "event: something-else\ndata: \(compact)\n\n")
+        XCTAssertNil(other, "events of another name are not snapshots")
+    }
+
     func testSnapshotDecodesTheResponse() async throws {
         StubProtocol.handler = { _ in (200, Data(ModelsTests.snapshotJSON.utf8)) }
         let snapshot = try await api().snapshot()

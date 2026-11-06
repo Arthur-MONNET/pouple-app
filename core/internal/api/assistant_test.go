@@ -191,7 +191,8 @@ func TestStreamSendsTheSnapshotThenChanges(t *testing.T) {
 	defer response.Body.Close()
 	buffer := make([]byte, 4096)
 	n, _ := response.Body.Read(buffer)
-	if !strings.HasPrefix(string(buffer[:n]), "data: {") || !strings.Contains(string(buffer[:n]), `"r1"`) {
+	// The bubbles of the macOS app only read events named "snapshot".
+	if !strings.HasPrefix(string(buffer[:n]), "event: snapshot\ndata: {") || !strings.Contains(string(buffer[:n]), `"r1"`) {
 		t.Fatalf("first event %q", buffer[:n])
 	}
 	fake.changes <- struct{}{}

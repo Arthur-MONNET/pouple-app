@@ -228,7 +228,8 @@ func stream(assistant Assistant, w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		last = string(data)
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		// Named, as the macOS bubbles expect (they ignore unnamed events): a change here silently hides every bubble.
+		_, _ = fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", data)
 		flusher.Flush()
 	}
 	send()
