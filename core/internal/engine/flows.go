@@ -20,24 +20,24 @@ func (s *Service) analyze(ctx context.Context, id string) error {
 	if err != nil {
 		return nil
 	}
-	// What other people send waits while Codex's own limit is reached; what the user asks themselves still goes through.
-	s.mu.Lock()
-	paused := s.deps.Now().Before(s.pausedUntil)
-	s.mu.Unlock()
-	if request.Source.Origin != "note-to-self" && paused {
-		return ErrLimit
+	// What other people send waits while the limit of the AI that would run is reached; what the user asks themselves
+	// still goes through. The other AI is not affected.
+	active := s.deps.Selection().Provider
+	if request.Source.Origin != "note-to-self" && s.pausedFor(active) {
+		return &providerFailure{active, ErrLimit}
 	}
 	prompt, images := s.freshPrompt(ctx, request)
 	return s.runInvestigation(ctx, id, prompt, "", images)
 }
 
-// continueWith carries on the Codex conversation; it starts a fresh one when the thread is gone.
+// continueWith carries on the AI's conversation; it starts a fresh one, with the transcript so far, when the thread is
+// gone or belongs to the other AI (the choice of provider changed since).
 func (s *Service) continueWith(ctx context.Context, id, prompt string, images []string) error {
 	request, err := s.require(id)
 	if err != nil {
 		return nil
 	}
-	if request.ThreadID != "" {
+	if request.ThreadID != "" && request.threadOwner() == s.deps.Selection().Provider {
 		return s.runInvestigation(ctx, id, prompt, request.ThreadID, images)
 	}
 	fresh, first := s.freshPrompt(ctx, request)
@@ -50,7 +50,7 @@ func (s *Service) continueWith(ctx context.Context, id, prompt string, images []
 	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far (earlier messages, data):\n"+block("conversation", strings.Join(transcript, "\n"))+"\n\n"+prompt, "", append(first, images...))
 }
 
-// freshPrompt is the full analysis prompt, and the images Codex looks at.
+// freshPrompt is the full analysis prompt, and the images the AI looks at.
 func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []string) {
 	s.collectFiles(ctx, request.ID)
 	current, ok := s.deps.Store.Get(request.ID)
@@ -150,15 +150,12 @@ func (s *Service) describeFiles(refs []AttachmentRef) (string, []string) {
 
 func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume string, images []string) error {
 	s.update(id, func(r *Stored) { r.Status, r.Error = StatusAnalyzing, nil })
-	result, err := s.runCodex(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images}, true)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images}, true)
 	if err != nil {
 		return err
 	}
-	if result.ThreadID != "" {
-		s.update(id, func(r *Stored) { r.ThreadID = result.ThreadID })
-	}
 	if result.FinalMessage == "" {
-		return i18n.NewError("Codex finished without an answer")
+		return i18n.NewError("%s finished without an answer", provider.Name())
 	}
 	outcome, err := ParseOutcome(result.FinalMessage)
 	if err != nil {
@@ -234,7 +231,7 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 	}
 }
 
-// Answer carries the user's answers back to Codex.
+// Answer carries the user's answers back to the AI.
 func (s *Service) Answer(id string, answers []Answer) error {
 	if err := s.requireActive(); err != nil {
 		return err
@@ -293,7 +290,7 @@ func answersText(questions []Question, answers []Answer) string {
 	return strings.Join(parts, " · ")
 }
 
-// Message handles something the user typed: a go-ahead for a waiting proposal, or a follow-up for Codex.
+// Message handles something the user typed: a go-ahead for a waiting proposal, or a follow-up for the AI.
 func (s *Service) Message(id, text string, attachmentIDs []string) error {
 	return s.message(id, text, attachmentIDs, true)
 }
@@ -411,12 +408,12 @@ func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error
 	}
 	// What git says before: a turn that changed nothing must not be reported as a change.
 	before, beforeErr := s.deps.ChangeSummary(ctx, directory)
-	result, err := s.runCodex(ctx, id, Turn{Prompt: s.deps.Persona().ApplyPrompt(proposal, ""), Dir: directory, Sandbox: WorkspaceWrite, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ApplyPrompt(proposal, ""), Dir: directory, Sandbox: WorkspaceWrite, SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		return err
 	}
 	if result.FinalMessage == "" {
-		return i18n.NewError("Codex finished without an answer")
+		return i18n.NewError("%s finished without an answer", provider.Name())
 	}
 	outcome, err := ParseOutcome(result.FinalMessage)
 	if err != nil {
@@ -425,7 +422,7 @@ func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error
 	outcome = outcome.Redact(s.deps.Redact())
 	after, afterErr := s.deps.ChangeSummary(ctx, directory)
 	if beforeErr == nil && afterErr == nil && after == before {
-		// Codex stopped on something it lacked: say it plainly and keep the request open.
+		// The AI stopped on something it lacked: say it plainly and keep the request open.
 		s.update(id, func(r *Stored) {
 			r.Status = StatusReady
 			r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary), s.entry("system", "text", s.text("No file was changed.")))
@@ -470,7 +467,7 @@ func (s *Service) Retry(id string) error {
 		return err
 	}
 	s.update(id, func(r *Stored) {
-		r.Status, r.Error, r.ThreadID, r.Questions, r.Proposal = StatusQueued, nil, "", []Question{}, nil
+		r.Status, r.Error, r.ThreadID, r.ThreadProvider, r.Questions, r.Proposal = StatusQueued, nil, "", "", []Question{}, nil
 	})
 	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.analyze(ctx, id) })
 	return nil

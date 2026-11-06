@@ -54,7 +54,7 @@ var (
 	emojiCode = regexp.MustCompile(`:[a-z0-9_+-]+:`)
 )
 
-// IsSmallTalk reports a message that only says thanks, ok or a greeting: nothing to do, so no Codex turn is spent.
+// IsSmallTalk reports a message that only says thanks, ok or a greeting: nothing to do, so no turn is spent.
 // Anything with a question mark, a number or a word outside the small vocabulary is not small talk.
 func IsSmallTalk(message string) bool {
 	if strings.Contains(message, "?") {
@@ -129,7 +129,7 @@ func matchesAny(patterns []*regexp.Regexp, text string) bool {
 }
 
 // ConfirmationOf reads a short message typed by the user in the app as a go-ahead or a refusal. Text that comes
-// from anywhere else (Slack, a log, Codex) never goes through here. Anything unclear is not a decision.
+// from anywhere else (Slack, a log, the AI) never goes through here. Anything unclear is not a decision.
 func ConfirmationOf(message string) Confirmation {
 	text := strings.TrimSpace(fold(message))
 	words := strings.Fields(text)
@@ -151,7 +151,7 @@ func ConfirmationOf(message string) Confirmation {
 var tokenPatterns = compile(
 	`xox[a-z]-[A-Za-z0-9-]{10,}`, `xapp-[A-Za-z0-9-]{10,}`, `glpat-[A-Za-z0-9_-]{10,}`, `\bsk-[A-Za-z0-9_-]{20,}`,
 	`gh[pousr]_[A-Za-z0-9]{20,}`, `github_pat_[A-Za-z0-9_]{20,}`, `\bAKIA[0-9A-Z]{16}\b`,
-	// a JWT (the Codex login tokens are some) and a private key block
+	// a JWT (the AI logins' tokens are some) and a private key block
 	`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`,
 	`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`,
 )
@@ -159,7 +159,7 @@ var tokenPatterns = compile(
 const redacted = "[redacted]"
 
 // Redactor removes the credentials Pouple holds (exact values) and common token shapes from text the model wrote.
-// Codex can read files its sandbox allows, so a manipulated investigation could quote a secret in its answer.
+// The AI can read files its sandbox or permissions allow, so a manipulated investigation could quote a secret in its answer.
 type Redactor func(string) string
 
 func NewRedactor(secrets ...string) Redactor {

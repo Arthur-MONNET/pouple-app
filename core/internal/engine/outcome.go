@@ -9,7 +9,8 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
-// OutcomeSchema is given to `codex exec --output-schema`: every analysis turn must end with exactly this shape.
+// OutcomeSchema is given to the AI CLI (`codex exec --output-schema`, `claude --json-schema`): every analysis turn must
+// end with exactly this shape.
 const OutcomeSchema = `{
   "type": "object",
   "additionalProperties": false,
@@ -80,21 +81,21 @@ type Outcome struct {
 
 // ErrOutcome is returned for a final message that does not follow the schema: a model that drifts is reported,
 // never trusted.
-var ErrOutcome = errors.New("unexpected answer from Codex")
+var ErrOutcome = errors.New("unexpected answer from the AI")
 
 const (
 	maxQuestions = 4
 	maxOptions   = 6
 )
 
-// ParseOutcome validates the final message of a Codex turn.
+// ParseOutcome validates the final message of a turn.
 func ParseOutcome(text string) (Outcome, error) {
 	var raw Outcome
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex did not answer with the expected JSON")
+		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI did not answer with the expected JSON")
 	}
 	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange}, raw.Outcome) {
-		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex answered with an unexpected shape")
+		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI answered with an unexpected shape")
 	}
 	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}}
 	if raw.Reply != nil && strings.TrimSpace(*raw.Reply) != "" {
@@ -117,9 +118,9 @@ func ParseOutcome(text string) (Outcome, error) {
 	}
 	switch {
 	case out.Outcome == NeedsInput && len(out.Questions) == 0:
-		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex asked for input without any question")
+		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI asked for input without any question")
 	case out.Outcome == ProposesChange && out.Proposal == nil:
-		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex proposed a change without saying what or where")
+		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI proposed a change without saying what or where")
 	}
 	for _, source := range raw.SourcesUsed {
 		if slices.Contains(contextSources, source) && !slices.Contains(out.SourcesUsed, source) {

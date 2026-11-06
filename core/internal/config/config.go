@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 // ConnectorState is what is remembered about a connected service.
@@ -26,9 +27,13 @@ type Settings struct {
 	Connectors map[string]ConnectorState `json:"connectors"`
 	// PollSeconds is how often Slack is read.
 	PollSeconds int `json:"pollSeconds"`
-	// DailyTurnLimit caps the Codex turns per day; 0 means no limit.
+	// DailyTurnLimit caps the AI turns per day, whichever AI runs them; 0 means no limit.
 	DailyTurnLimit int `json:"dailyTurnLimit"`
-	// ProjectsRoot is the folder with one folder per project: where Codex looks, and where approved changes go.
+	// Provider is the AI the user chose ("codex" or "claude"); empty means automatic: see ActiveProvider.
+	Provider string `json:"provider"`
+	// Models is the model chosen for each provider; empty (or missing) leaves the choice to the CLI.
+	Models map[string]string `json:"models"`
+	// ProjectsRoot is the folder with one folder per project: where the AI looks, and where approved changes go.
 	ProjectsRoot string `json:"projectsRoot"`
 	// Language is the language of summaries and questions ("French"); empty uses the system language.
 	Language string `json:"language"`
@@ -43,7 +48,40 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}}
+	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, Models: map[string]string{}, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}}
+}
+
+// Connected reports whether a connector is set up.
+func (s Settings) Connected(id string) bool {
+	_, ok := s.Connectors[id]
+	return ok
+}
+
+// ActiveProvider is the AI that runs the next turn: the user's choice while it is connected, otherwise the first
+// connected one in preference order (Codex, then Claude). With none connected it is the choice, else Codex.
+func (s Settings) ActiveProvider() providers.ID {
+	chosen, hasChoice := providers.Parse(s.Provider)
+	if hasChoice && s.Connected(string(chosen)) {
+		return chosen
+	}
+	for _, id := range providers.All() {
+		if s.Connected(string(id)) {
+			return id
+		}
+	}
+	if hasChoice {
+		return chosen
+	}
+	return providers.Codex
+}
+
+// ModelOf is the model chosen for a provider; "" leaves it to the CLI.
+func (s Settings) ModelOf(id providers.ID) string { return s.Models[string(id)] }
+
+// Selection is what the next turn runs on.
+func (s Settings) Selection() providers.Selection {
+	active := s.ActiveProvider()
+	return providers.Selection{Provider: active, Model: s.ModelOf(active)}
 }
 
 // File reads and writes the settings, one writer at a time.
@@ -74,6 +112,9 @@ func (f *File) load() (Settings, error) {
 	}
 	if settings.Connectors == nil {
 		settings.Connectors = map[string]ConnectorState{}
+	}
+	if settings.Models == nil {
+		settings.Models = map[string]string{}
 	}
 	return settings, nil
 }

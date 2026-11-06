@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 // Errors the API maps to HTTP statuses.
@@ -46,9 +47,13 @@ type PollResult struct {
 
 // Deps is everything the service needs from the outside.
 type Deps struct {
-	Store       *Store
-	Inbox       Inbox
-	Codex       Codex
+	Store *Store
+	Inbox Inbox
+	// Providers are the AIs a turn can run on, each already metered when the usage limit must apply to it.
+	Providers map[providers.ID]Provider
+	// Selection says which provider and model run the next turn. It is read at each turn, so a change in the
+	// settings applies to the very next one, with no restart. Codex without a model when nil.
+	Selection   func() providers.Selection
 	Attachments *Attachments
 	// Fetch downloads a Slack file; nil when Slack is not connected.
 	Fetch func(ctx context.Context, file PendingFile) ([]byte, error)
@@ -97,11 +102,12 @@ type Service struct {
 	deps  Deps
 	queue *Queue
 
-	mu           sync.Mutex
-	notices      []i18n.Message
-	lastPollAt   *string
-	pausedUntil  time.Time
-	loginProblem string
+	mu         sync.Mutex
+	notices    []i18n.Message
+	lastPollAt *string
+	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
+	pausedUntil  map[providers.ID]time.Time
+	loginProblem map[providers.ID]bool
 	fileNotice   string
 	running      map[string]context.CancelFunc
 	stops        map[string]int
@@ -128,7 +134,13 @@ func NewService(deps Deps) *Service {
 	if deps.OnError == nil {
 		deps.OnError = func(error) {}
 	}
-	s := &Service{deps: deps, queue: NewQueue(), running: map[string]context.CancelFunc{}, stops: map[string]int{}, subscribers: map[chan struct{}]struct{}{}}
+	if deps.Selection == nil {
+		deps.Selection = func() providers.Selection { return providers.Selection{Provider: providers.Codex} }
+	}
+	s := &Service{
+		deps: deps, queue: NewQueue(), running: map[string]context.CancelFunc{}, stops: map[string]int{}, subscribers: map[chan struct{}]struct{}{},
+		pausedUntil: map[providers.ID]time.Time{}, loginProblem: map[providers.ID]bool{},
+	}
 	deps.Store.OnChange(s.broadcast)
 	return s
 }
@@ -218,7 +230,11 @@ func (s *Service) Snapshot() Snapshot {
 	lastPoll := s.lastPollAt
 	s.mu.Unlock()
 
-	status := StatusInfo{Active: true, Notices: notices, LastPollAt: lastPoll, Usage: s.deps.Usage()}
+	selection := s.deps.Selection()
+	status := StatusInfo{
+		Active: true, Notices: notices, LastPollAt: lastPoll, Usage: s.deps.Usage(),
+		Provider: ProviderInfo{ID: string(selection.Provider), Name: selection.Provider.Name(), Model: selection.Model},
+	}
 	if reason := s.deps.Inactive(); reason != "" {
 		status.Active, status.Problem = false, ptr(reason)
 	}
@@ -242,11 +258,13 @@ func (s *Service) standingNoticesLocked(lang i18n.Lang) []string {
 	if s.fileNotice != "" {
 		out = append(out, i18n.T(lang, s.fileNotice))
 	}
-	if s.loginProblem != "" {
-		out = append(out, i18n.T(lang, s.loginProblem))
+	// Only the AI that runs now matters: a problem of the other one comes back if it is chosen again.
+	active := s.deps.Selection().Provider
+	if s.loginProblem[active] {
+		out = append(out, i18n.T(lang, "%s is not signed in any more: open Connectors and sign in again.", active.Name()))
 	}
-	if s.deps.Now().Before(s.pausedUntil) {
-		out = append(out, i18n.T(lang, "Codex's usage limit is reached: new Slack requests wait until %s. What you ask yourself still goes through.", i18n.Time(s.pausedUntil.Local())))
+	if until := s.pausedUntil[active]; s.deps.Now().Before(until) {
+		out = append(out, i18n.T(lang, "%s's usage limit is reached: new Slack requests wait until %s. What you ask yourself still goes through.", active.Name(), i18n.Time(until.Local())))
 	}
 	return out
 }
@@ -385,7 +403,7 @@ func (s *Service) expireStale() {
 	}
 }
 
-// enqueue runs a job in the Codex queue, with a context that Stop can cancel.
+// enqueue runs a job in the queue of turns, with a context that Stop can cancel.
 func (s *Service) enqueue(id string, priority Priority, job func(ctx context.Context) error) {
 	s.mu.Lock()
 	seen := s.stops[id]
@@ -425,7 +443,7 @@ func (s *Service) Stop(id string) error {
 	cancel := s.running[id]
 	s.mu.Unlock()
 	if cancel != nil {
-		cancel() // the Codex process ends; its turn then fails with ErrCancelled, which settles the request
+		cancel() // the AI process ends; its turn then fails with ErrCancelled, which settles the request
 		return nil
 	}
 	s.update(id, func(r *Stored) {
@@ -435,7 +453,7 @@ func (s *Service) Stop(id string) error {
 	return nil
 }
 
-// Shutdown ends the Codex turns that are running and writes everything down. What was in progress stays as it is,
+// Shutdown ends the turns that are running and writes everything down. What was in progress stays as it is,
 // so Recover picks it up at the next start.
 func (s *Service) Shutdown() {
 	s.mu.Lock()
@@ -462,28 +480,31 @@ func (s *Service) fail(id string, cause error) {
 	quiet := errors.As(cause, &quota) || errors.Is(cause, ErrLimit)
 	lang := s.deps.Language()
 	message := i18n.ErrorText(lang, cause)
+	// The provider that reported the failure is the one to name and to pause, not necessarily the one chosen now.
+	provider := s.failedProvider(cause)
+	name := provider.Name()
 	if errors.Is(cause, ErrLimit) {
 		s.mu.Lock()
-		first := !s.deps.Now().Before(s.pausedUntil)
+		first := !s.deps.Now().Before(s.pausedUntil[provider])
 		if first {
-			s.pausedUntil = s.deps.Now().Add(limitPause)
+			s.pausedUntil[provider] = s.deps.Now().Add(limitPause)
 		}
 		s.mu.Unlock()
 		if first {
-			s.notify(i18n.T(lang, "Codex limit reached"), i18n.T(lang, "New Slack requests wait 30 minutes; what you ask yourself still goes through."))
+			s.notify(i18n.T(lang, "%s limit reached", name), i18n.T(lang, "New Slack requests wait 30 minutes; what you ask yourself still goes through."))
 		}
-		message = i18n.T(lang, "Codex's usage limit is reached. Try again later with “Investigate again”.")
+		message = i18n.T(lang, "%s's usage limit is reached. Try again later with “Investigate again”.", name)
 	}
 	login := errors.Is(cause, ErrLogin)
 	if login {
 		s.mu.Lock()
-		first := s.loginProblem == ""
-		s.loginProblem = "Codex is not signed in any more: open Connectors and sign in again."
+		first := !s.loginProblem[provider]
+		s.loginProblem[provider] = true
 		s.mu.Unlock()
 		if first {
-			s.notify(i18n.T(lang, "Codex needs you to sign in again"), i18n.T(lang, "The assistant cannot answer until you do."))
+			s.notify(i18n.T(lang, "%s needs you to sign in again", name), i18n.T(lang, "The assistant cannot answer until you do."))
 		}
-		message = i18n.T(lang, "Codex is not signed in any more. Open Connectors to sign in again.")
+		message = i18n.T(lang, "%s is not signed in any more. Open Connectors to sign in again.", name)
 	}
 	if !quiet && !login {
 		s.deps.OnError(cause)
@@ -544,23 +565,62 @@ func (s *Service) alert(id, message string) {
 	s.notify(title, message)
 }
 
-// runCodex runs a turn under the job's context, so that Stop reaches it.
-func (s *Service) runCodex(ctx context.Context, id string, turn Turn, trackThread bool) (TurnResult, error) {
-	turn.OnEvent = func(event Event) { s.onEvent(id, event, trackThread) }
-	result, err := s.deps.Codex.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
-	if err == nil {
-		// A turn that went through shows Codex works again: its limit and login problems are over.
-		s.mu.Lock()
-		s.pausedUntil, s.loginProblem = time.Time{}, ""
-		s.mu.Unlock()
-	}
-	return result, err
+// providerFailure says which provider a failure comes from, so a limit or a login problem is held against that one.
+type providerFailure struct {
+	provider providers.ID
+	err      error
 }
 
-func (s *Service) onEvent(id string, event Event, trackThread bool) {
+func (e *providerFailure) Error() string { return e.err.Error() }
+func (e *providerFailure) Unwrap() error { return e.err }
+func (e *providerFailure) ErrorText(lang i18n.Lang) string {
+	return i18n.ErrorText(lang, e.err)
+}
+
+func (s *Service) failedProvider(cause error) providers.ID {
+	var failure *providerFailure
+	if errors.As(cause, &failure) {
+		return failure.provider
+	}
+	return s.deps.Selection().Provider
+}
+
+// pausedFor reports whether a provider's usage limit is reached.
+func (s *Service) pausedFor(provider providers.ID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deps.Now().Before(s.pausedUntil[provider])
+}
+
+// runProvider runs a turn on the provider and model the settings choose now, under the job's context, so that Stop
+// reaches it.
+func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackThread bool) (TurnResult, providers.ID, error) {
+	selection := s.deps.Selection()
+	provider, ok := s.deps.Providers[selection.Provider]
+	if !ok {
+		return TurnResult{}, selection.Provider, &providerFailure{selection.Provider, i18n.NewError("%s is not available", selection.Provider.Name())}
+	}
+	turn.Model = selection.Model
+	turn.OnEvent = func(event Event) { s.onEvent(id, selection.Provider, event, trackThread) }
+	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
+	if err != nil {
+		return result, selection.Provider, &providerFailure{selection.Provider, err}
+	}
+	// A turn that went through shows this provider works again: its limit and login problems are over.
+	s.mu.Lock()
+	delete(s.pausedUntil, selection.Provider)
+	delete(s.loginProblem, selection.Provider)
+	s.mu.Unlock()
+	if trackThread && result.ThreadID != "" {
+		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = result.ThreadID, selection.Provider })
+	}
+	return result, selection.Provider, nil
+}
+
+func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool) {
 	switch {
 	case event.Type == "thread" && trackThread:
-		s.update(id, func(r *Stored) { r.ThreadID = event.ThreadID })
+		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = event.ThreadID, provider })
 	case event.Type == "step":
 		text := s.deps.Redact()(event.Text)
 		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, s.entry("assistant", "step", text)) })

@@ -27,6 +27,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/claude"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
@@ -101,10 +102,11 @@ func run() error {
 		gitlab.New(),
 		asana.New(),
 		slite.New(),
+		claude.New(filepath.Join(dir, "claude")),
 	)
 
 	token := os.Getenv("POUPLE_TOKEN")
-	// Children (Codex, npm, brew) must not inherit the API token.
+	// Children (Codex, Claude, npm, brew) must not inherit the API token.
 	_ = os.Unsetenv("POUPLE_TOKEN")
 	tokenFromShell := os.Getenv("POUPLE_SHELL_INJECTS_TOKEN") == "1"
 	input := bufio.NewReaderSize(os.Stdin, 65)
@@ -144,6 +146,7 @@ func run() error {
 	mountSettings := api.MountSettings(settings)
 	updateChecker := updates.New(updates.Options{DataDir: dir})
 	mountUpdates := api.MountUpdates(updateChecker)
+	mountProviders := api.MountProviders(settings, registry, service)
 	language := func() string {
 		current, err := settings.Load()
 		if err != nil || current.UILanguage == "" {
@@ -153,7 +156,7 @@ func run() error {
 	}
 	handler := api.New(api.Options{
 		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
-		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux); mountUpdates(mux) },
+		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux); mountProviders(mux); mountUpdates(mux) },
 	}, port)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

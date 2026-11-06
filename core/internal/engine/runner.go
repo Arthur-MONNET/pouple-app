@@ -1,24 +1,19 @@
 package engine
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
-// Sandbox is how much a Codex turn may touch.
+// Sandbox is how much a turn may touch.
 type Sandbox string
 
 const (
@@ -26,34 +21,40 @@ const (
 	WorkspaceWrite Sandbox = "workspace-write"
 )
 
-// Event is what Codex reports while it works, reduced to what the chat shows.
+// Event is what an AI CLI reports while it works, reduced to what the chat shows.
 type Event struct {
 	Type     string // thread | step | message
 	ThreadID string
 	Text     string
 }
 
-// Turn is one Codex run.
+// Turn is one run of the AI.
 type Turn struct {
 	Prompt  string
 	Dir     string
 	Sandbox Sandbox
-	// ResumeThread continues an earlier Codex conversation.
+	// Model is the model to use; "" leaves the choice to the CLI.
+	Model string
+	// ResumeThread continues an earlier conversation of the same provider.
 	ResumeThread string
-	SchemaFile   string
-	Images       []string
-	OnEvent      func(Event)
+	// SchemaFile holds the JSON schema the final answer must follow; "" asks for free text.
+	SchemaFile string
+	Images     []string
+	OnEvent    func(Event)
 }
 
 // TurnResult is what a turn produced.
 type TurnResult struct {
 	ThreadID string
+	// Model is the model the CLI says it used, when it says (Claude does); "" otherwise.
+	Model string
 	// FinalMessage is the last agent message, empty when there was none.
 	FinalMessage string
 }
 
-// Codex runs turns. The interface lets the service be tested without a process.
-type Codex interface {
+// Provider runs turns for one AI (the Codex CLI or the Claude Code CLI). The interface lets the service be tested
+// without a process, and lets it pick the AI at each turn.
+type Provider interface {
 	Run(ctx context.Context, turn Turn) (TurnResult, error)
 }
 
@@ -61,18 +62,18 @@ type Codex interface {
 var (
 	// ErrCancelled: the user stopped the turn.
 	ErrCancelled = errors.New("stopped")
-	// ErrLimit: the Codex account used up what its plan allows for now.
-	ErrLimit = errors.New("codex usage limit reached")
-	// ErrLogin: Codex is not signed in, or its login expired.
-	ErrLogin = errors.New("codex is not signed in")
+	// ErrLimit: the account used up what its plan allows for now.
+	ErrLimit = errors.New("usage limit reached")
+	// ErrLogin: the AI is not signed in, or its login expired.
+	ErrLogin = errors.New("not signed in")
 )
 
 var (
-	limitPattern = regexp.MustCompile(`(?i)usage limit|rate.?limit|quota|too many requests|\b429\b|try again (later|in|at)`)
-	loginPattern = regexp.MustCompile(`(?i)not logged in|log ?in again|please (log|sign) ?in|unauthori[sz]ed|\b401\b|token (has )?expired|authentication`)
+	limitPattern = regexp.MustCompile(`(?i)usage limit|rate.?limit|quota|too many requests|\b429\b|try again (later|in|at)|hit your .{0,20}limit|limit reached|credit balance|out of (extra )?usage`)
+	loginPattern = regexp.MustCompile(`(?i)not logged in|log ?in again|please (log|sign) ?in|please run /login|login expired|unauthori[sz]ed|\b401\b|token (has )?expired|authentication|invalid (x-)?api[- ]key`)
 )
 
-// ClassifyFailure turns what Codex said into an error of the right kind.
+// ClassifyFailure turns what an AI CLI said into an error of the right kind.
 func ClassifyFailure(message string) error {
 	short := message
 	if len(short) > 160 {
@@ -129,8 +130,11 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 	for _, image := range turn.Images {
 		shared = append(shared, "--image", image)
 	}
+	shared = append(shared, "--json", "--skip-git-repo-check")
+	if turn.SchemaFile != "" {
+		shared = append(shared, "--output-schema", turn.SchemaFile)
+	}
 	shared = append(shared,
-		"--json", "--skip-git-repo-check", "--output-schema", turn.SchemaFile,
 		// Never wait for an approval nobody can give, and keep user hooks out of automated turns.
 		"-c", `approval_policy="never"`,
 		"-c", fmt.Sprintf(`sandbox_mode="%s"`, turn.Sandbox),
@@ -141,13 +145,22 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 		"-c", "sandbox_workspace_write.network_access=false",
 		"-c", `shell_environment_policy.inherit="core"`,
 	)
-	if r.opts.Model != "" {
-		shared = append(shared, "-m", r.opts.Model)
+	if model := firstNonEmpty(turn.Model, r.opts.Model); model != "" {
+		shared = append(shared, "-m", model)
 	}
 	if turn.ResumeThread != "" {
 		return append(append([]string{"exec", "resume"}, shared...), turn.ResumeThread, "-")
 	}
 	return append(append([]string{"exec", "--sandbox", string(turn.Sandbox)}, shared...), "-")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type line struct {
@@ -196,7 +209,7 @@ func interpretLine(raw string, lang i18n.Lang) line {
 		}
 	case "turn.failed":
 		if event.Error.Message == "" {
-			return line{failure: i18n.NewError("Codex turn failed")}
+			return line{failure: i18n.NewError("%s turn failed", "Codex")}
 		}
 		return line{failure: ClassifyFailure(event.Error.Message)}
 	case "item.completed":
@@ -246,49 +259,25 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	if ctx.Err() != nil {
 		return TurnResult{}, ErrCancelled
 	}
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, r.opts.Timeout)
-	defer cancelTimeout()
-
-	// `exec "$0" "$@"` runs the binary inside a login shell with the arguments passed as data, not as shell syntax.
 	command := r.opts.Command
 	if r.opts.ResolveCommand != nil {
 		command = r.opts.ResolveCommand()
 	}
-	args := append([]string{"-lc", `exec "$0" "$@"`, command}, r.BuildArgs(turn)...)
-	cmd := exec.Command(r.opts.Shell, args...)
-	cmd.Dir = turn.Dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = os.Environ()
+	spec := processSpec{
+		Name: "Codex", Shell: r.opts.Shell, Command: command, Args: r.BuildArgs(turn), Dir: turn.Dir,
+		// `exec "$0" "$@"` runs the binary inside a login shell with the arguments passed as data, not as shell syntax.
+		Script: `exec "$0" "$@"`,
+		Env:    os.Environ(), Stdin: turn.Prompt, Timeout: r.opts.Timeout, KillGrace: r.opts.KillGrace,
+	}
 	if r.opts.Home != "" {
-		cmd.Env = append(cmd.Env, "CODEX_HOME="+r.opts.Home)
+		spec.Env = append(spec.Env, "CODEX_HOME="+r.opts.Home)
 	}
-	cmd.Stdin = strings.NewReader(turn.Prompt)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return TurnResult{}, err
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &limitedWriter{buffer: &stderr, max: 2000}
-	if err := cmd.Start(); err != nil {
-		return TurnResult{}, i18n.Wrap(err, "Codex could not be started: %s", err)
-	}
-
-	finished := make(chan struct{})
-	go func() {
-		select {
-		case <-timeoutCtx.Done():
-			terminate(cmd, r.opts.KillGrace)
-		case <-finished:
-		}
-	}()
 
 	result := TurnResult{ThreadID: turn.ResumeThread}
 	var failure error
 	lang := i18n.FromContext(ctx)
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
-	for scanner.Scan() {
-		parsed := interpretLine(scanner.Text(), lang)
+	end, err := runProcess(ctx, spec, func(raw string) error {
+		parsed := interpretLine(raw, lang)
 		for _, event := range parsed.events {
 			if event.Type == "thread" {
 				result.ThreadID = event.ThreadID
@@ -303,52 +292,13 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		if parsed.failure != nil {
 			failure = parsed.failure
 		}
+		return nil
+	})
+	if err != nil {
+		return TurnResult{}, err
 	}
-	_, _ = io.Copy(io.Discard, stdout)
-	waitErr := cmd.Wait()
-	close(finished)
-
-	switch {
-	case ctx.Err() != nil:
-		return TurnResult{}, ErrCancelled
-	case timeoutCtx.Err() != nil:
-		return TurnResult{}, i18n.NewError("Codex took more than %d min and was stopped", int(r.opts.Timeout.Minutes()))
-	case failure != nil:
-		return TurnResult{}, failure
-	case waitErr != nil:
-		detail := strings.TrimSpace(stderr.String())
-		if detail != "" {
-			detail = ": " + shortLine(detail)
-		}
-		failure := ClassifyFailure(waitErr.Error() + detail)
-		if errors.Is(failure, ErrLimit) || errors.Is(failure, ErrLogin) {
-			return TurnResult{}, failure
-		}
-		return TurnResult{}, i18n.Wrap(waitErr, "Codex exited with %s%s", waitErr, detail)
+	if err := end.settle(spec, failure); err != nil {
+		return TurnResult{}, err
 	}
 	return result, nil
-}
-
-// terminate stops the whole process group, then forces it if Codex does not leave.
-func terminate(cmd *exec.Cmd, grace time.Duration) {
-	if cmd.Process == nil {
-		return
-	}
-	pid := cmd.Process.Pid
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
-	time.AfterFunc(grace, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
-}
-
-// limitedWriter keeps only the last max bytes written.
-type limitedWriter struct {
-	buffer *bytes.Buffer
-	max    int
-}
-
-func (w *limitedWriter) Write(p []byte) (int, error) {
-	w.buffer.Write(p)
-	if over := w.buffer.Len() - w.max; over > 0 {
-		w.buffer.Next(over)
-	}
-	return len(p), nil
 }

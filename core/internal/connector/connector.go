@@ -49,14 +49,17 @@ type ActionInfo struct {
 
 // Descriptor is everything the interface needs to draw a connector's setup.
 type Descriptor struct {
-	ID       string       `json:"id"`
-	Name     string       `json:"name"`
-	Tagline  string       `json:"tagline"`
-	Required bool         `json:"required"`
-	Order    int          `json:"order"`
-	Fields   []Field      `json:"fields"`
-	Guide    []GuideStep  `json:"guide"`
-	Actions  []ActionInfo `json:"actions,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Tagline  string `json:"tagline"`
+	Required bool   `json:"required"`
+	// Choice names a group of alternatives: the setup needs at least one connected connector of each group, whichever
+	// it is (Codex or Claude for the assistant's AI). Empty when the connector is not part of such a group.
+	Choice  string       `json:"choice,omitempty"`
+	Order   int          `json:"order"`
+	Fields  []Field      `json:"fields"`
+	Guide   []GuideStep  `json:"guide"`
+	Actions []ActionInfo `json:"actions,omitempty"`
 }
 
 // Fact is one line of a profile card.

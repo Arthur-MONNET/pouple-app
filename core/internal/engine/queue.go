@@ -10,7 +10,7 @@ const (
 	Background
 )
 
-// Queue runs jobs one at a time (Codex turns are heavy), interactive jobs first, each priority in arrival order.
+// Queue runs jobs one at a time (AI turns are heavy), interactive jobs first, each priority in arrival order.
 type Queue struct {
 	mu      sync.Mutex
 	lanes   [2][]func()

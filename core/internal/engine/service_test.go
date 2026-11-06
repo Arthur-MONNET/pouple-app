@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 type fakeInbox struct {
@@ -83,6 +84,8 @@ type harness struct {
 	svc      *Service
 	inbox    *fakeInbox
 	codex    *scripted
+	claude   *scripted
+	choice   providers.Selection
 	root     string
 	notified []string
 	mu       sync.Mutex
@@ -103,9 +106,10 @@ func newHarness(t *testing.T, steps ...func(context.Context, Turn) (TurnResult, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{inbox: &fakeInbox{}, codex: &scripted{steps: steps}, root: root, now: time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)}
+	h := &harness{inbox: &fakeInbox{}, codex: &scripted{steps: steps}, claude: &scripted{}, choice: providers.Selection{Provider: providers.Codex}, root: root, now: time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)}
 	h.svc = NewService(Deps{
-		Store: store, Inbox: h.inbox, Codex: h.codex, Attachments: NewAttachments(filepath.Join(dir, "att")),
+		Store: store, Inbox: h.inbox, Providers: map[providers.ID]Provider{providers.Codex: h.codex, providers.Claude: h.claude},
+		Selection: h.selection, Attachments: NewAttachments(filepath.Join(dir, "att")),
 		Persona:      func() Persona { return Persona{Name: "Arthur", Language: "French"} },
 		Language:     func() i18n.Lang { return i18n.EN },
 		ProjectsRoot: func() string { return root }, WorkDir: func() string { return root },
@@ -132,6 +136,20 @@ func newHarness(t *testing.T, steps ...func(context.Context, Turn) (TurnResult, 
 		},
 	})
 	return h
+}
+
+// selection is read at each turn, like the settings are.
+func (h *harness) selection() providers.Selection {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.choice
+}
+
+// choose changes the provider and model of the next turns.
+func (h *harness) choose(provider providers.ID, model string) {
+	h.mu.Lock()
+	h.choice = providers.Selection{Provider: provider, Model: model}
+	h.mu.Unlock()
 }
 
 func message(text string, overrides ...func(*Incoming)) Incoming {

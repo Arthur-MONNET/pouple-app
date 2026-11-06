@@ -1,6 +1,6 @@
 # Pouple
 
-A macOS assistant that watches the Slack messages that would notify you, has your local Codex look into them, and
+A macOS assistant that watches the Slack messages that would notify you, has your local Codex or Claude Code look into them, and
 shows the answer as floating bubbles in a screen corner and as conversations in a window. You only take the
 decisions: nothing is changed in your code before you approve it, and a Stop button ends any run.
 
@@ -22,11 +22,18 @@ The script builds and verifies the app, installs it at `~/Applications/Pouple.ap
 application data and the macOS security settings, and records where the checkout is so that the app can
 [update itself](#updates).
 
-The first launch guides you through two connections, with a confirmation card showing whose account you connected:
+The first launch guides you through the connections, with a confirmation card showing whose account you connected:
 
 1. **Slack**: one click creates the Slack app with every permission already filled in; paste the token it gives you.
-2. **Codex**: If the CLI is missing, Pouple downloads a verified OpenAI release into its own application folder.
-   Sign in with ChatGPT in the browser. An existing CLI on your PATH is also supported.
+2. **An AI, Codex or Claude** (one is enough, both can be connected):
+   - **Codex**: If the CLI is missing, Pouple downloads a verified OpenAI release into its own application folder.
+     Sign in with ChatGPT in the browser. An existing CLI on your PATH is also supported.
+   - **Claude**: If Claude Code is missing, Pouple runs Anthropic's official installer. Sign in with your Claude
+     subscription in the browser. Pouple has its own login and never reads or changes your usual `~/.claude`.
+
+The AI and its model can be changed at any time in the settings, with no restart: the next turn uses the new choice.
+A usage limit or a sign-in problem pauses only the AI that reported it, and the daily limit counts the turns of
+both.
 
 More connectors can be added later from the Connectors page. GitLab, Asana and Slite are optional and read-only:
 once connected, the assistant is given your open tasks and merge requests and the notes that match each Slack
@@ -68,18 +75,21 @@ cd pouple-app && git pull --ff-only && bash scripts/install-local.sh
 ## Security
 
 - Slack tokens live in the macOS Keychain and are write-only in the interface. Codex stores its login in
-  Pouple’s dedicated Codex home.
+  Pouple’s dedicated Codex home, Claude Code in Pouple’s dedicated configuration folder.
 - The core listens on `127.0.0.1` only, behind a per-launch bearer token, a Host check and a cross-site check.
   The macOS shell passes the token to the core through its startup pipe and injects it into the web view only
   for the core’s exact origin.
-- Slack text is always handed to Codex as data between delimiters; Codex works read-only until you approve a change,
+- Slack text is always handed to the AI as data between delimiters; it works read-only until you approve a change,
   and the writing turn never sees the Slack text.
+- Codex runs in its operating-system sandbox. Claude Code has none, so a Claude turn only gets the tools Read, Glob and
+  Grep (plus Edit and Write inside the project once you approved), never a shell, the web or an MCP server, and none
+  of your settings, hooks or plugins are loaded; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Layout
 
 | Folder | What |
 |---|---|
-| `core/` | Go: connectors, Slack inbox, Codex runner, assistant engine, local API. One static binary. |
+| `core/` | Go: connectors, Slack inbox, Codex and Claude runners, assistant engine, local API. One static binary. |
 | `web/` | Vue 3 + Tailwind: setup wizard, conversations, connectors, settings. Embedded in the core. |
 | `app/` | Swift: the macOS shell (window, menu bar, floating bubbles). |
 | `site/` | The installation page (GitHub Pages). |

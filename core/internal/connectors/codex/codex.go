@@ -64,10 +64,12 @@ func loginShell(ctx context.Context, env []string, script string, onLine func(st
 
 func (c *Connector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
-		ID:       ID,
-		Name:     "Codex",
-		Tagline:  "The assistant that looks into your requests",
-		Required: true,
+		ID:      ID,
+		Name:    "Codex",
+		Tagline: "The assistant that looks into your requests",
+		// The assistant needs Codex or Claude, whichever the user prefers: see connector.SetupGaps.
+		Required: false,
+		Choice:   "ai",
 		Order:    2,
 		Guide: []connector.GuideStep{
 			{Title: "Install the Codex CLI", Body: "Pouple uses OpenAI's Codex on your Mac. If it is not installed, one click installs it."},

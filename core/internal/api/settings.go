@@ -10,6 +10,7 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 // Settings is the part of the configuration the interface can read and change.
@@ -22,10 +23,22 @@ type Settings struct {
 	AutoApprove    string   `json:"autoApprove"`
 	Keywords       []string `json:"keywords"`
 	IgnoreChannels []string `json:"ignoreChannels"`
+	// Provider is the AI that runs the turns now ("codex" or "claude"): the user's choice, or the connected one.
+	Provider string `json:"provider"`
+	// Models is the model chosen for each provider, always with both keys; "" is the CLI's own default.
+	Models map[string]string `json:"models"`
 }
 
 func viewOf(s config.Settings) Settings {
-	return Settings{s.PollSeconds, s.DailyTurnLimit, s.ProjectsRoot, s.Language, string(i18n.Parse(s.UILanguage)), s.AutoApprove, s.Keywords, s.IgnoreChannels}
+	models := map[string]string{}
+	for _, id := range providers.All() {
+		models[string(id)] = s.ModelOf(id)
+	}
+	return Settings{
+		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
+		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels,
+		Provider: string(s.ActiveProvider()), Models: models,
+	}
 }
 
 // MountSettings adds GET and PUT /api/settings. A PUT carries only the fields to change.
@@ -51,6 +64,10 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				AutoApprove    *string   `json:"autoApprove"`
 				Keywords       *[]string `json:"keywords"`
 				IgnoreChannels *[]string `json:"ignoreChannels"`
+				// Provider is "codex", "claude", or "" to go back to the connected one.
+				Provider *string `json:"provider"`
+				// Models changes the model of the providers named in it only.
+				Models map[string]string `json:"models"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&patch); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(lang, "The request is not valid JSON")})
@@ -60,7 +77,26 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": problem})
 				return
 			}
+			current, err := file.Load()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(lang, "The settings could not be read")})
+				return
+			}
+			models, problem := validateProvider(lang, current, patch.Provider, patch.Models)
+			if problem != "" {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": problem})
+				return
+			}
 			settings, err := file.Update(func(s *config.Settings) {
+				if patch.Provider != nil {
+					s.Provider = strings.TrimSpace(*patch.Provider)
+				}
+				if s.Models == nil {
+					s.Models = map[string]string{}
+				}
+				for id, model := range models {
+					s.Models[id] = model
+				}
 				if patch.PollSeconds != nil {
 					s.PollSeconds = *patch.PollSeconds
 				}
@@ -117,6 +153,35 @@ func validate(lang i18n.Lang, poll, limit *int, root, autoApprove, uiLanguage *s
 		}
 	}
 	return ""
+}
+
+// validateProvider checks the choice of AI and the models, and returns the models cleaned (trimmed), or what is wrong.
+// Only a connected provider can be chosen: a choice nobody could run would only stop the assistant.
+func validateProvider(lang i18n.Lang, current config.Settings, provider *string, models map[string]string) (map[string]string, string) {
+	if provider != nil {
+		chosen := strings.TrimSpace(*provider)
+		if chosen != "" {
+			id, ok := providers.Parse(chosen)
+			if !ok {
+				return nil, i18n.T(lang, "The AI must be “codex” or “claude”")
+			}
+			if !current.Connected(string(id)) {
+				return nil, i18n.T(lang, "“%s” is not connected yet: connect it in Connectors first", id.Name())
+			}
+		}
+	}
+	cleaned := map[string]string{}
+	for key, model := range models {
+		if _, ok := providers.Parse(key); !ok {
+			return nil, i18n.T(lang, "The AI must be “codex” or “claude”")
+		}
+		model = strings.TrimSpace(model)
+		if !providers.ValidModel(model) {
+			return nil, i18n.T(lang, "A model name has at most 80 characters: letters, digits and . _ : / -, and it cannot start with -")
+		}
+		cleaned[key] = model
+	}
+	return cleaned, ""
 }
 
 func cleanList(values []string) []string {

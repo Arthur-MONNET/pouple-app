@@ -43,8 +43,11 @@ func (p Profile) Localized(lang i18n.Lang, connectorID string) Profile {
 	if lang == i18n.EN {
 		return p
 	}
-	if connectorID == "codex" && p.Name == "OpenAI API key" && p.Subtitle == "Billed per use" {
-		p.Name, p.Subtitle = i18n.T(lang, p.Name), i18n.T(lang, p.Subtitle)
+	if connectorID == "codex" && p.Name == "OpenAI API key" {
+		p.Name = i18n.T(lang, p.Name)
+	}
+	if p.Subtitle == "Billed per use" {
+		p.Subtitle = i18n.T(lang, p.Subtitle)
 	}
 	p.Facts = slices.Clone(p.Facts)
 	var until time.Time

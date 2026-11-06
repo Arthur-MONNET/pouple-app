@@ -1,14 +1,14 @@
 # Pouple — architecture
 
-Pouple is a stand-alone macOS assistant: it listens to the Slack messages that would notify you, has the local
-Codex CLI investigate them, and shows the result as floating bubbles in a screen corner and as conversations in a
+Pouple is a stand-alone macOS assistant: it listens to the Slack messages that would notify you, has a local AI CLI
+(Codex or Claude Code, your choice) investigate them, and shows the result as floating bubbles in a screen corner and as conversations in a
 main window. It is extracted from Cockpit's assistant but shares nothing with Cockpit's task manager.
 
 ## Goals
 
 1. **Bubbles first**: the native corner pop-ups stay the main surface.
 2. **A real app**: a window with every conversation, a menu-bar icon, "open at login".
-3. **Install and connect in minutes**: download, open, a guided setup (Slack, then Codex), more connectors later
+3. **Install and connect in minutes**: download, open, a guided setup (Slack, then Codex or Claude), more connectors later
    from the app. Nobody edits a file or a config by hand.
 4. **Secrets are never in a file in the repo, a log, a URL or the web UI after they are saved.**
 
@@ -23,7 +23,7 @@ Pouple.app
 
 | Part | Language | Role |
 |---|---|---|
-| `core/` | Go | Config, secrets, connectors, Slack inbox, Codex runner, assistant engine, HTTP API, SSE. Serves the built web UI (`go:embed`). |
+| `core/` | Go | Config, secrets, connectors, Slack inbox, Codex and Claude runners, assistant engine, HTTP API, SSE. Serves the built web UI (`go:embed`). |
 | `web/` | Vue 3, Tailwind 4 | Setup wizard, conversations, connectors page. Talks to the core only through the API. |
 | `app/` | Swift (SwiftPM, macOS 14+) | Shell: starts/stops the core, menu-bar item, window, floating bubbles (ported from Cockpit's overlay). |
 | `site/` | static HTML | GitHub Pages landing page with the Download button (resolves the latest release). |
@@ -43,6 +43,7 @@ web page cannot drive the assistant.
 | `attachments/` | Files that came with messages. |
 | `codex/` | Dedicated `CODEX_HOME`: Pouple uses its own Codex login. |
 | `install.json` | Written by `scripts/install-local.sh`: where the source checkout is, and which commit was built. |
+| `claude/` | Dedicated `CLAUDE_CONFIG_DIR`: Pouple uses its own Claude login and never reads or writes `~/.claude`. |
 
 **Secrets** (Slack token, other connectors' keys) are stored in the **macOS Keychain** (service `app.pouple`),
 through `/usr/bin/security`, never in a dotfile. They are write-only for the UI: the API returns whether a secret
@@ -66,9 +67,11 @@ type Connector interface {
   the user confirms it.
 - Saving a connector stores secrets in the Keychain and the rest in `config.json`, then (re)starts what depends on it.
 
-Required, in order: **1. Slack**, **2. Codex**. Optional, added later from the app: **GitLab** (order 10),
-**Asana** (11) and **Slite** (12). Setup is complete once the two required connectors are connected; the optional
-ones never change that.
+Required: **1. Slack**, and **one AI of the two alternatives 2. Codex, 3. Claude**. A connector declares
+`Required` (needed on its own) or a `Choice` group (one connected connector of the group is enough): the two AIs
+share the group `"ai"` and are `Required: false` individually. `connector.SetupComplete` is the single rule used by
+`GET /api/state` (`setupComplete`) and by the engine (`Inactive`): Slack connected **and** (Codex **or** Claude
+connected). Optional, added later from the app: **GitLab** (order 10), **Asana** (11) and **Slite** (12); they never change whether setup is complete.
 
 ### Slack
 
@@ -111,6 +114,100 @@ connection time on the resolved address, which also stops a name that points at 
 
 Values are read from the registry (keychain for secrets) at each use: connecting, replacing or removing a token
 applies to the next request, with no restart.
+### Claude
+
+Claude Code is the second AI. Pouple has its own login, kept apart from the interactive CLI the same way Codex's is:
+
+1. Detect `claude` through a login shell (the native installer's `~/.local/bin` is appended to the PATH). Missing:
+   one click runs Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`, no `sudo`,
+   output streamed). Nothing is pinned: the CLI auto-updates itself.
+2. Log in with `claude auth login --claudeai` and `CLAUDE_CONFIG_DIR` set to Pouple's `claude/` folder. The CLI
+   opens the browser and prints the same address, which is forwarded as the fallback `open` event. On macOS Claude
+   Code keys its Keychain entry to the configuration folder, so a folder of Pouple's own is a login of Pouple's
+   own (`~/.claude` and the user's Keychain entry are never touched). Without the Keychain it falls back to
+   `claude/.credentials.json`.
+3. Profile card from `claude auth status` (JSON, local, no network): e-mail, plan, organization, plus the CLI
+   version. A login that is not a Claude subscription (Console, billed per use) shows a warning.
+
+## AI providers
+
+The engine does not know Codex: it knows a `Provider` (`Run(ctx, Turn) (TurnResult, error)`). Both CLIs implement
+it (`engine.Runner` for Codex, `engine.ClaudeRunner` for Claude) and are wrapped by the same `Metered` wrapper, so
+the daily quota counts the turns of whichever AI runs them.
+
+- **Chosen at each turn**: `Deps.Selection` reads the settings (`provider`, `models`) when a turn starts, so a change
+  applies to the very next turn without restarting anything. `provider` is empty (automatic) or `codex`/`claude`;
+  automatic means the connected one, Codex when both are (`config.Settings.ActiveProvider`). `models` holds one model
+  name per provider; empty is the CLI's own default. A model name is `[A-Za-z0-9._:/-]{0,80}` and never starts with
+  `-`, so it can never be read as an option (`providers.ValidModel`, enforced by the API and again by the runner).
+- **Per-provider state**: a usage limit or a login problem is held against the provider that reported it
+  (`providerFailure`). The pause, the standing notices, the notification titles and the journal name that provider
+  (`%s` is `Codex` or `Claude`, translated around it). The other one keeps working, and a pause only shows while its
+  provider is the active one.
+- **Conversations**: a session id belongs to the provider that created it (`Stored.ThreadProvider`, empty means
+  Codex for data written before Claude existed). After a switch the next turn does not resume it: it starts fresh
+  with the transcript so far, exactly as when a thread is lost.
+- **Test**: `Service.TestProvider` runs one minimal read-only turn ("reply with ok") with the model to test, through
+  the metered provider (one turn of the quota), with a 90 s limit.
+- **Prompts** are provider-neutral. The structure is the same; the final answer follows the same JSON schema, enforced
+  by `codex exec --output-schema` or by `claude --json-schema` (see below).
+
+### API
+
+- `GET /api/settings`, `PUT /api/settings` (partial): `provider` (`"codex"` | `"claude"`; the effective one on read;
+  `""` on write goes back to automatic; a provider that is not connected is refused with 422) and
+  `models` (`{"codex": "", "claude": ""}` on read; on write only the keys named change; 422 for an unknown provider
+  or an invalid model name).
+- `GET /api/providers`: `{"active": "claude", "providers": [{"id", "name", "connected", "active", "model",
+  "suggestedModels": [{"id", "label"}], "note"}]}`. Codex has no suggestions (its models cannot be listed offline);
+  Claude proposes the aliases `opus`, `sonnet`, `haiku`, `fable` and the current full ids.
+- `POST /api/providers/{id}/test` (optional body `{"model": "…"}` to test an unsaved model):
+  `{"ok", "latencyMs", "model", "message", "code"}`. A failed test is still HTTP 200 with `ok: false`, a localized
+  `message` and a `code` (`not-connected`, `invalid-model`, `login`, `limit`, `quota`, `timeout`, `failed`);
+  an unknown provider is 404. One turn of the quota, except `not-connected` and `invalid-model`, which run nothing.
+- `GET /api/assistant`: `status.provider` is `{"id", "name", "model"}` of the AI that runs the next turn.
+- `GET /api/state`: each step also carries `choice` (`"ai"` for Codex and Claude); `setupComplete` follows the rule
+  above.
+
+### How a Claude turn is confined
+
+Codex runs in an operating-system sandbox. Claude Code does not, so a Claude turn is confined by its arguments, and
+`ClaudeRunner.BuildArgs` is covered by a test that asserts the exact argument list of both modes.
+
+| | Read-only turn (investigation) | Write turn (after approval) |
+|---|---|---|
+| Tools (`--tools`) | `Read,Glob,Grep` | `Read,Glob,Grep,Edit,Write` |
+| Permission mode | `dontAsk`: whatever is not allowed is refused | `acceptEdits`: edits only inside the working folders |
+| Working folder | the projects folder (or Pouple's scratch folder) | the project folder, also given as `--add-dir` |
+| Shell, web, MCP, sub-agents | none: not offered (`--tools`) and denied (`--disallowedTools`); `--strict-mcp-config` with no config ignores every MCP source, the project's `.mcp.json` included | same |
+| Settings, hooks, plugins | `--setting-sources ""`: no user, project or local settings, so no hook, plugin or rule from outside | same |
+| Secrets | deny rules through `--settings`: `.env*`, keys, `.ssh`, `.aws`, `.netrc`, `.npmrc`, Pouple's data folder | same, and `.env`/`.env.local` cannot be edited |
+
+Verified against Claude Code 2.1.272, with the real CLI pointed at a local fake API (no account involved): a model
+that asks for Bash gets "No such tool available"; a read outside the working folder is refused; an edit outside the
+project, through a symlink, in `.git`/`.claude` or on `.env` is refused (note: a bare `--allowedTools Edit,Write`
+would have allowed edits anywhere, which is why the write mode relies on `acceptEdits` and the tool list instead);
+without `--setting-sources ""` and `--strict-mcp-config`, a project's SessionStart hook and `.mcp.json` server do run,
+with them they do not.
+
+Other rules of the runner:
+
+- The prompt goes through stdin, never through the arguments. Images are copied for the length of the turn into a
+  private folder (with the extension the `Read` tool needs), which is the only extra readable folder
+  (`--add-dir`), and their paths are appended to the prompt.
+- Same login-shell pattern as Codex (`exec "$0" "$@"`), own process group, timeout, and a cancelled context kills the
+  group, so Stop works the same way (`ErrCancelled`). The shared machinery is `runProcess` in `process.go`.
+- The child environment drops `POUPLE_*`, `ANTHROPIC_*`, `CLAUDE_*` and `CLAUDECODE` and sets
+  `CLAUDE_CONFIG_DIR` to Pouple's folder: no variable of the parent can choose another account, a key or a gateway
+  (the parent's `CLAUDE_CODE_*` variables would otherwise even write the parent's e-mail into Pouple's folder).
+- Streams (`--output-format stream-json --verbose`): `system/init` gives the session id and the resolved model,
+  `assistant` messages carry text and `tool_use` blocks (shown as steps: `Read src/a.ts`, `Searched for “login”`,
+  `Edited a.ts`), the final `result` carries `result`, `structured_output` and `is_error`. `--json-schema` is
+  enforced through a synthetic `StructuredOutput` tool. `--resume <session id>` continues a session.
+- Failures are classified like Codex's (`ErrLimit`, `ErrLogin`) from the result text, the exit code and stderr. A
+  rejected request is retried by the CLI up to ten times with growing delays, which takes minutes: the runner reads
+  the `system/api_retry` events and stops at once when retrying cannot help (login refused twice, organization not
+  allowed, billing error, third rate limit).
 
 ## Assistant engine
 
@@ -118,8 +215,9 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 
 - Slack inbox: what would notify you (mentions, DMs, notes to self, group chats, thread replies, keywords).
 - Request state machine: queued, analyzing, awaiting-user, ready, applying, done, ignored, failed.
-- Codex runner: read-only by default, structured outcome (JSON schema), untrusted text always wrapped as data,
-  writes only after approval and only in the chosen project, stop at any time, daily limit, pause on Codex limit.
+- AI runner (Codex or Claude, see above): read-only by default, structured outcome (JSON schema), untrusted text
+  always wrapped as data, writes only after approval and only in the chosen project, stop at any time, daily limit,
+  pause on the limit of the AI that reported it.
 - Connected services: for each analysis, `core/internal/servicectx` asks the connected optional services for
   relevant data, in parallel, within a hard 3 s budget (a service that is slow, down or refused becomes one line
   saying so, never a failed turn). Asana: open tasks assigned to the user (soonest due first) and tasks matching the
@@ -173,8 +271,8 @@ survive an update.
 
 ## Milestones
 
-1. Core: config, Keychain secrets, connector framework, Slack and Codex connectors with profiles, API, tests.
-2. Web: setup wizard (Slack, then Codex), connectors page, conversations view.
+1. Core: config, Keychain secrets, connector framework, Slack, Codex and Claude connectors with profiles, API, tests.
+2. Web: setup wizard (Slack, then Codex or Claude), connectors page, conversations view.
 3. Engine port: inbox, runner, service, store, SSE.
 4. Swift shell: menu-bar item, window, core supervision, bubbles.
 5. Release pipeline and landing page.

@@ -13,7 +13,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
-// ErrQuota is returned when the day's limit of Codex turns is used up.
+// QuotaError is returned when the day's limit of turns is used up.
 type QuotaError struct{ Limit int }
 
 func (e *QuotaError) Error() string {
@@ -21,10 +21,10 @@ func (e *QuotaError) Error() string {
 }
 
 func (e *QuotaError) ErrorText(lang i18n.Lang) string {
-	return i18n.T(lang, "The daily limit of %d Codex turns is reached. Raise it in the settings, or wait until tomorrow.", e.Limit)
+	return i18n.T(lang, "The daily limit of %d turns is reached. Raise it in the settings, or wait until tomorrow.", e.Limit)
 }
 
-// UsageMeter counts the Codex turns of the day. Each turn costs quota whether or not it succeeds, so it is counted
+// UsageMeter counts the turns of the day, whichever AI runs them. Each turn costs quota whether or not it succeeds, so it is counted
 // when it starts. Counts are kept for two weeks in a small file.
 type UsageMeter struct {
 	path string
@@ -99,9 +99,9 @@ func (m *UsageMeter) save() error {
 	return os.Rename(temporary, m.path)
 }
 
-// Metered wraps a Codex so every turn is counted and refused once the day's limit is used.
+// Metered wraps a Provider so every turn is counted and refused once the day's limit is used.
 type Metered struct {
-	Inner Codex
+	Inner Provider
 	Meter *UsageMeter
 	// Limit returns the turns allowed per day; 0 or less means no limit.
 	Limit func() int

@@ -60,12 +60,30 @@ func TestBuildArgsKeepPromptAndImagesSafe(t *testing.T) {
 	}
 }
 
+func TestBuildArgsTakeTheModelOfTheTurnAndOmitAnAbsentSchema(t *testing.T) {
+	r := NewRunner(RunnerOptions{Model: "fallback-model"})
+	joined := strings.Join(r.BuildArgs(Turn{Sandbox: ReadOnly, Model: "turn-model"}), " ")
+	if !strings.Contains(joined, "-m turn-model") || strings.Contains(joined, "fallback-model") || strings.Contains(joined, "--output-schema") {
+		t.Fatalf("args: %s", joined)
+	}
+	if joined := strings.Join(r.BuildArgs(Turn{Sandbox: ReadOnly}), " "); !strings.Contains(joined, "-m fallback-model") {
+		t.Fatalf("args: %s", joined)
+	}
+	if joined := strings.Join(NewRunner(RunnerOptions{}).BuildArgs(Turn{Sandbox: ReadOnly, SchemaFile: "/s.json"}), " "); strings.Contains(joined, " -m ") || !strings.Contains(joined, "--output-schema /s.json") {
+		t.Fatalf("args: %s", joined)
+	}
+}
+
 func TestClassifyFailure(t *testing.T) {
 	cases := map[string]error{
 		"You've hit your usage limit. Try again at 6:12 PM.": ErrLimit,
 		"429 Too Many Requests":                              ErrLimit,
 		"Not logged in. Please log in again":                 ErrLogin,
 		"401 Unauthorized":                                   ErrLogin,
+		"You've hit your limit · resets 3pm":                 ErrLimit,
+		"Credit balance is too low":                          ErrLimit,
+		"Not logged in · Please run /login":                  ErrLogin,
+		"Invalid API key · Please run /login":                ErrLogin,
 	}
 	for message, want := range cases {
 		if err := ClassifyFailure(message); !errors.Is(err, want) {

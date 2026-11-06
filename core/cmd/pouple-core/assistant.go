@@ -14,6 +14,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 	"github.com/Arthur-MONNET/pouple/core/internal/servicectx"
 )
 
@@ -46,21 +47,37 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		}
 		return current
 	}
+	// Both AIs count in the same daily quota. Which one runs, and with which model, is read from the settings at each
+	// turn, so a change applies to the very next turn.
+	limit := func() int { return load().DailyTurnLimit }
 	codexHome := filepath.Join(dir, "codex")
-	meteredCodex := &engine.Metered{
-		Inner: engine.NewRunner(engine.RunnerOptions{
-			Shell:          os.Getenv("SHELL"),
-			Home:           codexHome,
-			ResolveCommand: func() string { return codex.Command(codexHome) },
-		}),
-		Meter: meter,
-		Limit: func() int { return load().DailyTurnLimit },
+	claudeHome := filepath.Join(dir, "claude")
+	aiProviders := map[providers.ID]engine.Provider{
+		providers.Codex: &engine.Metered{
+			Inner: engine.NewRunner(engine.RunnerOptions{
+				Shell:          os.Getenv("SHELL"),
+				Home:           codexHome,
+				ResolveCommand: func() string { return codex.Command(codexHome) },
+			}),
+			Meter: meter, Limit: limit,
+		},
+		providers.Claude: &engine.Metered{
+			Inner: engine.NewClaudeRunner(engine.ClaudeOptions{
+				Shell: os.Getenv("SHELL"),
+				Home:  claudeHome,
+				// Pouple's data folder holds the logins and the conversations: the model never reads it, even when
+				// the projects folder happens to contain it.
+				ProtectedDirs: []string{dir},
+			}),
+			Meter: meter, Limit: limit,
+		},
 	}
 	projectsRoot := func() string { return load().ProjectsRoot }
 	language := func() i18n.Lang { return i18n.Parse(load().UILanguage) }
 
 	service := engine.NewService(engine.Deps{
-		Store: store, Inbox: slack, Codex: meteredCodex, Attachments: attachments, Fetch: slack.Fetch,
+		Store: store, Inbox: slack, Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
+		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
 		Services:     servicectx.New(registry).Gather,
 		Persona:      func() engine.Persona { return personaOf(registry, load()) },
@@ -75,7 +92,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		},
 		SchemaFile: schemaFile,
 		Redact: func() engine.Redactor {
-			secrets := codexSecrets(filepath.Join(codexHome, "auth.json"))
+			secrets := append(codexSecrets(filepath.Join(codexHome, "auth.json")), claudeSecrets(filepath.Join(claudeHome, ".credentials.json"))...)
 			if values, err := registry.Values("slack"); err == nil {
 				secrets = append(secrets, values["token"], values["appToken"])
 			}
@@ -102,18 +119,21 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 	return service, attachments, nil
 }
 
-// inactiveReason says why the assistant cannot work yet: both required connectors must be set up.
+// inactiveReason says why the assistant cannot work yet: Slack and at least one AI (Codex or Claude) must be set up.
 func inactiveReason(registry *connector.Registry, lang i18n.Lang) string {
 	statuses, err := registry.List()
 	if err != nil {
 		return i18n.T(lang, "The connectors could not be read")
 	}
-	for _, status := range statuses {
-		if status.Descriptor.Required && !status.Connected {
-			return i18n.T(lang, "%s is not connected yet", status.Descriptor.Name)
-		}
+	gaps := connector.SetupGaps(statuses)
+	if len(gaps) == 0 {
+		return ""
 	}
-	return ""
+	names := gaps[0].Names
+	if len(names) > 1 {
+		return i18n.T(lang, "Connect one of these first: %s", strings.Join(names, ", "))
+	}
+	return i18n.T(lang, "%s is not connected yet", names[0])
 }
 
 // personaOf calls the user by the first name of their Slack profile, in the language they chose or the system's.
@@ -179,4 +199,24 @@ func codexSecrets(path string) []string {
 		return nil
 	}
 	return []string{auth.APIKey, auth.Tokens.ID, auth.Tokens.Access, auth.Tokens.Refresh}
+}
+
+// claudeSecrets reads the tokens of Pouple's own Claude login when Claude Code keeps them in a file (it does when the
+// keychain refuses the write), so that a model that read that file cannot repeat them. Usually they are in the
+// keychain and this finds nothing.
+func claudeSecrets(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var credentials struct {
+		OAuth struct {
+			Access  string `json:"accessToken"`
+			Refresh string `json:"refreshToken"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(data, &credentials) != nil {
+		return nil
+	}
+	return []string{credentials.OAuth.Access, credentials.OAuth.Refresh}
 }

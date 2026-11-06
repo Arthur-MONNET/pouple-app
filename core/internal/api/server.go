@@ -143,9 +143,11 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 }
 
 type step struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Required  bool   `json:"required"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+	// Choice is set for connectors that are alternatives (Codex or Claude): one connected of the group is enough.
+	Choice    string `json:"choice,omitempty"`
 	Connected bool   `json:"connected"`
 }
 
@@ -157,15 +159,11 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	steps := make([]step, 0, len(statuses))
-	complete := true
 	for _, status := range statuses {
 		d := status.Descriptor
-		steps = append(steps, step{ID: d.ID, Name: d.Name, Required: d.Required, Connected: status.Connected})
-		if d.Required && !status.Connected {
-			complete = false
-		}
+		steps = append(steps, step{ID: d.ID, Name: d.Name, Required: d.Required, Choice: d.Choice, Connected: status.Connected})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"setupComplete": complete, "steps": steps, "language": lang})
+	writeJSON(w, http.StatusOK, map[string]any{"setupComplete": connector.SetupComplete(statuses), "steps": steps, "language": lang})
 }
 
 func (s *Server) connectors(w http.ResponseWriter, r *http.Request) {

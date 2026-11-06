@@ -1,8 +1,12 @@
-// Package engine is the assistant: it turns Slack messages into conversations, has Codex investigate them, and
+// Package engine is the assistant: it turns Slack messages into conversations, has the AI (Codex or Claude) investigate them, and
 // carries out the changes the user approves. Its JSON shapes are the ones the web interface and the bubbles read.
 package engine
 
-import "time"
+import (
+	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
+)
 
 // Status is where a request stands.
 type Status string
@@ -62,7 +66,7 @@ type AttachmentRef struct {
 	Name string `json:"name"`
 	Mime string `json:"mime"`
 	Size int64  `json:"size"`
-	// Kind is "image" (shown to Codex as an image), "text" (read as text) or "other" (only listed).
+	// Kind is "image" (shown to the AI as an image), "text" (read as text) or "other" (only listed).
 	Kind string `json:"kind"`
 }
 
@@ -91,7 +95,7 @@ type Request struct {
 	Proposal    *Proposal       `json:"proposal"`
 	Entries     []Entry         `json:"entries"`
 	Error       *string         `json:"error"`
-	// Continuable is set when listed: Codex has a conversation a follow-up can continue.
+	// Continuable is set when listed: the AI has a conversation a follow-up can continue.
 	Continuable bool `json:"continuable,omitempty"`
 }
 
@@ -102,8 +106,18 @@ type Stored struct {
 	// ServicesUsed is set when text from Asana, GitLab or Slite was given to the analysis: written by other people, it
 	// may have shaped the proposal, so an automatic approval must not apply it.
 	ServicesUsed bool `json:"servicesUsed,omitempty"`
+	// ThreadProvider is the AI that owns ThreadID; empty for a thread kept before Claude existed, which is Codex's.
+	ThreadProvider providers.ID `json:"threadProvider,omitempty"`
 	// PendingFiles are Slack files not downloaded yet.
 	PendingFiles []PendingFile `json:"pendingFiles,omitempty"`
+}
+
+// threadOwner is the AI that owns the saved thread: Codex for a thread kept before Claude existed.
+func (s Stored) threadOwner() providers.ID {
+	if s.ThreadProvider == "" {
+		return providers.Codex
+	}
+	return s.ThreadProvider
 }
 
 // PendingFile is a Slack file to download when the request is analyzed.
@@ -122,9 +136,18 @@ type StatusInfo struct {
 	LastPollAt *string  `json:"lastPollAt"`
 	Notices    []string `json:"notices"`
 	Usage      Usage    `json:"usage"`
+	// Provider is the AI that runs the next turn.
+	Provider ProviderInfo `json:"provider"`
 }
 
-// Usage is the Codex turns used today, and the daily limit (nil when there is none).
+// ProviderInfo names the AI and the model that run the next turn; Model is "" when the CLI picks its default.
+type ProviderInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Model string `json:"model"`
+}
+
+// Usage is the AI turns used today, and the daily limit (nil when there is none).
 type Usage struct {
 	Today int  `json:"today"`
 	Limit *int `json:"limit"`
