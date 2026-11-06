@@ -20,6 +20,21 @@ def render_bare(paths, width=15):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
             f'{v.SHADOW}{lower(paths, width)}{head}{v.eyes("open")}</svg>')
 
+HEAD_PATH = "M42 88 C42 44 68 22 100 22 C132 22 158 44 158 88 C158 112 146 130 130 138 C116 144 84 144 70 138 C54 130 42 112 42 88 Z"
+# a soft belly under the head, so the arms grow out of the body instead of being stuck on it
+BELLY_PATH = "M58 108 C56 138 74 152 100 152 C126 152 144 138 142 108 Z"
+HEAD_DETAILS = v.HEAD.split("/>", 1)[1]   # the spots and the shine, without the outlined shape
+
+def render_merged(paths, width=15, extra_front=""):
+    """One silhouette: head, belly and arms share a single outline and a single fill, with no line where they meet."""
+    outline = (f'<path d="{HEAD_PATH}" fill="{v.NAVY}" stroke="{v.NAVY}" stroke-width="8" stroke-linejoin="round"/>'
+               f'<path d="{BELLY_PATH}" fill="{v.NAVY}" stroke="{v.NAVY}" stroke-width="8" stroke-linejoin="round"/>'
+               + "".join(f'<path d="{d}" fill="none" stroke="{v.NAVY}" stroke-width="{width + 8}" stroke-linecap="round" stroke-linejoin="round"/>' for d in paths))
+    fill = (f'<path d="{HEAD_PATH}" fill="{v.PINK}"/><path d="{BELLY_PATH}" fill="{v.PINK}"/>'
+            + "".join(f'<path d="{d}" fill="none" stroke="{v.PINK}" stroke-width="{width}" stroke-linecap="round" stroke-linejoin="round"/>' for d in paths))
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Pouple the octopus">'
+            f'{v.SHADOW}{outline}{fill}{HEAD_DETAILS}{v.eyes("open")}{extra_front}</svg>')
+
 def mirror(d):
     """Mirror a path around x = 100 (absolute coordinates only)."""
     out, nums = [], d.replace(",", " ").split()
@@ -93,4 +108,5 @@ if __name__ == "__main__":
     for name, (paths, width) in PROPOSALS.items():
         (out / f"{name}.svg").write_text(render(paths, width) + "\n")
         (out / f"bare-{name}.svg").write_text(render_bare(paths, width) + "\n")
+        (out / f"merged-{name}.svg").write_text(render_merged(paths, width) + "\n")
     print("written:", ", ".join(PROPOSALS))
