@@ -10,6 +10,8 @@ import type {
   Profile,
   ProposalDecision,
   QuestionAnswer,
+  ProviderTestResult,
+  ProvidersInfo,
   Settings,
   SettingsPatch,
   UpdateInfo,
@@ -43,6 +45,10 @@ export interface PoupleApi {
   getSettings(): Promise<Settings>;
   /** Changes only the given fields; rejects with a 422 ApiError when a value is refused. */
   updateSettings(patch: SettingsPatch): Promise<Settings>;
+
+  getProviders(): Promise<ProvidersInfo>;
+  /** Runs one minimal turn with the AI (and the model, when given): it counts as one turn of the daily limit. */
+  testProvider(id: string, model?: string): Promise<ProviderTestResult>;
 
   /** The last known update state; never waits for a check. */
   getUpdate(): Promise<UpdateInfo>;
@@ -133,6 +139,9 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
 
     getSettings: () => read<Settings>('/api/settings'),
     updateSettings: (patch) => read<Settings>('/api/settings', { method: 'PUT' }, patch),
+
+    getProviders: () => read<ProvidersInfo>('/api/providers'),
+    testProvider: (id, model) => read<ProviderTestResult>(`/api/providers/${enc(id)}/test`, { method: 'POST' }, model === undefined ? {} : { model }),
 
     getUpdate: () => read<UpdateInfo>('/api/update'),
     checkUpdate: () => read<UpdateInfo>('/api/update/check', { method: 'POST' }, {}),

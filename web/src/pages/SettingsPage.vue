@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { errorMessage } from '../api/client';
 import type { AutoApprove } from '../api/types';
 import AppButton from '../components/AppButton.vue';
+import AiSection from '../components/AiSection.vue';
 import AppSpinner from '../components/AppSpinner.vue';
 import InlineError from '../components/InlineError.vue';
 import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
@@ -91,6 +92,8 @@ async function submit(): Promise<void> {
         <h2 id="projects-title" class="text-base font-semibold text-ink">{{ $t('settings.projects') }}</h2>
         <ProjectsFolderForm :save-label="$t('projects.saveFolder')" />
       </section>
+
+      <AiSection />
 
       <UpdateSection />
 

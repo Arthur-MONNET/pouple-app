@@ -40,6 +40,8 @@ export interface ActionInfo {
 }
 
 export interface Descriptor {
+  /** Connectors sharing a choice group are alternatives: one connected is enough (Codex or Claude). */
+  choice?: string;
   id: string;
   name: string;
   tagline: string;
@@ -258,6 +260,41 @@ export interface Settings {
   autoApprove: AutoApprove;
   keywords: string[];
   ignoreChannels: string[];
+  /** The AI that runs the analyses (`codex` or `claude`); the effective one on read. */
+  provider?: string;
+  /** One model name per AI; empty is the CLI's own default. */
+  models?: Record<string, string>;
+}
+
+export interface SuggestedModel {
+  id: string;
+  label: string;
+}
+
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  connected: boolean;
+  active: boolean;
+  model: string;
+  /** `null` when the core has none to propose (a nil slice is encoded as null). */
+  suggestedModels: SuggestedModel[] | null;
+  note?: string;
+}
+
+/** GET /api/providers */
+export interface ProvidersInfo {
+  active: string;
+  providers: ProviderInfo[];
+}
+
+/** POST /api/providers/{id}/test: a failed test is still an answer, with `ok: false` and a message. */
+export interface ProviderTestResult {
+  ok: boolean;
+  latencyMs: number;
+  model: string;
+  message: string;
+  code?: string;
 }
 
 export type SettingsPatch = Partial<Settings>;

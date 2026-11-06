@@ -57,7 +57,7 @@ export interface ChecklistItem {
  * because the core only says what is missing in words; with no error everything is in place.
  */
 export function checklistFor(connectorId: string, actions: readonly ActionInfo[], error: ValidationFailure | null): ChecklistItem[] {
-  if (connectorId !== 'codex') return [];
+  if (connectorId !== 'codex' && connectorId !== 'claude') return [];
   const has = (id: string): string | null => (actions.some((action) => action.id === id) ? id : null);
   const notInstalled = error !== null && /not installed/i.test(error.message);
   const notSignedIn = error !== null && !notInstalled;
@@ -67,9 +67,26 @@ export function checklistFor(connectorId: string, actions: readonly ActionInfo[]
   ];
 }
 
-/** The required steps in setup order. */
-export const requiredSteps = (connectors: readonly ConnectorStatus[]): ConnectorStatus[] =>
-  connectors.filter((c) => c.descriptor.required).sort((a, b) => a.descriptor.order - b.descriptor.order);
+/**
+ * The steps of the setup, in order: every required connector, and one connector for each group of alternatives
+ * (Codex or Claude). In a group the one that is connected wins, then the one the reader picked, then the first.
+ */
+export function requiredSteps(connectors: readonly ConnectorStatus[], picked: Readonly<Record<string, string>> = {}): ConnectorStatus[] {
+  const byOrder = [...connectors].sort((a, b) => a.descriptor.order - b.descriptor.order);
+  const groups = new Set(byOrder.flatMap((c) => (c.descriptor.choice ? [c.descriptor.choice] : [])));
+  const representative = (group: string): ConnectorStatus | undefined => {
+    const members = byOrder.filter((c) => c.descriptor.choice === group);
+    return members.find((c) => c.connected) ?? members.find((c) => c.descriptor.id === picked[group]) ?? members[0];
+  };
+  const chosen = new Set([...groups].flatMap((group) => representative(group)?.descriptor.id ?? []));
+  return byOrder.filter((c) => (c.descriptor.choice ? chosen.has(c.descriptor.id) : c.descriptor.required));
+}
+
+/** The other members of the current step's group, so the reader can pick another AI. */
+export const alternativesTo = (connectors: readonly ConnectorStatus[], step: ConnectorStatus): ConnectorStatus[] =>
+  step.descriptor.choice && !step.connected
+    ? connectors.filter((c) => c.descriptor.choice === step.descriptor.choice && c.descriptor.id !== step.descriptor.id && !c.connected)
+    : [];
 
 export type WizardPosition = { kind: 'welcome' } | { kind: 'step'; index: number } | { kind: 'projects' } | { kind: 'extras' } | { kind: 'done' };
 

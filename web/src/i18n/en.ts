@@ -72,8 +72,8 @@ export const en: MessageTree = {
   },
   checklist: {
     label: 'What is in place',
-    installed: 'Codex CLI installed',
-    signedIn: 'Signed in with ChatGPT',
+    installed: 'CLI installed',
+    signedIn: 'Signed in',
     done: 'Done',
     todo: 'To do',
   },
@@ -162,6 +162,7 @@ export const en: MessageTree = {
   },
   setup: {
     coreDown: 'Pouple is not answering: {error}',
+    useInstead: 'Use {name} instead',
   },
   connectors: {
     title: 'Connectors',
@@ -253,6 +254,16 @@ export const en: MessageTree = {
     },
   },
   settings: {
+    ai: {
+      title: 'AI',
+      help: 'Which AI investigates your messages. The change applies to the next analysis.',
+      provider: 'AI',
+      model: 'Model',
+      modelPlaceholder: 'Default model of the CLI',
+      modelHelp: 'Leave empty to use the default model of the AI. A name from the list or a full model id.',
+      test: 'Test',
+      testOk: 'It works with {model} ({seconds} s). The test counted as one turn.',
+    },
     title: 'Settings',
     intro: 'How Pouple works with your projects and how much it may do on its own.',
     loadError: 'The settings could not be read: {error}',

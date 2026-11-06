@@ -3,6 +3,7 @@ import { lang as activeLang, type Lang } from '../i18n';
 import { codexConnector, codexProfile, createFixtures, slackConnector, slackProfile } from './mockFixtures';
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
+import { mockProviderTest, mockProviders } from './mockProviders';
 import { mockCheckResult, mockUpdateInfo, type UpdateScenario } from './mockUpdate';
 import type {
   ActionEvent,
@@ -59,7 +60,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] , provider: 'codex', models: { codex: '', claude: '' } };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
 
@@ -217,6 +218,14 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       return structuredClone(settings);
     },
 
+    async getProviders() {
+      await wait();
+      return mockProviders(settings);
+    },
+    async testProvider(id, model) {
+      await wait();
+      return mockProviderTest(id, model);
+    },
     async getUpdate() {
       await wait();
       return mockUpdateInfo(updateScenario, lang);

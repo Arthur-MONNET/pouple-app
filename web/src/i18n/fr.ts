@@ -76,8 +76,8 @@ export const fr: MessageTree = {
   },
   checklist: {
     label: "Ce qui est en place",
-    installed: 'Codex CLI installé',
-    signedIn: 'Connecté avec ChatGPT',
+    installed: 'CLI installé',
+    signedIn: 'Connecté',
     done: 'Fait',
     todo: 'À faire',
   },
@@ -165,6 +165,7 @@ export const fr: MessageTree = {
     open: 'Ouvrir Pouple',
   },
   setup: {
+    useInstead: 'Utiliser {name} à la place',
     coreDown: 'Pouple ne répond pas : {error}',
   },
   connectors: {
@@ -257,6 +258,16 @@ export const fr: MessageTree = {
     },
   },
   settings: {
+    ai: {
+      title: 'IA',
+      help: "L'IA qui analyse tes messages. Le changement s'applique à la prochaine analyse.",
+      provider: 'IA',
+      model: 'Modèle',
+      modelPlaceholder: "Modèle par défaut du CLI",
+      modelHelp: "Laisse vide pour utiliser le modèle par défaut de l'IA. Un nom de la liste ou un identifiant complet.",
+      test: 'Tester',
+      testOk: "Ça fonctionne avec {model} ({seconds} s). Le test a compté pour un tour.",
+    },
     title: 'Réglages',
     intro: 'Comment Pouple travaille avec tes projets, et ce qu\'il peut faire seul.',
     loadError: 'Les réglages n\'ont pas pu être lus : {error}',

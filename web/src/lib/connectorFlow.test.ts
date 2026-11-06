@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectorStatus, Profile } from '../api/types';
-import { afterSave, checklistFor, flowReducer, initialFlow, requiredSteps, resumePosition, type FlowState } from './connectorFlow';
+import { afterSave, alternativesTo, checklistFor, flowReducer, initialFlow, requiredSteps, resumePosition, type FlowState } from './connectorFlow';
 
 const profile: Profile = { name: 'Arthur', facts: [], warnings: [] };
 const status = (id: string, order: number, required: boolean, connected: boolean): ConnectorStatus => ({
@@ -87,5 +87,23 @@ describe('afterSave', () => {
     expect(afterSave({ kind: 'done' })).toEqual({ kind: 'projects' });
     expect(afterSave({ kind: 'step', index: 1 })).toEqual({ kind: 'step', index: 1 });
     expect(afterSave({ kind: 'welcome' })).toEqual({ kind: 'step', index: 0 });
+  });
+});
+
+describe('the AI step is a choice between alternatives', () => {
+  const ai = (id: string, order: number, connected: boolean): ConnectorStatus => ({ descriptor: { id, name: id, tagline: '', required: false, order, fields: [], guide: [], choice: 'ai' }, connected });
+  const slack = status('slack', 1, true, false);
+
+  it('shows one AI: the first, the picked one, or the connected one', () => {
+    const all = [slack, ai('codex', 2, false), ai('claude', 3, false)];
+    expect(requiredSteps(all).map((c) => c.descriptor.id)).toEqual(['slack', 'codex']);
+    expect(requiredSteps(all, { ai: 'claude' }).map((c) => c.descriptor.id)).toEqual(['slack', 'claude']);
+    expect(requiredSteps([slack, ai('codex', 2, false), ai('claude', 3, true)], { ai: 'codex' }).map((c) => c.descriptor.id)).toEqual(['slack', 'claude']);
+  });
+
+  it('offers the other AI only while none is connected', () => {
+    const codex = ai('codex', 2, false);
+    expect(alternativesTo([slack, codex, ai('claude', 3, false)], codex).map((c) => c.descriptor.id)).toEqual(['claude']);
+    expect(alternativesTo([slack, codex, ai('claude', 3, true)], codex)).toEqual([]);
   });
 });

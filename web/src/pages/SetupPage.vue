@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useConnectorsStore } from '../composables/useConnectorsStore';
-import { afterSave, requiredSteps, resumePosition, type WizardPosition } from '../lib/connectorFlow';
+import { afterSave, alternativesTo, requiredSteps, resumePosition, type WizardPosition } from '../lib/connectorFlow';
 import AppButton from '../components/AppButton.vue';
 import InlineError from '../components/InlineError.vue';
 import BrandMark from '../components/BrandMark.vue';
@@ -19,7 +19,8 @@ const router = useRouter();
 const store = useConnectorsStore();
 
 const position = ref<WizardPosition | null>(null);
-const steps = computed(() => requiredSteps(store.connectors.value));
+const picked = ref<Record<string, string>>({});
+const steps = computed(() => requiredSteps(store.connectors.value, picked.value));
 const withExtras = computed(() => hasExtrasStep(store.connectors.value));
 const current = computed(() => {
   const required = steps.value.length;
@@ -53,6 +54,13 @@ async function advance(): Promise<void> {
   position.value = afterSave(resumePosition(steps.value));
 }
 
+const alternatives = computed(() => (currentConnector.value ? alternativesTo(store.connectors.value, currentConnector.value) : []));
+
+/** Switches the AI of the current step: the step list is recomputed and the position stays on the same index. */
+function pick(connector: { descriptor: { id: string; choice?: string } }): void {
+  if (connector.descriptor.choice) picked.value = { ...picked.value, [connector.descriptor.choice]: connector.descriptor.id };
+}
+
 const openMain = (): void => void router.push('/');
 </script>
 
@@ -73,7 +81,12 @@ const openMain = (): void => void router.push('/');
         <AppButton variant="ghost" size="sm" class="ml-2" @click="store.refresh()">{{ $t('common.tryAgain') }}</AppButton>
       </InlineError>
       <p v-if="position === null && !store.error.value" class="py-20 text-center text-ink-dim" role="status">{{ $t('common.loading') }}</p>
-      <ConnectorStep v-else-if="currentConnector" :key="currentConnector.descriptor.id" :connector="currentConnector" :step-number="current + 1" @saved="advance" />
+      <div v-else-if="currentConnector">
+        <p v-if="alternatives.length" class="mb-3 text-sm text-ink-muted">
+          <button v-for="other in alternatives" :key="other.descriptor.id" type="button" class="underline underline-offset-2 hover:text-ink" data-testid="pick-alternative" @click="pick(other)">{{ $t('setup.useInstead', { name: other.descriptor.name }) }}</button>
+        </p>
+        <ConnectorStep :key="currentConnector.descriptor.id" :connector="currentConnector" :step-number="current + 1" @saved="advance" />
+      </div>
       <WizardProjects v-else-if="position?.kind === 'projects'" @next="position = afterProjects(store.connectors.value)" />
       <WizardExtras v-else-if="position?.kind === 'extras'" @next="position = afterExtras()" />
       <WizardDone v-else-if="position?.kind === 'done'" @open="openMain" />
