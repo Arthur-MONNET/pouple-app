@@ -156,7 +156,12 @@ func run() error {
 	}
 	handler := api.New(api.Options{
 		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
-		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux); mountProviders(mux); mountUpdates(mux) },
+		Mount: func(mux *http.ServeMux) {
+			mountAssistant(mux)
+			mountSettings(mux)
+			mountProviders(mux)
+			mountUpdates(mux)
+		},
 	}, port)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
