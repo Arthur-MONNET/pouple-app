@@ -102,7 +102,8 @@ func (c *Connector) Descriptor() connector.Descriptor {
 			Help:        "Starts with xoxp-. It stays in your Mac's keychain and is never shown again.",
 			Placeholder: "xoxp-…",
 			Secret:      true,
-			Pattern:     `^xox[a-z]-[A-Za-z0-9-]{20,}$`,
+			// Broad on purpose: a rotating token (xoxe.…) gets its own explanation in Validate instead of a bare "bad format".
+			Pattern:     `^xox[a-z]+[.-][A-Za-z0-9.-]{20,}$`,
 			PatternHint: "does not look like a Slack token (it starts with xoxp-)",
 		}, {
 			ID:          AppTokenField,
@@ -111,14 +112,14 @@ func (c *Connector) Descriptor() connector.Descriptor {
 			Placeholder: "xapp-…",
 			Secret:      true,
 			Optional:    true,
-			Pattern:     `^xapp-[A-Za-z0-9-]{20,}$`,
-			PatternHint: "must be a non-rotating xapp- token. Paste it as issued by Slack, or leave this field empty.",
+			Pattern:     `^x[a-z]+[.-][A-Za-z0-9.-]{20,}$`,
+			PatternHint: "does not look like an app-level token (it starts with xapp-). Paste it as issued by Slack, or leave this field empty.",
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Create the Slack app", Body: "One click: Slack opens with the name and every permission already filled in. Choose your workspace and confirm.", Link: &connector.Link{Label: "Create the Slack app", URL: CreateAppURL()}},
 			{Title: "Install it to your workspace", Body: "On the app's page, open Install App and click Install to Workspace, then Allow."},
 			{Title: "Copy the User OAuth Token", Body: "It is on the same page and starts with xoxp-. Paste it here."},
-			{Title: "Enable live Slack updates", Body: "In Basic Information, generate an App-Level Token with connections:write. For an existing Slack app, enable Socket Mode and subscribe to message.channels, message.groups, message.im, and message.mpim under Subscribe to events on behalf of users, then reinstall the app."},
+			{Title: "Enable live Slack updates", Body: "In Basic Information, generate an App-Level Token with connections:write (leave token rotation off: it cannot be undone). For an existing Slack app, enable Socket Mode and subscribe to message.channels, message.groups, message.im, and message.mpim under Subscribe to events on behalf of users, then reinstall the app."},
 		},
 	}
 }
@@ -173,6 +174,19 @@ func (c *Connector) call(ctx context.Context, token, method string, query url.Va
 
 func (c *Connector) Validate(ctx context.Context, values connector.Values) (connector.Profile, error) {
 	token := strings.TrimSpace(values["token"])
+	// A Slack app with token rotation switched on (it cannot be switched off) issues tokens that expire after a short
+	// time: they start with "xoxe". Pouple cannot renew them, so say what to do instead of failing hours later.
+	if strings.HasPrefix(token, "xoxe") {
+		return connector.Profile{}, connector.Invalid("token", "This Slack app uses token rotation (its tokens start with xoxe): they expire quickly and Pouple cannot renew them. Rotation cannot be turned off on an existing app. Create a new app with the Pouple button above (rotation off), install it, and copy its token.")
+	}
+	if appToken := strings.TrimSpace(values[AppTokenField]); appToken != "" {
+		if strings.HasPrefix(appToken, "xoxe") {
+			return connector.Profile{}, connector.Invalid(AppTokenField, "This app-level token rotates (it starts with xoxe): it would stop working within hours. Rotation cannot be turned off on this Slack app. Create a new app with the Pouple button above (rotation off), then generate the app-level token there, or leave this field empty.")
+		}
+		if !strings.HasPrefix(appToken, "xapp-") {
+			return connector.Profile{}, connector.Invalid(AppTokenField, "An app-level token starts with xapp-. Copy it from Basic Information in Slack, or leave this field empty.")
+		}
+	}
 	if strings.HasPrefix(token, "xoxb-") {
 		return connector.Profile{}, connector.Invalid("token", "This is a bot token (xoxb-). Pouple needs the User OAuth Token, which starts with xoxp-.")
 	}

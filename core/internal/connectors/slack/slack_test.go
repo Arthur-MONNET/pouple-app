@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -137,4 +138,45 @@ func errorsAs(err error, target **connector.ValidationError) bool {
 		*target = v
 	}
 	return ok
+}
+
+func TestRotatingTokensGetAnExplanationAndNoNetworkCall(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+	defer server.Close()
+	c := &Connector{HTTP: server.Client(), Base: server.URL}
+	rotatingUser := "xoxe.xoxp-1-" + strings.Repeat("a", 40)
+	rotatingApp := "xoxe.xapp-1-" + strings.Repeat("b", 40)
+
+	var invalid *connector.ValidationError
+	_, err := c.Validate(context.Background(), connector.Values{"token": rotatingUser})
+	if !errorsAs(err, &invalid) || invalid.Field != "token" || !strings.Contains(invalid.Message, "token rotation") {
+		t.Fatalf("a rotating user token must be explained: %v", err)
+	}
+	_, err = c.Validate(context.Background(), connector.Values{"token": goodToken, AppTokenField: rotatingApp})
+	if !errorsAs(err, &invalid) || invalid.Field != AppTokenField || !strings.Contains(invalid.Message, "rotates") {
+		t.Fatalf("a rotating app-level token must be explained: %v", err)
+	}
+	// The refresh token, pasted by mistake, is a rotation artefact too.
+	_, err = c.Validate(context.Background(), connector.Values{"token": goodToken, AppTokenField: "xoxe-1-" + strings.Repeat("c", 40)})
+	if !errorsAs(err, &invalid) || invalid.Field != AppTokenField {
+		t.Fatalf("a refresh token must be explained: %v", err)
+	}
+	_, err = c.Validate(context.Background(), connector.Values{"token": goodToken, AppTokenField: "xoxp-1-" + strings.Repeat("d", 40)})
+	if !errorsAs(err, &invalid) || invalid.Field != AppTokenField || !strings.Contains(invalid.Message, "xapp-") {
+		t.Fatalf("a token of another kind in the app-level field must be explained: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("nothing should be sent to Slack for these, got %d calls", calls)
+	}
+}
+
+func TestTheFieldPatternsLetRotatingTokensReachTheExplanation(t *testing.T) {
+	for _, field := range (&Connector{}).Descriptor().Fields {
+		re := regexp.MustCompile(field.Pattern)
+		sample := map[string]string{"token": "xoxe.xoxp-1-" + strings.Repeat("a", 40), AppTokenField: "xoxe.xapp-1-" + strings.Repeat("b", 40)}[field.ID]
+		if !re.MatchString(sample) {
+			t.Errorf("%s: the pattern must not hide the rotation explanation behind a generic format error", field.ID)
+		}
+	}
 }
