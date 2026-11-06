@@ -16,6 +16,43 @@ die() {
   exit 1
 }
 
+# Records where this checkout lives, so the app can offer to update itself from it. The record is the only thing
+# this script ever writes outside ~/Applications and its temporary build folder, and it is a single new file; the
+# rest of Pouple's data folder and the Keychain are never read or modified here.
+# Never fails an installation: a problem is reported as a warning and the function returns 1.
+write_install_record() {
+  local root="$1" version="$2" home commit installed_at temporary
+  home="${POUPLE_HOME:-${HOME:+$HOME/Library/Application Support/Pouple}}"
+  [[ -n "$home" && "$home" == /* ]] || { printf 'Pouple: no data folder, so updates from the app are unavailable.\n' >&2; return 1; }
+  commit="$(git -C "$root" rev-parse HEAD 2>/dev/null)" && [[ "$commit" =~ ^[0-9a-f]{40,64}$ ]] \
+    || { printf 'Pouple: this folder is not a git checkout, so updates from the app are unavailable.\n' >&2; return 1; }
+  installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
+  if [[ ! -d "$home" ]]; then
+    # shellcheck disable=SC2174 # the mode is wanted on the Pouple folder only; its parents already exist or take the default
+    mkdir -p -m 700 -- "$home" || { printf 'Pouple: could not create %s, so updates from the app are unavailable.\n' "$home" >&2; return 1; }
+  fi
+  # mktemp creates the file with mode 0600 and fails rather than reuse an existing name; the rename is atomic and
+  # replaces a symlink at the destination instead of following it.
+  temporary="$(mktemp "$home/.install.json.XXXXXX")" \
+    || { printf 'Pouple: could not write the install record, so updates from the app are unavailable.\n' >&2; return 1; }
+  if POUPLE_RECORD_ROOT="$root" POUPLE_RECORD_COMMIT="$commit" POUPLE_RECORD_VERSION="$version" \
+      POUPLE_RECORD_TIME="$installed_at" node -e '
+        const e = process.env;
+        process.stdout.write(JSON.stringify({
+          sourceRoot: e.POUPLE_RECORD_ROOT, commit: e.POUPLE_RECORD_COMMIT,
+          version: e.POUPLE_RECORD_VERSION, installedAt: e.POUPLE_RECORD_TIME,
+        }, null, 2) + "\n");
+      ' >"$temporary" && chmod 600 "$temporary" && mv -f -- "$temporary" "$home/install.json"; then
+    return 0
+  fi
+  rm -f -- "$temporary"
+  printf 'Pouple: could not write the install record, so updates from the app are unavailable.\n' >&2
+  return 1
+}
+
+# Sourcing this file (for tests) only defines the functions above.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
+
 applications="${HOME:+$HOME/Applications}"
 launch=1
 while [[ $# -gt 0 ]]; do
@@ -197,6 +234,8 @@ if [[ -d "$stage/previous.app" ]]; then
   printf 'Previous installation saved at %s\n' "$backup"
 fi
 printf 'Installed Pouple %s at %s\n' "$version" "$app"
+write_install_record "$root" "$version" || true
+printf 'Your connections and settings are kept.\n'
 
 if [[ "$launch" == 1 ]]; then
   open "$app" || die "Pouple was installed, but could not be opened. Open $app from Finder."
