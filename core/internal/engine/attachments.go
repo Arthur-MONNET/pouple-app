@@ -4,14 +4,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // MaxAttachmentBytes is the size limit of one file.
@@ -54,10 +54,10 @@ func kindOf(name string, data []byte) (kind, mime string) {
 // Save stores a file and returns its reference.
 func (a *Attachments) Save(name string, data []byte) (AttachmentRef, error) {
 	if len(data) == 0 {
-		return AttachmentRef{}, errors.New("The file is empty")
+		return AttachmentRef{}, i18n.NewError("The file is empty")
 	}
 	if len(data) > MaxAttachmentBytes {
-		return AttachmentRef{}, fmt.Errorf("The file is larger than %d MB", MaxAttachmentBytes>>20)
+		return AttachmentRef{}, i18n.NewError("The file is larger than %d MB", MaxAttachmentBytes>>20)
 	}
 	raw := make([]byte, 12)
 	if _, err := rand.Read(raw); err != nil {

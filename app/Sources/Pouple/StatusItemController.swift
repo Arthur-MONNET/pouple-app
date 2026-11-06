@@ -1,51 +1,77 @@
 import AppKit
 import PoupleCore
 
-/// The menu bar item and its menu. The menu is rebuilt from live state every time it opens.
+/// The menu bar item and its menu. Titles are rebuilt from live state and the current language every time the menu
+/// opens, and whenever the app calls `refresh()` (a language change included).
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    private let statusLine = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
-    private let openItem = NSMenuItem(title: "Open Pouple", action: nil, keyEquivalent: "")
-    private let bubblesItem = NSMenuItem(title: "Hide bubbles", action: nil, keyEquivalent: "")
-    private let loginItem = NSMenuItem(title: "Start at login", action: nil, keyEquivalent: "")
+    private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let openItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let bubblesItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let resetItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let loginItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let languageItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: "", action: nil, keyEquivalent: "q")
+    private var languageChoices: [Language: NSMenuItem] = [:]
 
     var summary: () -> String = { "" }
     var bubblesHidden: () -> Bool = { false }
+    var currentLanguage: () -> Language = { L10n.current }
     var onOpen: () -> Void = {}
     var onToggleBubbles: () -> Void = {}
     var onResetPosition: () -> Void = {}
+    var onSelectLanguage: (Language) -> Void = { _ in }
     var onQuit: () -> Void = {}
 
     override init() {
         super.init()
         item.button?.image = StatusIcon.image()
-        item.button?.setAccessibilityLabel("Pouple")
         let menu = NSMenu()
         menu.delegate = self
         statusLine.isEnabled = false
-        for (entry, selector) in [(openItem, #selector(open)), (bubblesItem, #selector(toggleBubbles)), (loginItem, #selector(toggleLogin))] {
+        let actions: [(NSMenuItem, Selector)] = [
+            (openItem, #selector(open)), (bubblesItem, #selector(toggleBubbles)), (resetItem, #selector(resetPosition)),
+            (loginItem, #selector(toggleLogin)), (quitItem, #selector(quit)),
+        ]
+        for (entry, selector) in actions {
             entry.action = selector
             entry.target = self
         }
-        let reset = NSMenuItem(title: "Reset bubbles position", action: #selector(resetPosition), keyEquivalent: "")
-        reset.target = self
-        let quit = NSMenuItem(title: "Quit Pouple", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        for entry in [statusLine, .separator(), openItem, bubblesItem, reset, .separator(), loginItem, .separator(), quit] {
+        let languageMenu = NSMenu()
+        for language in Language.allCases {
+            let choice = NSMenuItem(title: language.nativeName, action: #selector(selectLanguage(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = language.rawValue
+            languageMenu.addItem(choice)
+            languageChoices[language] = choice
+        }
+        languageItem.submenu = languageMenu
+        for entry in [statusLine, .separator(), openItem, bubblesItem, resetItem, .separator(), loginItem, languageItem, .separator(), quitItem] {
             menu.addItem(entry)
         }
         item.menu = menu
         refresh()
     }
 
-    /// Updates the lines that depend on state; called whenever the menu opens and when the state changes.
+    /// Updates every title that depends on state or language.
     func refresh() {
         statusLine.title = summary()
-        bubblesItem.title = bubblesHidden() ? "Show bubbles" : "Hide bubbles"
+        openItem.title = L10n.text(.menuOpen)
+        bubblesItem.title = L10n.text(bubblesHidden() ? .menuShowBubbles : .menuHideBubbles)
+        resetItem.title = L10n.text(.menuResetPosition)
+        quitItem.title = L10n.text(.menuQuit)
+        languageItem.title = L10n.text(.menuLanguage)
+        let language = currentLanguage()
+        for (choice, item) in languageChoices { item.state = choice == language ? .on : .off }
+
         let state = LoginItem.state
         loginItem.state = state == .enabled ? .on : (state == .needsApproval ? .mixed : .off)
-        loginItem.title = state.detail.map { "Start at login (\($0))" } ?? "Start at login"
+        let title = L10n.text(.menuStartAtLogin)
+        loginItem.title = state.detail().map { L10n.text(.loginWithDetail, title, $0) } ?? title
+
+        item.button?.setAccessibilityLabel(L10n.text(.handleName))
+        item.button?.toolTip = L10n.text(.handleName)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -57,4 +83,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func resetPosition() { onResetPosition() }
     @objc private func toggleLogin() { LoginItem.toggle(); refresh() }
     @objc private func quit() { onQuit() }
+    @objc private func selectLanguage(_ sender: NSMenuItem) {
+        if let code = sender.representedObject as? String, let language = Language(rawValue: code) { onSelectLanguage(language) }
+    }
 }

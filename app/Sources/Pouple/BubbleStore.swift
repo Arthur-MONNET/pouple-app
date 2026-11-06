@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import PoupleCore
 
@@ -37,8 +38,14 @@ final class BubbleStore: ObservableObject {
     private static let lingerSeconds: TimeInterval = 8
     private static let reconnectDelay: Duration = .seconds(3)
 
+    private var languageSubscription: AnyCancellable?
+
     init(api: PoupleAPI? = nil) {
         self.api = api
+        // The views read their texts through L10n: tell them to redraw when the language changes.
+        languageSubscription = LanguageModel.shared.$language
+            .dropFirst()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     var layout: BubbleLayout {

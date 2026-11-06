@@ -5,6 +5,8 @@ import Foundation
 public final class SetupMonitor: ObservableObject {
     /// nil until the first answer, and again whenever there is no core to ask.
     @Published public private(set) var setupComplete: Bool?
+    /// The interface language the core reports; nil until it says (or when there is no core).
+    @Published public private(set) var language: Language?
 
     private let interval: Duration
     private var task: Task<Void, Never>?
@@ -18,11 +20,15 @@ public final class SetupMonitor: ObservableObject {
         task?.cancel()
         task = nil
         setupComplete = nil
+        language = nil
         guard let fetch else { return }
         task = Task { [weak self, interval] in
             while !Task.isCancelled {
                 // A failed call keeps the last answer: the supervisor reports a dead core on its own.
-                if let state = try? await fetch(), !Task.isCancelled { self?.setupComplete = state.setupComplete }
+                if let state = try? await fetch(), !Task.isCancelled {
+                    self?.setupComplete = state.setupComplete
+                    if let language = state.language { self?.language = language }
+                }
                 try? await Task.sleep(for: interval)
             }
         }

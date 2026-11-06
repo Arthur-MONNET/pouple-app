@@ -3,7 +3,7 @@ import Foundation
 public enum CoreState: Equatable, Sendable {
     case starting
     case ready(port: Int)
-    case failed(String)
+    case failed(CoreFailure)
 }
 
 /// Starts the core, waits for its ready line, restarts it with an exponential backoff when it dies, and stops it
@@ -86,7 +86,7 @@ public final class CoreSupervisor: ObservableObject {
             state = .starting
             connection = nil
             let token = makeToken()
-            let failure: String
+            let failure: CoreFailure
             do {
                 let process = try launcher.launch(token: token)
                 current = process
@@ -98,16 +98,22 @@ public final class CoreSupervisor: ObservableObject {
                     let readyAt = ContinuousClock.now
                     let status = await process.waitForExit()
                     if ContinuousClock.now - readyAt >= timing.stableAfter { failures = 0 }
-                    failure = "The core stopped unexpectedly (exit status \(status.map(String.init) ?? "unknown"))"
+                    failure = .stopped(status: status)
                 case let .failed(reason):
                     await stop(process)
                     failure = reason
                 }
                 reader.cancel()
                 current = nil
+            } catch let error as CoreLaunchError {
+                current = nil
+                switch error {
+                case let .binaryMissing(path): failure = .binaryMissing(path: path)
+                case .invalidToken: failure = .other("Invalid core token")
+                }
             } catch {
                 current = nil
-                failure = error.localizedDescription
+                failure = .other(error.localizedDescription)
             }
             if stopping { break }
             if resetFailures { failures = 0; resetFailures = false }
@@ -137,7 +143,7 @@ public final class CoreSupervisor: ObservableObject {
 /// full pipe. One task owns the stream for the whole life of the process.
 private enum ReadyOutcome: Sendable {
     case ready(Int)
-    case failed(String)
+    case failed(CoreFailure)
 }
 
 private final class ReadyReader: @unchecked Sendable {
@@ -153,17 +159,17 @@ private final class ReadyReader: @unchecked Sendable {
                 first = false
                 switch ReadyLine.parse(line) {
                 case let .success(port): outcome.set(.ready(port))
-                case let .failure(error): outcome.set(.failed(error.localizedDescription))
+                case let .failure(error): outcome.set(.failed(.readyLine(error)))
                 }
             }
-            outcome.set(.failed("The core closed its output before it was ready"))
+            outcome.set(.failed(.closedBeforeReady))
         }
     }
 
     func firstLine(timeout: Duration) async -> ReadyOutcome {
         let outcome = outcome
         let result = await withTimeout(timeout) { await outcome.wait() }
-        return result ?? .failed("The core did not become ready within \(timeout.components.seconds) seconds")
+        return result ?? .failed(.timeout(seconds: Int(timeout.components.seconds)))
     }
 
     func cancel() { task?.cancel() }

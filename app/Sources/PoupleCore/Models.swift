@@ -104,17 +104,19 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public let error: String?
 
     /// "Request from Morgan in #front", "Note to self"... as in the web app.
-    public var title: String {
+    public var title: String { title(language: nil) }
+
+    public func title(language: Language?) -> String {
         let channel = "#\(source.channelName ?? source.channelId)"
         switch source.origin {
-        case .poupleAction: return source.label ?? "Pouple action"
-        case .noteToSelf: return "Note to self"
-        case .directMessage: return "\(source.senderName) · direct message"
-        case .groupMessage: return "\(source.senderName) · group chat"
-        case .broadcast: return "\(source.senderName) · @here in \(channel)"
-        case .keyword: return "\(source.senderName) · watched word in \(channel)"
-        case .threadReply: return "\(source.senderName) · thread in \(channel)"
-        case .channelMessage, .mention, .unknown: return "\(source.senderName) · \(channel)"
+        case .poupleAction: return source.label ?? L10n.text(.titleAction, language: language)
+        case .noteToSelf: return L10n.text(.titleNoteToSelf, language: language)
+        case .directMessage: return L10n.text(.titleDirect, source.senderName, language: language)
+        case .groupMessage: return L10n.text(.titleGroup, source.senderName, language: language)
+        case .broadcast: return L10n.text(.titleBroadcast, source.senderName, channel, language: language)
+        case .keyword: return L10n.text(.titleKeyword, source.senderName, channel, language: language)
+        case .threadReply: return L10n.text(.titleThread, source.senderName, channel, language: language)
+        case .channelMessage, .mention, .unknown: return L10n.text(.titleChannel, source.senderName, channel, language: language)
         }
     }
 }

@@ -4,6 +4,7 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,12 +13,16 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/slackrt"
 )
 
 const apiBase = "https://slack.com/api"
 
 // ID is the connector id, also the prefix of its keychain entries.
 const ID = "slack"
+
+const AppTokenField = "appToken"
 
 // Scope is a permission of the Slack app, and what stops working without it.
 type Scope struct {
@@ -57,8 +62,11 @@ func Manifest() string {
 		"oauth_config": map[string]any{"scopes": map[string]any{"user": names}},
 		"settings": map[string]any{
 			"org_deploy_enabled":     false,
-			"socket_mode_enabled":    false,
+			"socket_mode_enabled":    true,
 			"token_rotation_enabled": false,
+			"event_subscriptions": map[string]any{
+				"user_events": []string{"message.channels", "message.groups", "message.im", "message.mpim"},
+			},
 		},
 	}
 	data, _ := json.Marshal(manifest)
@@ -96,11 +104,21 @@ func (c *Connector) Descriptor() connector.Descriptor {
 			Secret:      true,
 			Pattern:     `^xox[a-z]-[A-Za-z0-9-]{20,}$`,
 			PatternHint: "does not look like a Slack token (it starts with xoxp-)",
+		}, {
+			ID:          AppTokenField,
+			Label:       "App-level Token",
+			Help:        "Optional: enables live Slack notifications. Starts with xapp- and stays in your Mac’s keychain.",
+			Placeholder: "xapp-…",
+			Secret:      true,
+			Optional:    true,
+			Pattern:     `^xapp-[A-Za-z0-9-]{20,}$`,
+			PatternHint: "does not look like an app-level token (it starts with xapp-)",
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Create the Slack app", Body: "One click: Slack opens with the name and every permission already filled in. Choose your workspace and confirm.", Link: &connector.Link{Label: "Create the Slack app", URL: CreateAppURL()}},
 			{Title: "Install it to your workspace", Body: "On the app's page, open Install App and click Install to Workspace, then Allow."},
 			{Title: "Copy the User OAuth Token", Body: "It is on the same page and starts with xoxp-. Paste it here."},
+			{Title: "Enable live Slack updates", Body: "In Basic Information, generate an App-Level Token with connections:write. For an existing Slack app, enable Socket Mode and subscribe to message.channels, message.groups, message.im, and message.mpim under Subscribe to events on behalf of users, then reinstall the app."},
 		},
 	}
 }
@@ -144,11 +162,11 @@ func (c *Connector) call(ctx context.Context, token, method string, query url.Va
 	request.Header.Set("Authorization", "Bearer "+token)
 	response, err := c.HTTP.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("Slack could not be reached: %w", err)
+		return nil, i18n.Wrap(err, "Slack could not be reached: %s", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Slack answered %d", response.StatusCode)
+		return nil, i18n.NewError("Slack answered %d", response.StatusCode)
 	}
 	return response.Header, json.NewDecoder(response.Body).Decode(out)
 }
@@ -197,6 +215,16 @@ func (c *Connector) Validate(ctx context.Context, values connector.Values) (conn
 		sort.Strings(missingRequired)
 		return connector.Profile{}, connector.Invalid("token", "This token lacks required permissions (%s). Create the app with the button above, or add them under OAuth & Permissions and reinstall the app.", strings.Join(missingRequired, ", "))
 	}
+	if appToken := values[AppTokenField]; appToken != "" {
+		live := slackrt.New(appToken)
+		live.Base, live.HTTP = c.Base, c.HTTP
+		if err := live.Check(ctx); err != nil {
+			if errors.Is(err, slackrt.ErrToken) {
+				return connector.Profile{}, connector.Invalid(AppTokenField, "Slack refused this app-level token. Check Socket Mode and the connections:write scope.")
+			}
+			return connector.Profile{}, connector.Invalid(AppTokenField, "Slack could not verify the app-level token. Try again.")
+		}
+	}
 	return profile, nil
 }
 
@@ -229,13 +257,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func explainError(code string) string {
+func explainError(code string) i18n.Message {
 	switch code {
 	case "invalid_auth", "not_authed", "token_revoked", "account_inactive":
-		return "Slack does not accept this token. Copy it again from the app's Install App page."
+		return i18n.NewMessage("Slack does not accept this token. Copy it again from the app's Install App page.")
 	case "token_expired":
-		return "This token expired. Reinstall the app to the workspace and copy the new token."
+		return i18n.NewMessage("This token expired. Reinstall the app to the workspace and copy the new token.")
 	default:
-		return "Slack refused the token (" + code + ")."
+		return i18n.NewMessage("Slack refused the token (%s).", code)
 	}
 }

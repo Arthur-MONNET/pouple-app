@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { errorMessage, type PoupleApi } from '../api/client';
 import type { AppState, ConnectorStatus } from '../api/types';
+import { isLang, setLanguage } from '../i18n';
 
 /** What the app knows about setup and connectors; shared by the router guard, the wizard and the connectors page. */
 export function createConnectorsStore(api: PoupleApi) {
@@ -12,6 +13,8 @@ export function createConnectorsStore(api: PoupleApi) {
   async function refreshState(): Promise<AppState> {
     const next = await api.getState();
     state.value = next;
+    // The core owns the language: the interface follows what it reports.
+    if (isLang(next.language)) setLanguage(next.language);
     return next;
   }
 

@@ -1,3 +1,4 @@
+import PoupleCore
 import SwiftUI
 
 /// A line to write to the assistant about this request, without opening Pouple.
@@ -6,12 +7,13 @@ struct ReplyField: View {
     let onSend: (String) -> Void
 
     @State private var text = ""
+    @ObservedObject private var language = LanguageModel.shared
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 6) {
-            TextField("Ask a follow-up…", text: $text, axis: .vertical)
+            TextField(L10n.text(.replyPlaceholder), text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .lineLimit(1 ... 4)
@@ -24,7 +26,8 @@ struct ReplyField: View {
             }
             .buttonStyle(IconButtonStyle(filled: !trimmed.isEmpty))
             .disabled(trimmed.isEmpty || busy)
-            .help("Send")
+            .help(L10n.text(.replySend))
+            .accessibilityLabel(L10n.text(.replySend))
         }
     }
 

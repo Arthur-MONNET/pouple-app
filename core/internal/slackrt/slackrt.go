@@ -42,6 +42,12 @@ func New(appToken string) *Client {
 // Connected tells whether events are flowing right now.
 func (c *Client) Connected() bool { return c.connected.Load() }
 
+// Check verifies that Slack accepts the token without starting a WebSocket session.
+func (c *Client) Check(ctx context.Context) error {
+	_, err := c.open(ctx)
+	return err
+}
+
 type envelope struct {
 	Type       string `json:"type"`
 	EnvelopeID string `json:"envelope_id"`
@@ -61,12 +67,16 @@ func (c *Client) Run(ctx context.Context) error {
 	backoff := time.Second
 	for {
 		err := c.session(ctx)
+		wasConnected := c.Connected()
 		c.setState(false, errText(err))
 		if ctx.Err() != nil {
 			return nil
 		}
 		if errors.Is(err, ErrToken) {
 			return err
+		}
+		if wasConnected {
+			backoff = time.Second
 		}
 		select {
 		case <-ctx.Done():
@@ -75,9 +85,6 @@ func (c *Client) Run(ctx context.Context) error {
 		}
 		if backoff *= 2; backoff > c.MaxBackoff {
 			backoff = c.MaxBackoff
-		}
-		if c.Connected() {
-			backoff = time.Second
 		}
 	}
 }
@@ -117,10 +124,13 @@ func (c *Client) open(ctx context.Context) (string, error) {
 	}
 	if !body.OK {
 		switch body.Error {
-		case "invalid_auth", "not_authed", "token_revoked", "account_inactive", "missing_scope", "not_allowed_token_type":
+		case "invalid_auth", "not_authed", "token_revoked", "account_inactive", "missing_scope", "not_allowed_token_type", "app_not_socket_mode_enabled":
 			return "", fmt.Errorf("%w (%s)", ErrToken, body.Error)
 		}
 		return "", fmt.Errorf("Slack refused the connection (%s)", body.Error)
+	}
+	if body.URL == "" {
+		return "", errors.New("Slack returned no live connection URL")
 	}
 	return body.URL, nil
 }
@@ -131,9 +141,10 @@ func (c *Client) session(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	socket, _, err := websocket.Dial(ctx, address, nil)
+	socket, _, err := websocket.Dial(ctx, address, &websocket.DialOptions{HTTPClient: c.HTTP})
 	if err != nil {
-		return fmt.Errorf("the live connection could not be opened: %w", err)
+		// The dial error may contain the one-time WebSocket URL.
+		return errors.New("the live connection could not be opened")
 	}
 	defer socket.CloseNow()
 	socket.SetReadLimit(1 << 20)

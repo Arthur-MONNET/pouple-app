@@ -97,6 +97,18 @@ final class PoupleAPITests: XCTestCase {
         }
     }
 
+    func testTheLanguageIsSwitchedThroughTheSettings() async throws {
+        var seen: (String?, String?, [String: Any])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, (try? JSONSerialization.jsonObject(with: request.bodyData)) as? [String: Any] ?? [:])
+            return (200, Data("{}".utf8))
+        }
+        try await api().setUILanguage(.en)
+        XCTAssertEqual(seen?.0, "PUT")
+        XCTAssertEqual(seen?.1, "/api/settings")
+        XCTAssertEqual(seen?.2["uiLanguage"] as? String, "en")
+    }
+
     func testTheStreamRequestIsAuthorizedToo() {
         let request = api().streamRequest()
         XCTAssertEqual(request.url?.absoluteString, "http://127.0.0.1:4000/api/assistant/stream")

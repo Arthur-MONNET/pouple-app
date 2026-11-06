@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 var testNow = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
@@ -575,8 +577,8 @@ func TestOptionalSourcesFailIntoNoticesWhileTheOthersGoOn(t *testing.T) {
 			}, tt.opts)
 			tt.break_(h)
 			result := h.poll(t, fresh())
-			if len(result.Notices) != 1 || !strings.HasPrefix(result.Notices[0], tt.want) {
-				t.Fatalf("notices = %q, want %q", result.Notices, tt.want)
+			if len(result.Notices) != 1 || !strings.HasPrefix(result.Notices[0].Text(i18n.EN), tt.want) {
+				t.Fatalf("notices = %v, want %q", result.Notices, tt.want)
 			}
 			if got := origins(result.Incoming); !reflect.DeepEqual(got, []Origin{OriginMention}) {
 				t.Fatalf("the mention must still arrive, got %v", got)

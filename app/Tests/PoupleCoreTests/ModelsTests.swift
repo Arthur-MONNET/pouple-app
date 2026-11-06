@@ -55,7 +55,8 @@ final class ModelsTests: XCTestCase {
 
     func testTitlesNameTheSenderAndWhereTheMessageCameFrom() throws {
         let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(Self.snapshotJSON.utf8))
-        XCTAssertEqual(snapshot.requests.first?.title, "Morgan · thread in #front")
+        XCTAssertEqual(snapshot.requests.first?.title(language: .en), "Morgan · thread in #front")
+        XCTAssertEqual(snapshot.requests.first?.title(language: .fr), "Morgan · fil dans #front")
     }
 
     func testAnActionStartedFromPoupleIsTitledByItsLabel() throws {

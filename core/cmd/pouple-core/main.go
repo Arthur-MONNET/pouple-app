@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -40,7 +41,7 @@ func main() {
 
 func supportDir() (string, error) {
 	if dir := os.Getenv("POUPLE_HOME"); dir != "" {
-		return dir, nil
+		return filepath.Abs(dir)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -55,6 +56,20 @@ func newToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(raw), nil
+}
+
+// readShellToken reads the fixed-size startup line without closing the lifetime pipe.
+func readShellToken(input *bufio.Reader) (string, error) {
+	const tokenLength = 64
+	line, err := input.ReadSlice('\n')
+	if err != nil || len(line) != tokenLength+1 {
+		return "", errors.New("invalid shell token")
+	}
+	token := string(line[:tokenLength])
+	if _, err := hex.DecodeString(token); err != nil {
+		return "", errors.New("invalid shell token")
+	}
+	return token, nil
 }
 
 func run() error {
@@ -83,7 +98,12 @@ func run() error {
 	// Children (Codex, npm, brew) must not inherit the API token.
 	_ = os.Unsetenv("POUPLE_TOKEN")
 	tokenFromShell := os.Getenv("POUPLE_SHELL_INJECTS_TOKEN") == "1"
-	if token == "" {
+	input := bufio.NewReaderSize(os.Stdin, 65)
+	if tokenFromShell {
+		if token, err = readShellToken(input); err != nil {
+			return err
+		}
+	} else if token == "" {
 		if token, err = newToken(); err != nil {
 			return err
 		}
@@ -124,10 +144,12 @@ func run() error {
 	defer stop()
 	// The app owns our standard input: when it closes (the app quit or crashed), so do we.
 	go func() {
-		_, _ = io.Copy(io.Discard, os.Stdin)
+		_, _ = io.Copy(io.Discard, input)
 		stop()
 	}()
-	go runAssistant(ctx, service, settings)
+	wake := make(chan struct{}, 1)
+	go watchSlackLive(ctx, registry, wake)
+	go runAssistant(ctx, service, settings, wake)
 	go func() {
 		<-ctx.Done()
 		service.Shutdown()

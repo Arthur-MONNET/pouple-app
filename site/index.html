@@ -109,7 +109,7 @@
     <div class="wrap">
       <header>
         <div class="mark"><img src="assets/app-icon.svg" alt="" width="30" height="30"> Pouple</div>
-        <div class="nav"><div class="lang" role="group" aria-label="Langue / Language"><button type="button" data-lang="fr" aria-pressed="true">FR</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><a class="link" href="https://github.com/Arthur-MONNET/pouple">GitHub</a></div>
+        <div class="nav"><div class="lang" role="group" aria-label="Langue / Language"><button type="button" data-lang="fr" aria-pressed="true">FR</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div><a class="link" href="https://github.com/Arthur-MONNET/pouple-app">GitHub</a></div>
       </header>
 
       <main>
@@ -120,9 +120,10 @@
               <span data-i18n="lead">Pouple surveille les messages qui te notifieraient, demande à Codex, sur ton Mac, de les examiner, et affiche ce qu'il a trouvé dans un coin de ton écran. Toi, tu ne prends que les décisions.</span>
             </p>
             <div class="cta">
-              <a class="button" id="download" href="https://github.com/Arthur-MONNET/pouple/releases/latest"><span data-i18n="download">Télécharger pour macOS</span></a>
-              <span class="meta" id="version">macOS 14 ou plus récent</span>
+              <a class="button" id="download" href="https://github.com/Arthur-MONNET/pouple-app/releases/download/pilot-0.1.0/Pouple.zip" data-i18n="download">Télécharger le pilote pour macOS</a>
+              <span class="meta" data-i18n="compatibility">ZIP · macOS 14 ou plus récent · Intel et Apple Silicon</span>
             </div>
+            <a class="link" href="https://github.com/Arthur-MONNET/pouple-app/releases" data-i18n="versions">Toutes les versions sur GitHub</a>
           </div>
           <div class="stage" aria-hidden="true">
             <img class="mascot" src="assets/mascot-multitask.svg" alt="" width="380" height="380">
@@ -147,41 +148,43 @@
         <section aria-labelledby="start">
           <h2 id="start" data-i18n="start">Prêt en quelques minutes</h2>
           <ol class="steps">
-            <li><div><b data-i18n="s1t">Télécharge et ouvre Pouple</b><span data-i18n="s1p">Glisse-le dans Applications. La première fois, macOS peut te demander confirmation : clic droit sur l’app, puis Ouvrir.</span></div></li>
-            <li><div><b data-i18n="s2t">Connecte Slack</b><span data-i18n="s2p">Un clic crée l’app Slack avec les bonnes permissions. Colle le jeton qu’elle te donne : Pouple montre à qui appartient le compte avant d’enregistrer.</span></div></li>
-            <li><div><b data-i18n="s3t">Connecte Codex</b><span data-i18n="s3p">Pouple installe le CLI Codex si besoin et se connecte avec ChatGPT. Il a son propre compte et ne touche jamais au tien.</span></div></li>
+            <li><div><b data-i18n="s1t">Télécharge et ouvre Pouple</b><span data-i18n="s1p">Ouvre le ZIP, glisse Pouple dans Applications, puis lance l’app.</span></div></li>
+            <li><div><b data-i18n="s2t">Connecte Slack</b><span data-i18n="s2p">L’assistant te guide pour créer l’app Slack et coller ton jeton. Selon ton espace, un administrateur peut devoir approuver l’installation.</span></div></li>
+            <li><div><b data-i18n="s3t">Connecte Codex</b><span data-i18n="s3p">Pouple télécharge Codex si nécessaire. Connecte-toi ensuite avec ChatGPT dans ton navigateur et choisis le dossier de tes projets.</span></div></li>
           </ol>
         </section>
 
         <section>
           <p class="note">
-            <span data-i18n="note">Ton jeton Slack et toutes les autres clés restent dans le trousseau de ton Mac, jamais dans un fichier ni dans la page. Pouple ne parle qu’à Slack et à Codex, depuis ton Mac.</span>
+            <span data-i18n="note">Ton jeton Slack reste dans le trousseau de ton Mac. Codex utilise une connexion réservée à Pouple. GitHub sert au téléchargement de Codex et à la vérification des mises à jour.</span>
           </p>
         </section>
       </main>
 
-      <footer data-i18n="foot">Pouple est open source. Fait par Arthur Monnet.</footer>
+      <footer data-i18n="foot">Fait par Arthur Monnet.</footer>
     </div>
 
     <script>
       const EN = {
         h1: 'Eight arms. Your Slack requests, handled.',
         lead: 'Pouple watches the messages that would notify you, has Codex on your Mac investigate them, and shows what it found in a corner of your screen. You only take the decisions.',
-        download: 'Download for macOS', b_from: 'Request from Morgan in #front', b_title: 'Needs your decision',
+        download: 'Download the macOS pilot', stableDownload: 'Download for macOS',
+        compatibility: 'ZIP · macOS 14 or later · Intel and Apple Silicon', versions: 'All versions on GitHub',
+        b_from: 'Request from Morgan in #front', b_title: 'Needs your decision',
         b_text: 'The login fails only with SSO accounts. Fix it in the callback, or add a retry?', b_a: 'Fix the callback', b_b: 'Add a retry',
         what: 'What it does', c1t: 'Listens like Slack does', c1p: 'Mentions, direct messages, notes to yourself, group chats and the threads you take part in.',
         c2t: 'Investigates with Codex', c2p: 'Reads your projects read-only, finds the answer, and writes the short version. Nothing is changed before you approve.',
         c3t: 'Stays out of the way', c3p: 'Floating bubbles in a screen corner, a window for the full conversations, and a Stop button at any moment.',
-        start: 'Ready in a few minutes', s1t: 'Download and open Pouple', s1p: 'Drag it to Applications. The first time, macOS may ask you to confirm: right-click the app, then Open.',
-        s2t: 'Connect Slack', s2p: 'One click creates the Slack app with the right permissions. Paste the token it gives you: Pouple shows whose account it is before saving.',
-        s3t: 'Connect Codex', s3p: 'Pouple installs the Codex CLI if needed and signs in with ChatGPT. It has its own login and never touches yours.',
-        note: "Your Slack token and every other key are kept in your Mac's keychain, never in a file or in the page. Pouple only talks to Slack and to Codex, from your Mac.",
-        foot: 'Pouple is open source. Made by Arthur Monnet.',
+        start: 'Ready in a few minutes', s1t: 'Download and open Pouple', s1p: 'Open the ZIP, drag Pouple into Applications, then launch the app.',
+        s2t: 'Connect Slack', s2p: 'The setup wizard guides you through creating the Slack app and pasting your token. Your workspace may require an administrator to approve the installation.',
+        s3t: 'Connect Codex', s3p: 'Pouple downloads Codex if needed. Then sign in with ChatGPT in your browser and select your projects folder.',
+        note: "Your Slack token stays in your Mac’s keychain. Codex uses a login dedicated to Pouple. GitHub is used to download Codex and check for app updates.",
+        foot: 'Made by Arthur Monnet.',
       };
       const nodes = [...document.querySelectorAll('[data-i18n]')];
       const FR = Object.fromEntries(nodes.map((node) => [node.dataset.i18n, node.textContent]));
+      FR.stableDownload = 'Télécharger pour macOS';
       const TITLES = { fr: 'Pouple – tes demandes Slack, prises en charge par Codex', en: 'Pouple – your Slack requests, handled by Codex' };
-      const VERSION = { fr: 'macOS 14 ou plus récent', en: 'macOS 14 or later' };
       let language = 'fr';
       function setLanguage(next) {
         language = next;
@@ -189,31 +192,24 @@
         for (const node of nodes) node.textContent = table[node.dataset.i18n];
         document.documentElement.lang = next;
         document.title = TITLES[next];
-        document.getElementById('version').dataset.suffix = VERSION[next];
-        const version = document.getElementById('version');
-        version.textContent = version.dataset.name ? `${version.dataset.name} · ${VERSION[next]}` : VERSION[next];
         for (const button of document.querySelectorAll('.lang button')) button.setAttribute('aria-pressed', String(button.dataset.lang === next));
         try { localStorage.setItem('pouple-lang', next); } catch { /* private mode: the choice just is not remembered */ }
       }
       for (const button of document.querySelectorAll('.lang button')) button.addEventListener('click', () => setLanguage(button.dataset.lang));
       try { const saved = localStorage.getItem('pouple-lang'); if (saved === 'en') setLanguage('en'); } catch { /* ignore */ }
 
-      // Point the button at the newest disk image; the plain releases page stays as the fallback.
-      (async () => {
-        try {
-          const response = await fetch('https://api.github.com/repos/Arthur-MONNET/pouple/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
-          if (!response.ok) return;
-          const release = await response.json();
-          const dmg = (release.assets || []).find((asset) => asset.name.endsWith('.dmg'));
-          if (!dmg) return;
-          document.getElementById('download').href = dmg.browser_download_url;
-          const version = document.getElementById('version');
-          version.dataset.name = release.name || release.tag_name;
-          version.textContent = `${version.dataset.name} · ${VERSION[language]}`;
-        } catch {
-          // Offline or rate limited: the fallback link still works.
-        }
-      })();
+      const download = document.getElementById('download');
+      fetch('https://api.github.com/repos/Arthur-MONNET/pouple-app/releases/latest', { signal: AbortSignal.timeout(4000) })
+        .then(response => response.ok ? response.json() : null)
+        .then(release => {
+          if (!release || !Array.isArray(release.assets) ||
+              !release.assets.some(asset => asset.name === 'Pouple.zip' && asset.state === 'uploaded')) return;
+          download.href = 'https://github.com/Arthur-MONNET/pouple-app/releases/latest/download/Pouple.zip';
+          download.dataset.i18n = 'stableDownload';
+          download.textContent = (language === 'en' ? EN : FR).stableDownload;
+        })
+        .catch(() => { /* The pilot remains downloadable if the release API is unavailable. */ });
+
     </script>
   </body>
 </html>

@@ -27,7 +27,7 @@ async function start(action: ActionInfo): Promise<void> {
 
 <template>
   <div class="flex flex-col gap-4">
-    <ul v-if="checklist.length > 0" class="divide-y divide-line-soft rounded-lg border border-line bg-surface" aria-label="What is in place">
+    <ul v-if="checklist.length > 0" class="divide-y divide-line-soft rounded-lg border border-line bg-surface" :aria-label="$t('checklist.label')">
       <li v-for="item in checklist" :key="item.id" class="flex items-center gap-3 px-3 py-2.5">
         <span
           class="flex size-5 shrink-0 items-center justify-center rounded-full"
@@ -37,7 +37,7 @@ async function start(action: ActionInfo): Promise<void> {
           <AppIcon :name="item.ok ? 'check' : 'close'" size="sm" />
         </span>
         <span class="text-sm text-ink">{{ item.label }}</span>
-        <span class="ml-auto text-xs" :class="item.ok ? 'text-ok' : 'text-ink-dim'">{{ item.ok ? 'Done' : 'To do' }}</span>
+        <span class="ml-auto text-xs" :class="item.ok ? 'text-ok' : 'text-ink-dim'">{{ item.ok ? $t('checklist.done') : $t('checklist.todo') }}</span>
       </li>
     </ul>
 
@@ -63,12 +63,12 @@ async function start(action: ActionInfo): Promise<void> {
         <MascotStage pose="investigate" />
         <p class="flex items-center gap-2 text-sm font-medium text-ink">
           <AppSpinner />
-          {{ run.running.value === 'login' ? 'Waiting for you to sign in in the browser…' : 'Installing. This takes a minute.' }}
+          {{ run.running.value === 'login' ? $t('actions.waitingSignIn') : $t('actions.installing') }}
         </p>
       </div>
       <p v-if="run.openUrl.value" class="text-sm text-ink-muted">
-        The sign-in page should have opened.
-        <button type="button" class="text-accent underline-offset-2 hover:underline" @click="open(run.openUrl.value)">Open the sign-in page</button>
+        {{ $t('actions.pageOpened') }}
+        <button type="button" class="text-accent underline-offset-2 hover:underline" @click="open(run.openUrl.value)">{{ $t('actions.openPage') }}</button>
       </p>
       <InlineError v-if="run.error.value">{{ run.error.value }}</InlineError>
     </div>

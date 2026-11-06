@@ -1,58 +1,101 @@
-import type { AssistantRequest, AssistantStatus, ConnectorStatus, RequestSource } from './types';
+import type { Lang } from '../i18n';
+import { mockText } from './mockText';
+import type { AssistantRequest, AssistantStatus, ConnectorStatus, Profile, RequestSource } from './types';
 
 const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 
-export const SLACK_CONNECTOR: ConnectorStatus = {
-  connected: false,
-  descriptor: {
-    id: 'slack',
-    name: 'Slack',
-    tagline: 'Where your requests come from',
-    required: true,
-    order: 1,
-    fields: [
-      {
-        id: 'token',
-        label: 'User OAuth Token',
-        help: 'Starts with xoxp-. It stays in your Mac’s keychain and is never shown again.',
-        placeholder: 'xoxp-…',
-        secret: true,
-        pattern: '^xox[a-z]-[A-Za-z0-9-]{20,}$',
-        patternHint: 'does not look like a Slack token (it starts with xoxp-)',
-      },
-    ],
-    guide: [
-      {
-        title: 'Create the Slack app',
-        body: 'One click: Slack opens with the name and every permission already filled in. Choose your workspace and confirm.',
-        link: { label: 'Create the Slack app', url: 'https://api.slack.com/apps?new_app=1' },
-      },
-      { title: 'Install it to your workspace', body: 'On the app’s page, open Install App and click Install to Workspace, then Allow.' },
-      { title: 'Copy the User OAuth Token', body: 'It is on the same page and starts with xoxp-. Paste it here.' },
-    ],
-  },
-};
+export function slackConnector(lang: Lang): ConnectorStatus {
+  const text = mockText(lang).slack;
+  const guide = text.guide;
+  return {
+    connected: false,
+    descriptor: {
+      id: 'slack',
+      name: 'Slack',
+      tagline: text.tagline,
+      required: true,
+      order: 1,
+      fields: [
+        {
+          id: 'token',
+          label: text.label,
+          help: text.help,
+          placeholder: 'xoxp-…',
+          secret: true,
+          pattern: '^xox[a-z]-[A-Za-z0-9-]{20,}$',
+          patternHint: text.patternHint,
+        },
+        {
+          id: 'appToken',
+          label: text.live.label,
+          help: text.live.help,
+          placeholder: 'xapp-…',
+          secret: true,
+          optional: true,
+          pattern: '^xapp-[A-Za-z0-9-]{20,}$',
+          patternHint: text.live.hint,
+        },
+      ],
+      guide: [
+        { title: guide[0] ?? '', body: guide[1] ?? '', link: { label: text.linkLabel, url: 'https://api.slack.com/apps?new_app=1' } },
+        { title: guide[2] ?? '', body: guide[3] ?? '' },
+        { title: guide[4] ?? '', body: guide[5] ?? '' },
+        { title: text.live.title, body: text.live.body },
+      ],
+    },
+  };
+}
 
-export const CODEX_CONNECTOR: ConnectorStatus = {
-  connected: false,
-  descriptor: {
-    id: 'codex',
-    name: 'Codex',
-    tagline: 'The assistant that looks into your requests',
-    required: true,
-    order: 2,
-    fields: [],
-    guide: [
-      { title: 'Install the Codex CLI', body: 'Pouple uses OpenAI’s Codex on your Mac. If it is not installed, one click installs it.' },
-      { title: 'Sign in with ChatGPT', body: 'A browser page opens: sign in with the account you want Pouple to use. It has its own login and never touches your usual Codex.' },
-      { title: 'Check the account', body: 'Pouple shows who is signed in, so you can be sure it is the right one.' },
+export function codexConnector(lang: Lang): ConnectorStatus {
+  const text = mockText(lang).codex;
+  const guide = text.guide;
+  return {
+    connected: false,
+    descriptor: {
+      id: 'codex',
+      name: 'Codex',
+      tagline: text.tagline,
+      required: true,
+      order: 2,
+      fields: [],
+      guide: [
+        { title: guide[0] ?? '', body: guide[1] ?? '' },
+        { title: guide[2] ?? '', body: guide[3] ?? '' },
+        { title: guide[4] ?? '', body: guide[5] ?? '' },
+      ],
+      actions: [
+        { id: 'install', label: text.install },
+        { id: 'login', label: text.login },
+      ],
+    },
+  };
+}
+
+export function slackProfile(lang: Lang): Profile {
+  const p = mockText(lang).profiles.slack;
+  return {
+    name: 'Arthur Monnet',
+    subtitle: p.subtitle,
+    facts: p.facts.map((label, i) => ({ label, value: p.values[i] ?? '' })),
+    warnings: [{ title: p.warningTitle, detail: p.warningDetail }],
+  };
+}
+
+export function codexProfile(lang: Lang): Profile {
+  const p = mockText(lang).profiles.codex;
+  const [plan, codex, organization, until] = p.facts;
+  return {
+    name: 'arthur@acme.example',
+    subtitle: p.subtitle,
+    facts: [
+      { label: plan, value: 'Plus' },
+      { label: codex, value: '0.52.0' },
+      { label: organization, value: lang === 'fr' ? 'Personnel' : 'Personal' },
+      { label: until, value: p.until },
     ],
-    actions: [
-      { id: 'install', label: 'Install Codex' },
-      { id: 'login', label: 'Sign in with ChatGPT' },
-    ],
-  },
-};
+    warnings: [],
+  };
+}
 
 let counter = 0;
 const nextId = (prefix: string): string => `${prefix}-${++counter}`;
@@ -107,68 +150,49 @@ const step = (id: string, text: string, minutes: number): AssistantRequest['entr
   text,
 });
 
-const LONG_ANSWER = `The login form posts to \`/api/session\`, but the request is sent before the CSRF cookie is set.
+const reply = (id: string, text: string, minutes: number): AssistantRequest['entries'][number] => ({
+  id,
+  at: minutesAgo(minutes),
+  role: 'assistant',
+  kind: 'text',
+  text,
+});
 
-**What I found**
-- \`LoginForm.vue\` calls \`submit()\` on mount when the browser autofills the fields.
-- The CSRF cookie is created by \`useSession()\`, which resolves after the first paint.
-- On a slow connection the first POST therefore goes out without the cookie and the API answers 403.
-
-**Why it is intermittent**
-It only happens when the autofill fires before the session bootstrap ends: Safari does it most of the time, Chrome rarely.
-
-1. Await \`useSession().ready\` before the first submit.
-2. Disable the button until the cookie exists.
-3. Add a regression test with a delayed bootstrap.
-
-\`\`\`ts
-await session.ready;
-await api.post('/session', credentials);
-\`\`\`
-
-I did not change anything. Say the word and I will prepare the fix in the \`front\` project.`;
-
-/** One request in every status, so each state of the interface can be looked at. */
-export function createFixtures(): AssistantRequest[] {
+/** One request in every status, so each state of the interface can be looked at, in the interface language. */
+export function createFixtures(lang: Lang): AssistantRequest[] {
+  const f = mockText(lang).fixtures;
+  const q = (index: number): string => f.q[index] ?? '';
   return [
     build({
       status: 'analyzing',
       minutes: 2,
-      text: '@arthur do you know why the invoice export is empty for the March period?',
+      text: q(0),
       source: { channelName: 'billing', senderName: 'Camille' },
-      patch: {
-        entries: [
-          step('s1', '$ rg "exportInvoices" -n src', 2),
-          step('s2', 'Reading src/billing/export.ts', 1),
-        ],
-      },
+      patch: { entries: [step('s1', '$ rg "exportInvoices" -n src', 2), step('s2', f.steps[0], 1)] },
     }),
     build({
       status: 'awaiting-user',
       minutes: 9,
-      text: 'Can you check the failing deploy on staging? I think it is the new env var.',
+      text: q(1),
       source: { channelName: 'platform', senderName: 'Nadia' },
       patch: {
-        summary: 'Two staging deploys failed with a missing variable.',
-        entries: [
-          step('s1', '$ gh run list --limit 5', 9),
-          { id: 'e1', at: minutesAgo(8), role: 'assistant', kind: 'text', text: 'The last two deploys failed on `STRIPE_WEBHOOK_SECRET`. I need to know which environment to look at.' },
-        ],
+        summary: f.stagingSummary,
+        entries: [step('s1', '$ gh run list --limit 5', 9), reply('e1', f.stagingEntry, 8)],
         questions: [
           {
             id: 'q1',
-            text: 'Which environment should I compare it with?',
+            text: f.staging.q1,
             options: [
-              { id: 'prod', label: 'Production', description: 'Check what the live deploy uses.' },
-              { id: 'preview', label: 'Preview', description: null },
+              { id: 'prod', label: f.staging.prod, description: f.staging.prodDesc },
+              { id: 'preview', label: f.staging.preview, description: null },
             ],
           },
           {
             id: 'q2',
-            text: 'Should I look at the CI logs too?',
+            text: f.staging.q2,
             options: [
-              { id: 'yes', label: 'Yes, read the logs', description: 'Read-only, last 200 lines.' },
-              { id: 'no', label: 'No, just the configuration', description: null },
+              { id: 'yes', label: f.staging.yes, description: f.staging.yesDesc },
+              { id: 'no', label: f.staging.no, description: null },
             ],
           },
         ],
@@ -177,72 +201,58 @@ export function createFixtures(): AssistantRequest[] {
     build({
       status: 'awaiting-user',
       minutes: 22,
-      text: 'The footer still shows 2023, can you fix it?',
+      text: q(2),
       source: { origin: 'direct-message', channelName: null, channelId: 'D024BE91L', senderName: 'Marc' },
       patch: {
-        summary: 'The year is hardcoded in the footer.',
+        summary: f.footer.summary,
         continuable: true,
-        entries: [
-          { id: 'e1', at: minutesAgo(21), role: 'assistant', kind: 'text', text: 'The year is hardcoded in `AppFooter.vue`. A one-line change replaces it with the current year.' },
-        ],
-        proposal: {
-          title: 'Use the current year in AppFooter.vue',
-          description: 'Replace the literal 2023 with new Date().getFullYear().',
-          projectId: 'front',
-        },
+        entries: [reply('e1', f.footer.entry, 21)],
+        proposal: { title: f.footer.title, description: f.footer.description, projectId: 'front' },
       },
     }),
     build({
       status: 'ready',
       minutes: 45,
-      text: 'Login is flaky on Safari, the form sometimes answers 403. Any idea?',
+      text: q(3),
       source: { channelName: 'front', senderName: 'Morgan' },
       patch: {
         continuable: true,
-        summary: 'The first POST races the CSRF cookie.',
-        draftReply: 'Thanks for the report. It is a race between the autofill submit and the CSRF cookie: I will await the session before the first submit and ship it today.',
-        entries: [step('s1', '$ rg "csrf" -n src', 46), step('s2', 'Reading LoginForm.vue', 45), { id: 'e1', at: minutesAgo(44), role: 'assistant', kind: 'text', text: LONG_ANSWER }],
+        summary: f.loginSummary,
+        draftReply: f.loginDraft,
+        entries: [step('s1', '$ rg "csrf" -n src', 46), step('s2', f.steps[1], 45), reply('e1', f.login, 44)],
       },
     }),
     build({
       status: 'applying',
       minutes: 70,
-      text: 'Please rename the "Workspace" label to "Team" everywhere in settings.',
+      text: q(4),
       source: { origin: 'thread-reply', channelName: 'product', senderName: 'Léa' },
-      patch: {
-        entries: [
-          { id: 'e1', at: minutesAgo(65), role: 'assistant', kind: 'text', text: 'Found 6 occurrences in `settings/`. Applying the rename.' },
-          step('s1', '$ sed -i "" "s/Workspace/Team/g" settings/GeneralTab.vue', 64),
-        ],
-      },
+      patch: { entries: [reply('e1', f.rename, 65), step('s1', '$ sed -i "" "s/Workspace/Team/g" settings/GeneralTab.vue', 64)] },
     }),
     build({
       status: 'done',
       minutes: 180,
-      text: 'Note to self: bump the Node version in the CI image to 22.',
+      text: q(5),
       source: { origin: 'note-to-self', channelName: null, channelId: 'D0SELF', senderName: 'Arthur', permalink: null },
-      patch: {
-        continuable: true,
-        entries: [{ id: 'e1', at: minutesAgo(170), role: 'assistant', kind: 'text', text: 'Done: `.github/workflows/ci.yml` now uses Node 22. The change is committed on a local branch, nothing is pushed.' }],
-      },
+      patch: { continuable: true, entries: [reply('e1', f.noteDone, 170)] },
     }),
     build({
       status: 'ignored',
       minutes: 600,
-      text: '@here lunch order closes at noon!',
+      text: q(6),
       source: { origin: 'broadcast', channelName: 'random', senderName: 'Sophie' },
     }),
     build({
       status: 'failed',
       minutes: 1500,
-      text: 'Could you look at the memory spike on the worker?',
+      text: q(7),
       source: { origin: 'keyword', channelName: 'ops', senderName: 'Hugo' },
-      patch: { error: 'Codex needs a breather. Back at 18:30.' },
+      patch: { error: f.limit },
     }),
     build({
       status: 'queued',
       minutes: 0,
-      text: 'Quick one: which port does the local API use?',
+      text: q(8),
       source: { origin: 'group-message', channelName: null, channelId: 'G0123', senderName: 'Inès' },
     }),
   ];

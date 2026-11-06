@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Sandbox is how much a Codex turn may touch.
@@ -91,6 +93,8 @@ type RunnerOptions struct {
 	Shell   string
 	Command string
 	Model   string
+	// ResolveCommand lets the app pick up an installation made after the runner starts.
+	ResolveCommand func() string
 	// Home is the CODEX_HOME: Pouple has its own Codex login.
 	Home    string
 	Timeout time.Duration
@@ -148,7 +152,7 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 
 type line struct {
 	events       []Event
-	failure      string
+	failure      error
 	finalMessage string
 }
 
@@ -173,7 +177,7 @@ func shortLine(text string) string {
 }
 
 // interpretLine turns one JSONL line of `codex exec --json` into chat events; unknown shapes are ignored.
-func interpretLine(raw string) line {
+func interpretLine(raw string, lang i18n.Lang) line {
 	var event struct {
 		Type     string `json:"type"`
 		ThreadID string `json:"thread_id"`
@@ -191,18 +195,17 @@ func interpretLine(raw string) line {
 			return line{events: []Event{{Type: "thread", ThreadID: event.ThreadID}}}
 		}
 	case "turn.failed":
-		message := event.Error.Message
-		if message == "" {
-			message = "Codex turn failed"
+		if event.Error.Message == "" {
+			return line{failure: i18n.NewError("Codex turn failed")}
 		}
-		return line{failure: message}
+		return line{failure: ClassifyFailure(event.Error.Message)}
 	case "item.completed":
-		return interpretItem(event.Item)
+		return interpretItem(event.Item, lang)
 	}
 	return line{}
 }
 
-func interpretItem(item map[string]any) line {
+func interpretItem(item map[string]any, lang i18n.Lang) line {
 	text := func(key string) string { s, _ := item[key].(string); return s }
 	switch text("type") {
 	case "agent_message":
@@ -212,7 +215,7 @@ func interpretItem(item map[string]any) line {
 	case "command_execution":
 		suffix := ""
 		if code, ok := item["exit_code"].(float64); ok && code != 0 {
-			suffix = fmt.Sprintf("  (exit %d)", int(code))
+			suffix = i18n.T(lang, "  (exit %d)", int(code))
 		}
 		return line{events: []Event{{Type: "step", Text: "$ " + shortLine(readableCommand(text("command"))) + suffix}}}
 	case "reasoning":
@@ -231,9 +234,9 @@ func interpretItem(item map[string]any) line {
 			}
 		}
 		if len(paths) == 0 {
-			return line{events: []Event{{Type: "step", Text: "Edited files"}}}
+			return line{events: []Event{{Type: "step", Text: i18n.T(lang, "Edited files")}}}
 		}
-		return line{events: []Event{{Type: "step", Text: "Edited " + shortLine(strings.Join(paths, ", "))}}}
+		return line{events: []Event{{Type: "step", Text: i18n.T(lang, "Edited %s", shortLine(strings.Join(paths, ", ")))}}}
 	}
 	return line{}
 }
@@ -247,7 +250,11 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	defer cancelTimeout()
 
 	// `exec "$0" "$@"` runs the binary inside a login shell with the arguments passed as data, not as shell syntax.
-	args := append([]string{"-lc", `exec "$0" "$@"`, r.opts.Command}, r.BuildArgs(turn)...)
+	command := r.opts.Command
+	if r.opts.ResolveCommand != nil {
+		command = r.opts.ResolveCommand()
+	}
+	args := append([]string{"-lc", `exec "$0" "$@"`, command}, r.BuildArgs(turn)...)
 	cmd := exec.Command(r.opts.Shell, args...)
 	cmd.Dir = turn.Dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -263,7 +270,7 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &limitedWriter{buffer: &stderr, max: 2000}
 	if err := cmd.Start(); err != nil {
-		return TurnResult{}, fmt.Errorf("Codex could not be started: %w", err)
+		return TurnResult{}, i18n.Wrap(err, "Codex could not be started: %s", err)
 	}
 
 	finished := make(chan struct{})
@@ -276,11 +283,12 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	}()
 
 	result := TurnResult{ThreadID: turn.ResumeThread}
-	failure := ""
+	var failure error
+	lang := i18n.FromContext(ctx)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
-		parsed := interpretLine(scanner.Text())
+		parsed := interpretLine(scanner.Text(), lang)
 		for _, event := range parsed.events {
 			if event.Type == "thread" {
 				result.ThreadID = event.ThreadID
@@ -292,7 +300,7 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		if parsed.finalMessage != "" {
 			result.FinalMessage = parsed.finalMessage
 		}
-		if parsed.failure != "" {
+		if parsed.failure != nil {
 			failure = parsed.failure
 		}
 	}
@@ -304,15 +312,19 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	case ctx.Err() != nil:
 		return TurnResult{}, ErrCancelled
 	case timeoutCtx.Err() != nil:
-		return TurnResult{}, fmt.Errorf("Codex took more than %d min and was stopped", int(r.opts.Timeout.Minutes()))
-	case failure != "":
-		return TurnResult{}, ClassifyFailure(failure)
+		return TurnResult{}, i18n.NewError("Codex took more than %d min and was stopped", int(r.opts.Timeout.Minutes()))
+	case failure != nil:
+		return TurnResult{}, failure
 	case waitErr != nil:
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
 			detail = ": " + shortLine(detail)
 		}
-		return TurnResult{}, ClassifyFailure("Codex exited with " + waitErr.Error() + detail)
+		failure := ClassifyFailure(waitErr.Error() + detail)
+		if errors.Is(failure, ErrLimit) || errors.Is(failure, ErrLogin) {
+			return TurnResult{}, failure
+		}
+		return TurnResult{}, i18n.Wrap(waitErr, "Codex exited with %s%s", waitErr, detail)
 	}
 	return result, nil
 }

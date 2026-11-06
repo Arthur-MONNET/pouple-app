@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { ActionInfo, ConnectorStatus, Profile, ValidationFailure } from '../api/types';
 
 /**
@@ -61,8 +62,8 @@ export function checklistFor(connectorId: string, actions: readonly ActionInfo[]
   const notInstalled = error !== null && /not installed/i.test(error.message);
   const notSignedIn = error !== null && !notInstalled;
   return [
-    { id: 'installed', label: 'Codex CLI installed', ok: !notInstalled, actionId: has('install') },
-    { id: 'signed-in', label: 'Signed in with ChatGPT', ok: !notInstalled && !notSignedIn, actionId: has('login') },
+    { id: 'installed', label: t('checklist.installed'), ok: !notInstalled, actionId: has('install') },
+    { id: 'signed-in', label: t('checklist.signedIn'), ok: !notInstalled && !notSignedIn, actionId: has('login') },
   ];
 }
 

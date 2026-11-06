@@ -8,31 +8,33 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 func TestInterpretLine(t *testing.T) {
-	if got := interpretLine(`{"type":"thread.started","thread_id":"t1"}`).events; len(got) != 1 || got[0].ThreadID != "t1" {
+	if got := interpretLine(`{"type":"thread.started","thread_id":"t1"}`, i18n.EN).events; len(got) != 1 || got[0].ThreadID != "t1" {
 		t.Fatalf("thread: %+v", got)
 	}
-	step := interpretLine(`{"type":"item.completed","item":{"type":"command_execution","command":"/bin/zsh -lc 'nl -ba a.ts'","exit_code":1}}`)
+	step := interpretLine(`{"type":"item.completed","item":{"type":"command_execution","command":"/bin/zsh -lc 'nl -ba a.ts'","exit_code":1}}`, i18n.EN)
 	if step.events[0].Text != "$ nl -ba a.ts  (exit 1)" {
 		t.Fatalf("step: %q", step.events[0].Text)
 	}
-	edit := interpretLine(`{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"src/a.ts"},{"path":"b.ts"}]}}`)
+	edit := interpretLine(`{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"src/a.ts"},{"path":"b.ts"}]}}`, i18n.EN)
 	if edit.events[0].Text != "Edited src/a.ts, b.ts" {
 		t.Fatalf("edit: %q", edit.events[0].Text)
 	}
-	message := interpretLine(`{"type":"item.completed","item":{"type":"agent_message","text":"{}"}}`)
+	message := interpretLine(`{"type":"item.completed","item":{"type":"agent_message","text":"{}"}}`, i18n.EN)
 	if message.finalMessage != "{}" {
 		t.Fatalf("message: %+v", message)
 	}
-	if interpretLine(`{"type":"turn.failed","error":{"message":"quota"}}`).failure != "quota" {
+	if got := interpretLine(`{"type":"turn.failed","error":{"message":"quota"}}`, i18n.EN).failure; !errors.Is(got, ErrLimit) {
 		t.Fatal("failure not read")
 	}
-	if got := interpretLine("not json"); len(got.events) != 0 || got.failure != "" {
+	if got := interpretLine("not json", i18n.EN); len(got.events) != 0 || got.failure != nil {
 		t.Fatal("noise must be ignored")
 	}
-	if interpretLine(`{"type":"error","message":"Reconnecting 1/5"}`).failure != "" {
+	if interpretLine(`{"type":"error","message":"Reconnecting 1/5"}`, i18n.EN).failure != nil {
 		t.Fatal("a transient notice is not a failure")
 	}
 }

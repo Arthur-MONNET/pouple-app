@@ -3,7 +3,8 @@ import { computed, ref, watch } from 'vue';
 import type { AssistantQuestion, AssistantRequest, QuestionAnswer } from '../api/types';
 import { errorMessage } from '../api/client';
 import { useAssistantStore } from '../composables/assistantStore';
-import { groupEntries, isWorking, requestTitle, STATUS_LABELS } from '../lib/assistantRequests';
+import { t } from '../i18n';
+import { groupEntries, isWorking, requestTitle, statusLabel } from '../lib/assistantRequests';
 import { formatReceived } from '../lib/format';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
@@ -37,10 +38,10 @@ const proposalQuestion = computed<AssistantQuestion[]>(() => {
     ? [
         {
           id: 'proposal',
-          text: `Apply this change in ${proposal.projectId}? ${proposal.title}`,
+          text: t('chat.proposalQuestion', { project: proposal.projectId, title: proposal.title }),
           options: [
-            { id: 'approve', label: 'Yes, make the change', description: proposal.description },
-            { id: 'decline', label: 'No, leave the code alone', description: null },
+            { id: 'approve', label: t('chat.proposalYes'), description: proposal.description },
+            { id: 'decline', label: t('chat.proposalNo'), description: null },
           ],
         },
       ]
@@ -75,7 +76,7 @@ async function copyReply(): Promise<void> {
     copied.value = true;
     setTimeout(() => (copied.value = false), 2000);
   } catch {
-    actionError.value = 'The reply could not be copied';
+    actionError.value = t('chat.copyFailed');
   }
 }
 
@@ -92,7 +93,7 @@ watch(
       <hr class="flex-1 border-line-soft" />
       <component
         :is="request.source.permalink ? 'a' : 'span'"
-        v-bind="request.source.permalink ? { href: request.source.permalink, target: '_blank', rel: 'noopener noreferrer', title: 'Open in Slack' } : {}"
+        v-bind="request.source.permalink ? { href: request.source.permalink, target: '_blank', rel: 'noopener noreferrer', title: t('chat.openInSlack') } : {}"
         class="flex max-w-[80%] items-center gap-1.5 truncate rounded-full border border-line px-2.5 py-1 text-2xs text-ink-muted"
         :class="{ 'hover:text-ink': request.source.permalink }"
       >
@@ -110,7 +111,7 @@ watch(
     <AttachmentList v-if="request.attachments && request.attachments.length > 0" :request-id="request.id" :attachments="request.attachments" />
 
     <template v-for="(group, index) in groups" :key="index">
-      <ul v-if="group.type === 'steps'" class="flex flex-col gap-0.5 border-l border-line pl-2.5" aria-label="What the assistant did">
+      <ul v-if="group.type === 'steps'" class="flex flex-col gap-0.5 border-l border-line pl-2.5" :aria-label="$t('chat.didLabel')">
         <li
           v-for="entry in group.entries"
           :key="entry.id"
@@ -143,15 +144,15 @@ watch(
     <div v-if="working" class="flex items-center gap-2 text-xs text-ink-dim">
       <p class="flex items-center gap-2" role="status">
         <span class="size-1.5 rounded-full bg-ok motion-safe:animate-pulse" aria-hidden="true" />
-        {{ request.status === 'queued' ? STATUS_LABELS.queued : 'Eight arms on it.' }}
+        {{ request.status === 'queued' ? statusLabel('queued') : $t('chat.working') }}
       </p>
-      <AppButton variant="ghost" size="sm" class="ml-auto" :disabled="busy" aria-label="Stop the assistant on this request" @click="guard(() => store.stopRequest(request.id))">Stop</AppButton>
+      <AppButton variant="ghost" size="sm" class="ml-auto" :disabled="busy" :aria-label="$t('chat.stopAria')" @click="guard(() => store.stopRequest(request.id))">{{ $t('chat.stop') }}</AppButton>
     </div>
 
     <section v-if="request.draftReply && !ignored" class="rounded-lg border border-line bg-surface p-3">
       <div class="mb-1 flex items-center">
-        <h3 class="text-xs font-medium text-ink-muted">Suggested reply</h3>
-        <AppButton variant="ghost" size="sm" class="ml-auto" @click="copyReply">{{ copied ? 'Copied' : 'Copy' }}</AppButton>
+        <h3 class="text-xs font-medium text-ink-muted">{{ $t('chat.suggestedReply') }}</h3>
+        <AppButton variant="ghost" size="sm" class="ml-auto" @click="copyReply">{{ copied ? $t('chat.copied') : $t('chat.copy') }}</AppButton>
       </div>
       <p class="whitespace-pre-wrap break-words text-ink">{{ request.draftReply }}</p>
     </section>
@@ -169,19 +170,19 @@ watch(
 
     <div v-if="request.status === 'failed'" class="flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5" data-testid="failed-note">
       <MascotStage pose="oops" />
-      <InlineError>{{ request.error ?? 'Something went wrong.' }}</InlineError>
+      <InlineError>{{ request.error ?? $t('chat.failedFallback') }}</InlineError>
     </div>
     <p v-else-if="stoppedNote && !working" class="flex items-center gap-2 text-xs text-ink-muted" data-testid="stopped-note">
       <MascotStage pose="stop" size="sm" />
-      Stopped. Nothing else will run on this request.
+      {{ $t('chat.stopped') }}
     </p>
     <InlineError v-if="actionError">{{ actionError }}</InlineError>
 
     <div v-if="!working && request.status !== 'awaiting-user'" class="flex gap-1.5">
-      <AppButton v-if="canElaborate" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.send(request.id, 'Give me more detail.'))">More detail</AppButton>
-      <AppButton variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.retry(request.id))">Investigate again</AppButton>
-      <AppButton v-if="request.status === 'ready' || request.status === 'done'" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.ignore(request.id))">Dismiss</AppButton>
-      <AppButton variant="ghost" size="sm" :disabled="busy" @click="remove">Delete</AppButton>
+      <AppButton v-if="canElaborate" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.send(request.id, $t('chat.moreDetailMessage')))">{{ $t('chat.moreDetail') }}</AppButton>
+      <AppButton variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.retry(request.id))">{{ $t('chat.again') }}</AppButton>
+      <AppButton v-if="request.status === 'ready' || request.status === 'done'" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.ignore(request.id))">{{ $t('chat.dismiss') }}</AppButton>
+      <AppButton variant="ghost" size="sm" :disabled="busy" @click="remove">{{ $t('chat.delete') }}</AppButton>
     </div>
   </section>
 </template>

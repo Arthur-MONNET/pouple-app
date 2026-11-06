@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { AssistantRequest } from '../api/types';
-import { FILTER_LABELS, matchesFilter, requestTitle, STATUS_LABELS, type ConversationFilter } from '../lib/assistantRequests';
+import { filterLabel, FILTERS, matchesFilter, requestTitle, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
 import { relativeTime } from '../lib/format';
 import MascotStage from './MascotStage.vue';
 import StatusDot from './StatusDot.vue';
@@ -9,7 +9,6 @@ import StatusDot from './StatusDot.vue';
 const props = defineProps<{ requests: AssistantRequest[]; selectedId: string | null; attention: number; loaded: boolean }>();
 defineEmits<{ select: [id: string] }>();
 
-const FILTERS = Object.keys(FILTER_LABELS) as ConversationFilter[];
 const filter = ref<ConversationFilter>('all');
 const visible = computed(() => props.requests.filter((request) => matchesFilter(request, filter.value)));
 
@@ -22,17 +21,13 @@ function onFilterKey(event: KeyboardEvent): void {
   event.preventDefault();
 }
 
-const EMPTY: Record<ConversationFilter, string> = {
-  all: 'When someone mentions you, writes to you, or you leave yourself a note in Slack, Codex looks into it and it shows up here.',
-  'needs-me': 'Nothing is waiting for you.',
-  done: 'Nothing finished yet.',
-};
+const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs-me': 'list.emptyNeedsMe', done: 'list.emptyDone' };
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="px-3 pb-2 pt-3">
-      <div role="tablist" aria-label="Filter conversations" class="flex rounded-lg bg-surface p-0.5" @keydown="onFilterKey">
+      <div role="tablist" :aria-label="$t('filters.label')" class="flex rounded-lg bg-surface p-0.5" @keydown="onFilterKey">
         <button
           v-for="item in FILTERS"
           :key="item"
@@ -44,13 +39,13 @@ const EMPTY: Record<ConversationFilter, string> = {
           :class="filter === item ? 'bg-selected font-medium text-ink' : 'text-ink-muted hover:text-ink'"
           @click="filter = item"
         >
-          {{ FILTER_LABELS[item] }}
+          {{ filterLabel(item) }}
           <span v-if="item === 'needs-me' && attention > 0" class="ml-1 rounded bg-accent/20 px-1 text-2xs text-accent">{{ attention }}</span>
         </button>
       </div>
     </div>
 
-    <ul class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" aria-label="Conversations">
+    <ul class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" :aria-label="$t('list.label')">
       <li v-for="request in visible" :key="request.id">
         <button
           type="button"
@@ -64,7 +59,7 @@ const EMPTY: Record<ConversationFilter, string> = {
           <span class="min-w-0 flex-1">
             <span class="block truncate text-sm text-ink">{{ requestTitle(request) }}</span>
             <span class="block truncate text-xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ request.text }}</span>
-            <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ STATUS_LABELS[request.status] }}</span>
+            <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ statusLabel(request.status) }}</span>
           </span>
           <time class="shrink-0 pt-0.5 text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'" :datetime="request.updatedAt">{{ relativeTime(request.updatedAt) }}</time>
         </button>
@@ -72,10 +67,10 @@ const EMPTY: Record<ConversationFilter, string> = {
     </ul>
     <div v-if="loaded && visible.length === 0 && filter === 'all'" class="flex flex-col items-center gap-2 px-5 py-8 text-center" data-testid="empty-list">
       <MascotStage pose="sleep" size="md" class="!size-28" />
-      <p class="font-display text-lg font-semibold text-ink">Nothing to do. Pouple is napping.</p>
-      <p class="text-xs leading-relaxed text-ink-muted">{{ EMPTY[filter] }}</p>
+      <p class="font-display text-lg font-semibold text-ink">{{ $t('list.emptyTitle') }}</p>
+      <p class="text-xs leading-relaxed text-ink-muted">{{ $t(EMPTY[filter]) }}</p>
     </div>
-    <p v-else-if="loaded && visible.length === 0" class="px-4 py-6 text-center text-xs leading-relaxed text-ink-dim">{{ EMPTY[filter] }}</p>
-    <p v-else-if="!loaded" class="px-4 py-6 text-center text-xs text-ink-dim" role="status">Loading…</p>
+    <p v-else-if="loaded && visible.length === 0" class="px-4 py-6 text-center text-xs leading-relaxed text-ink-dim">{{ $t(EMPTY[filter]) }}</p>
+    <p v-else-if="!loaded" class="px-4 py-6 text-center text-xs text-ink-dim" role="status">{{ $t('common.loading') }}</p>
   </div>
 </template>

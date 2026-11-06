@@ -7,6 +7,7 @@ import AppButton from '../components/AppButton.vue';
 import InlineError from '../components/InlineError.vue';
 import BrandMark from '../components/BrandMark.vue';
 import ConnectorStep from '../components/ConnectorStep.vue';
+import LanguageSwitch from '../components/LanguageSwitch.vue';
 import WizardDone from '../components/WizardDone.vue';
 import WizardStepper from '../components/WizardStepper.vue';
 import WizardProjects from '../components/WizardProjects.vue';
@@ -43,15 +44,18 @@ const openMain = (): void => void router.push('/');
   <div v-else class="flex min-h-full flex-col">
     <header class="flex flex-wrap items-center justify-between gap-4 px-5 py-4 min-[700px]:px-8">
       <BrandMark />
-      <WizardStepper v-if="position" :items="steps.map((s) => ({ id: s.descriptor.id, name: s.descriptor.name, connected: s.connected }))" :current="current" />
+      <div class="flex flex-wrap items-center gap-4">
+        <WizardStepper v-if="position" :items="steps.map((s) => ({ id: s.descriptor.id, name: s.descriptor.name, connected: s.connected }))" :current="current" />
+        <LanguageSwitch />
+      </div>
     </header>
 
     <main class="mx-auto w-full max-w-5xl flex-1 px-5 pb-10 min-[700px]:px-8">
       <InlineError v-if="store.error.value" box>
-        The core is not answering: {{ store.error.value }}
-        <AppButton variant="ghost" size="sm" class="ml-2" @click="store.refresh()">Try again</AppButton>
+        {{ $t('setup.coreDown', { error: store.error.value }) }}
+        <AppButton variant="ghost" size="sm" class="ml-2" @click="store.refresh()">{{ $t('common.tryAgain') }}</AppButton>
       </InlineError>
-      <p v-if="position === null && !store.error.value" class="py-20 text-center text-ink-dim" role="status">Loading…</p>
+      <p v-if="position === null && !store.error.value" class="py-20 text-center text-ink-dim" role="status">{{ $t('common.loading') }}</p>
       <ConnectorStep v-else-if="currentConnector" :key="currentConnector.descriptor.id" :connector="currentConnector" :step-number="current + 1" @saved="advance" />
       <WizardProjects v-else-if="position?.kind === 'projects'" @next="position = { kind: 'done' }" />
       <WizardDone v-else-if="position?.kind === 'done'" @open="openMain" />

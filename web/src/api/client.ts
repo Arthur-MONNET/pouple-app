@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { readSse } from './sse';
 import type {
   ActionEvent,
@@ -67,7 +68,7 @@ interface ErrorBody {
 
 async function toApiError(response: Response): Promise<ApiError> {
   const body = (await response.json().catch(() => null)) as ErrorBody | null;
-  const message = body?.message ?? body?.error ?? (response.statusText || `Request failed (${response.status})`);
+  const message = body?.message ?? body?.error ?? (response.statusText || t('errors.requestFailed', { status: response.status }));
   return new ApiError(response.status, message, body?.field || undefined);
 }
 

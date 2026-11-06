@@ -1,17 +1,10 @@
 import type { AssistantRequest, AssistantStatus, ChatEntry } from '../api/types';
+import { t } from '../i18n';
 
 const WORKING = new Set<AssistantStatus>(['queued', 'analyzing', 'applying']);
 
-export const STATUS_LABELS: Record<AssistantStatus, string> = {
-  queued: 'Queued',
-  analyzing: 'Investigating…',
-  applying: 'Working on it…',
-  'awaiting-user': 'Waiting for you',
-  ready: 'Analysis ready',
-  done: 'Change applied',
-  ignored: 'Ignored',
-  failed: 'Failed',
-};
+/** The label of a status, in the active language. */
+export const statusLabel = (status: AssistantStatus): string => t(`status.${status}`);
 
 export const isWorking = (request: Pick<AssistantRequest, 'status'>): boolean => WORKING.has(request.status);
 
@@ -24,7 +17,8 @@ export function attentionCount(requests: readonly Pick<AssistantRequest, 'status
 
 export type ConversationFilter = 'all' | 'needs-me' | 'done';
 
-export const FILTER_LABELS: Record<ConversationFilter, string> = { all: 'All', 'needs-me': 'Needs me', done: 'Done' };
+export const FILTERS: readonly ConversationFilter[] = ['all', 'needs-me', 'done'];
+export const filterLabel = (filter: ConversationFilter): string => t(`filters.${filter}`);
 
 /** "Needs me" is what waits for a decision or failed; "Done" is everything that needs nothing more. */
 export function matchesFilter(request: Pick<AssistantRequest, 'status'>, filter: ConversationFilter): boolean {
@@ -37,28 +31,10 @@ export function matchesFilter(request: Pick<AssistantRequest, 'status'>, filter:
 export const byRecentActivity = (requests: readonly AssistantRequest[]): AssistantRequest[] =>
   [...requests].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
-/** "Request from Morgan in #front", "... (direct message)" or "Note to self". */
+/** "Demande de Morgan dans #front", "Note à moi-même"… */
 export function requestTitle(request: Pick<AssistantRequest, 'source'>): string {
   const { source } = request;
-  const channel = `#${source.channelName ?? source.channelId}`;
-  switch (source.origin) {
-    case 'note-to-self':
-      return 'Note to self';
-    case 'direct-message':
-      return `Request from ${source.senderName} (direct message)`;
-    case 'group-message':
-      return `Message from ${source.senderName} (group chat)`;
-    case 'broadcast':
-      return `@here / @channel from ${source.senderName} in ${channel}`;
-    case 'keyword':
-      return `Watched word from ${source.senderName} in ${channel}`;
-    case 'thread-reply':
-      return `Thread reply from ${source.senderName} in ${channel}`;
-    case 'channel-message':
-      return `Message from ${source.senderName} in ${channel}`;
-    default:
-      return `Request from ${source.senderName} in ${channel}`;
-  }
+  return t(`title.${source.origin}`, { name: source.senderName, channel: source.channelName ?? source.channelId });
 }
 
 export type EntryGroup = { type: 'steps'; entries: ChatEntry[] } | { type: 'message'; entry: ChatEntry };

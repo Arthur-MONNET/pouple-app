@@ -1,5 +1,7 @@
 import { ApiError, type PoupleApi } from './client';
-import { CODEX_CONNECTOR, createFixtures, SLACK_CONNECTOR } from './mockFixtures';
+import { lang as activeLang, type Lang } from '../i18n';
+import { codexConnector, codexProfile, createFixtures, slackConnector, slackProfile } from './mockFixtures';
+import { mockText } from './mockText';
 import type {
   ActionEvent,
   AppState,
@@ -22,6 +24,8 @@ export interface MockOptions {
   workMs?: number;
   /** Start with Slack and Codex already connected (to look at the main window without going through setup). */
   ready?: boolean;
+  /** Starting interface language (default: the active one). */
+  lang?: Lang;
   /** `empty`: no conversation at all; `paused`: the assistant is off and says why. */
   view?: 'empty' | 'paused';
 }
@@ -34,50 +38,38 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
 
 const nowIso = (): string => new Date().toISOString();
 
-const SLACK_PROFILE: Profile = {
-  name: 'Arthur Monnet',
-  subtitle: 'Acme workspace',
-  facts: [
-    { label: 'Workspace', value: 'Acme (acme.slack.com)' },
-    { label: 'E-mail', value: 'arthur@acme.example' },
-    { label: 'Time zone', value: 'Europe/Paris' },
-  ],
-  warnings: [
-    {
-      title: 'Reactions are not watched',
-      detail: 'The reactions:read permission is missing, so Pouple cannot see when a message gets your emoji. Everything else works.',
-    },
-  ],
-};
-
-const CODEX_PROFILE: Profile = {
-  name: 'arthur@acme.example',
-  subtitle: 'Signed in with ChatGPT',
-  facts: [
-    { label: 'Plan', value: 'Plus' },
-    { label: 'Codex', value: '0.52.0' },
-    { label: 'Organization', value: 'Personal' },
-    { label: 'Subscription until', value: '14 Jan 2027' },
-  ],
-  warnings: [],
-};
-
 /**
  * An in-memory backend with realistic data, so the whole interface can be developed and looked at without the core
  * (`VITE_MOCK=1`). Slack accepts any well-formed token that does not contain "bad"; Codex starts "not installed".
  */
 export function createMockApi(options: MockOptions = {}): PoupleApi {
   const { latency = 250, connectors: mockConnectors = true, workMs = 2200 } = options;
-  const connectors: ConnectorStatus[] = [structuredClone(SLACK_CONNECTOR), structuredClone(CODEX_CONNECTOR)];
+  let lang: Lang = options.lang ?? activeLang.value;
+  const text = (): ReturnType<typeof mockText> => mockText(lang);
+  const connectors: ConnectorStatus[] = [slackConnector(lang), codexConnector(lang)];
   const codex = { installed: false, signedIn: false };
   if (options.ready) {
     codex.installed = codex.signedIn = true;
-    for (const status of connectors) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? SLACK_PROFILE : CODEX_PROFILE, connectedAt: nowIso() });
+    for (const status of connectors) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
   }
-  let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures();
+  let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', autoApprove: 'off', keywords: [], ignoreChannels: [] };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] };
+
+  /** The core speaks the interface language: descriptors, profiles and the sample conversations follow it. */
+  function switchLanguage(next: Lang): void {
+    lang = next;
+    const fresh = [slackConnector(lang), codexConnector(lang)];
+    for (const [index, status] of connectors.entries()) {
+      const replacement = fresh[index];
+      if (!replacement) continue;
+      status.descriptor = replacement.descriptor;
+      if (status.connected) status.profile = status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang);
+    }
+    if (options.view !== 'empty') requests = createFixtures(lang);
+    publish();
+  }
 
   const wait = (): Promise<void> => sleep(latency);
   /** With no latency (tests) nothing waits; otherwise the pauses of slow operations keep their real feel. */
@@ -86,7 +78,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const snapshot = (): AssistantSnapshot => ({
     status: {
       active: options.view !== 'paused',
-      problem: options.view === 'paused' ? 'Codex needs a breather. Back at 14:30.' : null,
+      problem: options.view === 'paused' ? text().paused : null,
       lastPollAt: nowIso(),
       notices: [],
       usage: { today: 7, limit: 40 },
@@ -122,22 +114,23 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
 
   function checkSlackValues(values: ConnectorValues): void {
     const token = values['token'] ?? '';
-    const field = SLACK_CONNECTOR.descriptor.fields?.[0];
-    if (token === '') throw new ApiError(422, 'User OAuth Token is required', 'token');
-    if (field?.pattern && !new RegExp(field.pattern).test(token)) throw new ApiError(422, `User OAuth Token ${field.patternHint ?? 'does not look right'}`, 'token');
-    if (token.startsWith('xoxb')) throw new ApiError(422, 'This is a bot token (xoxb-). Pouple needs the User OAuth Token, which starts with xoxp-.', 'token');
-    if (token.includes('bad')) throw new ApiError(422, 'Slack does not accept this token (invalid_auth). Copy it again from OAuth & Permissions.', 'token');
+    const field = connectors[0]?.descriptor.fields?.[0];
+    const label = field?.label ?? '';
+    if (token === '') throw new ApiError(422, text().errors.required, 'token');
+    if (field?.pattern && !new RegExp(field.pattern).test(token)) throw new ApiError(422, `${label} ${field.patternHint ?? ''}`.trim(), 'token');
+    if (token.startsWith('xoxb')) throw new ApiError(422, text().errors.botToken, 'token');
+    if (token.includes('bad')) throw new ApiError(422, text().errors.invalidAuth, 'token');
   }
 
-  function codexProfile(): Profile {
-    if (!codex.installed) throw new ApiError(422, 'The Codex CLI is not installed yet. Click “Install Codex”.');
-    if (!codex.signedIn) throw new ApiError(422, 'Not signed in yet. Click “Sign in with ChatGPT”.');
-    return CODEX_PROFILE;
+  function currentCodexProfile(): Profile {
+    if (!codex.installed) throw new ApiError(422, text().errors.notInstalled);
+    if (!codex.signedIn) throw new ApiError(422, text().errors.notSignedIn);
+    return codexProfile(lang);
   }
 
   const profileFor = (id: string, values: ConnectorValues): Profile => {
-    if (id === 'slack') return (checkSlackValues(values), SLACK_PROFILE);
-    if (id === 'codex') return codexProfile();
+    if (id === 'slack') return (checkSlackValues(values), slackProfile(lang));
+    if (id === 'codex') return currentCodexProfile();
     throw new ApiError(404, `unknown connector: ${id}`);
   };
 
@@ -150,9 +143,9 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   return {
     async getState(): Promise<AppState> {
       await wait();
-      if (!mockConnectors) return { setupComplete: true, steps: [] };
+      if (!mockConnectors) return { setupComplete: true, steps: [], language: lang };
       const steps = connectors.map((c) => ({ id: c.descriptor.id, name: c.descriptor.name, required: c.descriptor.required, connected: c.connected }));
-      return { setupComplete: steps.every((s) => !s.required || s.connected), steps };
+      return { setupComplete: steps.every((s) => !s.required || s.connected), steps, language: lang };
     },
     async listConnectors() {
       await wait();
@@ -187,13 +180,13 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       };
       if (id !== 'codex') throw new ApiError(404, 'not found');
       if (action === 'install') {
-        await lines(['Installing with npm…', 'added 1 package in 6s']);
+        await lines(text().logs.install);
         codex.installed = true;
         emit({ type: 'done' });
       } else if (action === 'login') {
-        await lines(['Starting local login server on http://localhost:1455.', 'If your browser did not open, visit:']);
+        await lines(text().logs.login1);
         emit({ type: 'open', url: 'https://auth.openai.com/oauth/authorize?mock=1' });
-        await lines(['Waiting for the sign-in to finish…'], slow(1500));
+        await lines([text().logs.login2], slow(1500));
         codex.signedIn = true;
         emit({ type: 'done' });
       } else {
@@ -208,9 +201,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     async updateSettings(patch) {
       await wait();
       const root = patch.projectsRoot?.trim();
-      if (root && (!root.startsWith('/') || root.includes('missing'))) throw new ApiError(422, `\u201c${root}\u201d is not a folder`);
-      if (patch.dailyTurnLimit !== undefined && patch.dailyTurnLimit < 0) throw new ApiError(422, 'The daily limit cannot be negative (0 means no limit)');
+      if (root && (!root.startsWith('/') || root.includes('missing'))) throw new ApiError(422, text().errors.notFolder(root));
+      if (patch.dailyTurnLimit !== undefined && patch.dailyTurnLimit < 0) throw new ApiError(422, text().errors.negativeLimit);
       Object.assign(settings, patch, root !== undefined && { projectsRoot: root });
+      if (patch.uiLanguage && patch.uiLanguage !== lang) switchLanguage(patch.uiLanguage);
       return structuredClone(settings);
     },
 
@@ -234,7 +228,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
         kind: 'text',
         text: answers.map((a) => a.text ?? request.questions.find((q) => q.id === a.questionId)?.options.find((o) => o.id === a.optionId)?.label ?? '').join(' / '),
       });
-      work(request, 'Thanks, that settles it. The variable exists in production but was never added to the staging secrets: add `STRIPE_WEBHOOK_SECRET` there and redeploy.');
+      work(request, text().replies.answered);
     },
     async decideProposal(requestId, decision) {
       await wait();
@@ -245,16 +239,16 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       }
       touch(request, { status: 'applying', proposal: null });
       setTimeout(() => {
-        request.entries.push({ id: `m${Date.now()}`, at: nowIso(), role: 'assistant', kind: 'text', text: 'Done: the footer now uses the current year.' });
+        request.entries.push({ id: `m${Date.now()}`, at: nowIso(), role: 'assistant', kind: 'text', text: text().replies.applied });
         touch(request, { status: 'done' });
       }, workMs);
     },
-    async sendMessage(requestId, text, attachmentIds) {
+    async sendMessage(requestId, asked, attachmentIds) {
       await wait();
       const request = find(requestId);
       const attachments: AttachmentRef[] = attachmentIds.map((id) => ({ id, name: `file-${id}`, mime: 'text/plain', size: 1024, kind: 'text' }));
-      request.entries.push({ id: `u${Date.now()}`, at: nowIso(), role: 'user', kind: 'text', text, ...(attachments.length > 0 && { attachments }) });
-      work(request, `Here is a bit more detail on that.\n\n- I looked at the files again.\n- Nothing else depends on it.\n\nAsked: ${text || '(files only)'}`);
+      request.entries.push({ id: `u${Date.now()}`, at: nowIso(), role: 'user', kind: 'text', text: asked, ...(attachments.length > 0 && { attachments }) });
+      work(request, text().replies.more(asked || text().replies.filesOnly));
     },
     async ignore(requestId) {
       await wait();
@@ -262,7 +256,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     },
     async retry(requestId) {
       await wait();
-      work(find(requestId), 'I looked again and the answer is the same: nothing changed on my side.');
+      work(find(requestId), text().replies.again);
     },
     async stop(requestId) {
       await wait();

@@ -4,6 +4,7 @@ import SwiftUI
 /// One request as a bubble: one line when collapsed, with its question or answer when expanded.
 struct BubbleCard: View {
     @ObservedObject var store: BubbleStore
+    @ObservedObject private var language = LanguageModel.shared
     let item: BubbleItem
     let expanded: Bool
 
@@ -70,15 +71,22 @@ struct BubbleCard: View {
             icon
             VStack(alignment: .leading, spacing: 1) {
                 Text(request.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                Text(badge).font(.system(size: 10.5)).foregroundStyle(badgeColor)
+                HStack(spacing: 4) {
+                    Text(badge).foregroundStyle(badgeColor)
+                    Text("· " + L10n.relativeTime(from: request.receivedAt, to: store.now)).foregroundStyle(Theme.dim)
+                }
+                .font(.system(size: 10.5))
+                .lineLimit(1)
             }
             Spacer(minLength: 4)
             if item.kind != .working {
                 Button { store.toggle(request.id) } label: { Image(systemName: "chevron.down") }
-                    .help("Collapse")
+                    .help(L10n.text(.bubbleCollapse))
+                    .accessibilityLabel(L10n.text(.bubbleCollapse))
             }
             Button { store.dismiss(request) } label: { Image(systemName: "xmark") }
-                .help("Close this bubble")
+                .help(L10n.text(.bubbleClose))
+                .accessibilityLabel(L10n.text(.bubbleClose))
         }
         .buttonStyle(IconButtonStyle())
         .background(WindowDragArea())
@@ -101,7 +109,7 @@ struct BubbleCard: View {
         case .working:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(lastStep ?? "Investigating…")
+                Text(lastStep ?? L10n.text(.bubbleInvestigating))
                     .font(.system(size: 11, design: lastStep == nil ? .default : .monospaced))
                     .foregroundStyle(Theme.dim)
                     .lineLimit(1)
@@ -110,19 +118,19 @@ struct BubbleCard: View {
             if let summary = request.summary { MarkdownView(source: summary) }
             decision
         case .failed:
-            Label(request.error ?? "Something went wrong", systemImage: "exclamationmark.triangle.fill")
+            Label(request.error ?? L10n.text(.bubbleSomethingWrong), systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.fail)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button("Investigate again") { store.retry(request) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
+                Button(L10n.text(.bubbleRetry)) { store.retry(request) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
                 openButton
             }
         case .result:
             if let summary = request.summary { MarkdownView(source: summary) }
             if let text = request.draftReply { replyBox(text) }
             HStack {
-                Button("Done") { store.dismiss(request) }.buttonStyle(PillButtonStyle(role: .primary))
+                Button(L10n.text(.bubbleDone)) { store.dismiss(request) }.buttonStyle(PillButtonStyle(role: .primary))
                 openButton
             }
         }
@@ -131,12 +139,12 @@ struct BubbleCard: View {
     @ViewBuilder private var decision: some View {
         if let proposal = request.proposal {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Apply this change in \(proposal.projectId)?").font(.system(size: 13, weight: .semibold))
+                Text(L10n.text(.bubbleApplyIn, proposal.projectId)).font(.system(size: 13, weight: .semibold))
                 Text(proposal.title).font(.system(size: 12, weight: .medium))
                 Text(proposal.description).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(6).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Make the change") { store.decide(request, approve: true) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
-                    Button("Not now") { store.decide(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
+                    Button(L10n.text(.bubbleApply)) { store.decide(request, approve: true) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
+                    Button(L10n.text(.bubbleNotNow)) { store.decide(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
                     Spacer()
                     openButton
                 }
@@ -148,15 +156,15 @@ struct BubbleCard: View {
     }
 
     private var openButton: some View {
-        Button("Open Pouple") { store.openPouple() }.buttonStyle(PillButtonStyle(role: .quiet))
+        Button(L10n.text(.bubbleOpen)) { store.openPouple() }.buttonStyle(PillButtonStyle(role: .quiet))
     }
 
     private func replyBox(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Suggested reply").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.dim)
+                Text(L10n.text(.bubbleSuggestedReply)).font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.dim)
                 Spacer()
-                Button("Copy") { store.copy(text) }.buttonStyle(PillButtonStyle(role: .quiet))
+                Button(L10n.text(.bubbleCopy)) { store.copy(text) }.buttonStyle(PillButtonStyle(role: .quiet))
             }
             Text(text).font(.system(size: 12.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
@@ -173,10 +181,10 @@ struct BubbleCard: View {
 
     private var badge: String {
         switch item.kind {
-        case .working: return "Investigating…"
-        case .decision: return request.proposal != nil ? "Approve a change" : "Needs your answer"
-        case .failed: return "Failed"
-        case .result: return request.status == .done ? "Change applied" : "Answer ready"
+        case .working: return L10n.text(.bubbleInvestigating)
+        case .decision: return request.proposal != nil ? L10n.text(.badgeApprove) : L10n.text(.badgeNeedsAnswer)
+        case .failed: return L10n.text(.badgeFailed)
+        case .result: return request.status == .done ? L10n.text(.badgeApplied) : L10n.text(.badgeAnswerReady)
         }
     }
 

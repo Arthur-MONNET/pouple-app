@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
+import { t } from '../i18n';
 import type { ConnectorStatus } from '../api/types';
 import { useConnectorStep } from '../composables/useConnectorStep';
 import ActionsPanel from './ActionsPanel.vue';
@@ -24,11 +25,11 @@ const descriptor = computed(() => props.connector.descriptor);
 const statusText = computed(() => {
   switch (flow.value.phase) {
     case 'checking':
-      return `Checking with ${descriptor.value.name}…`;
+      return t('connect.checking', { name: descriptor.value.name });
     case 'confirm':
-      return `Found ${flow.value.profile.name}. Is this you?`;
+      return t('connect.found', { profile: flow.value.profile.name });
     case 'saving':
-      return `Saving ${descriptor.value.name}…`;
+      return t('connect.saving', { name: descriptor.value.name });
     default:
       return '';
   }
@@ -41,13 +42,13 @@ const statusText = computed(() => {
     :class="compact ? 'grid-cols-1' : 'grid-cols-1 min-[700px]:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] min-[700px]:gap-10'"
   >
     <section v-if="!confirming" aria-labelledby="guide-title" class="flex flex-col gap-4">
-      <h2 id="guide-title" class="text-xs font-medium uppercase tracking-wider text-ink-dim">How to connect {{ descriptor.name }}</h2>
+      <h2 id="guide-title" class="text-xs font-medium uppercase tracking-wider text-ink-dim">{{ $t('guide.howTo', { name: descriptor.name }) }}</h2>
       <GuideList :steps="descriptor.guide ?? []" />
     </section>
     <section v-else class="flex flex-col gap-4" aria-labelledby="confirm-title">
-      <p class="font-mono text-xs uppercase tracking-widest text-accent">Step {{ stepNumber }} &middot; {{ descriptor.name }}</p>
-      <h2 id="confirm-title" class="font-display text-4xl font-semibold leading-tight tracking-tight text-ink">Is this you?</h2>
-      <p class="text-base leading-relaxed text-ink-muted">{{ descriptor.name }} answered. Check the name before saving: nothing is stored until you say yes.</p>
+      <p class="font-mono text-xs uppercase tracking-widest text-accent">{{ $t('connect.stepEyebrow', { n: stepNumber, name: descriptor.name }) }}</p>
+      <h2 id="confirm-title" class="font-display text-4xl font-semibold leading-tight tracking-tight text-ink">{{ $t('connect.isItYou') }}</h2>
+      <p class="text-base leading-relaxed text-ink-muted">{{ $t('connect.answered', { name: descriptor.name }) }}</p>
       <MascotStage v-if="!compact" pose="done" size="lg" class="mt-2" />
     </section>
 
@@ -73,7 +74,7 @@ const statusText = computed(() => {
           />
           <InlineError v-if="step.generalError.value">{{ step.generalError.value }}</InlineError>
           <AppButton type="submit" variant="primary" size="lg" class="w-fit" data-testid="check">
-            {{ step.fields.value.some((field) => field.secret) ? 'Check this token' : 'Check' }}
+            {{ step.fields.value.some((field) => field.secret) ? $t('connect.checkToken') : $t('connect.check') }}
           </AppButton>
         </form>
         <ActionsPanel
@@ -89,7 +90,7 @@ const statusText = computed(() => {
       <div v-else-if="flow.phase === 'checking'" class="flex flex-col gap-4" data-testid="checking" aria-busy="true">
         <p class="flex items-center gap-2.5 text-sm text-ink-muted">
           <AppSpinner />
-          Checking with {{ descriptor.name }}…
+          {{ $t('connect.checking', { name: descriptor.name }) }}
         </p>
         <div class="flex animate-pulse flex-col gap-3 motion-reduce:animate-none" aria-hidden="true">
           <div class="flex items-center gap-4">
@@ -108,10 +109,10 @@ const statusText = computed(() => {
         <div class="flex flex-wrap gap-2">
           <AppButton variant="primary" size="lg" :disabled="flow.phase === 'saving'" data-testid="confirm" @click="step.confirm()">
             <AppSpinner v-if="flow.phase === 'saving'" />
-            Yes, that&rsquo;s me
+            {{ $t('connect.yes') }}
           </AppButton>
           <AppButton variant="outline" size="lg" :disabled="flow.phase === 'saving'" data-testid="reject" @click="step.reject()">
-            {{ step.withForm.value ? 'Not me, use another token' : 'Not me, use another account' }}
+            {{ step.withForm.value ? $t('connect.notMeToken') : $t('connect.notMeAccount') }}
           </AppButton>
         </div>
       </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue';
 import type { Field } from '../api/types';
+import { t } from '../i18n';
 import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{ field: Field; error: string | null; disabled?: boolean }>();
@@ -19,14 +20,14 @@ async function paste(): Promise<void> {
   try {
     model.value = (await navigator.clipboard.readText()).trim();
   } catch {
-    pasteNote.value = 'The clipboard is not available here: paste with Cmd+V instead.';
+    pasteNote.value = t('field.clipboardUnavailable');
   }
 }
 </script>
 
 <template>
   <div class="flex flex-col gap-1.5">
-    <label :for="id" class="text-sm font-medium text-ink">{{ field.label }}</label>
+    <label :for="id" class="text-sm font-medium text-ink">{{ field.label }}<span v-if="field.optional" class="ml-1.5 font-normal text-ink-muted">{{ $t('common.optional') }}</span></label>
     <div class="flex items-stretch gap-1.5">
       <div
         class="flex h-10 min-w-0 flex-1 items-center rounded-lg border bg-surface transition focus-within:border-accent motion-reduce:transition-none"
@@ -52,7 +53,7 @@ async function paste(): Promise<void> {
           v-if="field.secret"
           type="button"
           class="mr-1 flex size-8 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
-          :aria-label="revealed ? `Hide ${field.label}` : `Show ${field.label}`"
+          :aria-label="revealed ? $t('field.hide', { label: field.label }) : $t('field.show', { label: field.label })"
           :aria-pressed="revealed"
           @click="revealed = !revealed"
         >
@@ -66,7 +67,7 @@ async function paste(): Promise<void> {
         @click="paste"
       >
         <AppIcon name="paste" />
-        Paste
+        {{ $t('common.paste') }}
       </button>
     </div>
     <p v-if="field.help" :id="helpId" class="text-xs text-ink-dim">{{ field.help }}</p>

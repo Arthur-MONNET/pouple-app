@@ -12,6 +12,8 @@ export interface Field {
   placeholder?: string;
   /** Secret fields are write-only: the core never sends their value back. */
   secret: boolean;
+  /** An optional field may stay empty. */
+  optional?: boolean;
   /** A regular expression the value must match. */
   pattern?: string;
   patternHint?: string;
@@ -80,6 +82,8 @@ export interface SetupStepState {
 /** GET /api/state */
 export interface AppState {
   setupComplete: boolean;
+  /** Interface language the core is set to. */
+  language?: UiLanguage;
   steps: SetupStepState[];
 }
 
@@ -232,6 +236,8 @@ export type ProposalDecision = 'approve' | 'decline';
 // Settings (/api/settings)
 // ---------------------------------------------------------------------------------------------------------------
 
+export type UiLanguage = 'fr' | 'en';
+
 export type AutoApprove = 'off' | 'own-notes';
 
 /** GET and PUT /api/settings. A PUT carries only the fields to change; a 422 answers `{message}`. */
@@ -243,6 +249,8 @@ export interface Settings {
   projectsRoot: string;
   /** Language of summaries and questions ("French"); empty uses the system language. */
   language: string;
+  /** Language of the whole interface, and of every string the core sends. */
+  uiLanguage: UiLanguage;
   autoApprove: AutoApprove;
   keywords: string[];
   ignoreChannels: string[];

@@ -18,14 +18,9 @@ public protocol CoreLauncher: Sendable {
     func launch(token: String) throws -> CoreProcess
 }
 
-public enum CoreLaunchError: Error, Equatable, LocalizedError {
+public enum CoreLaunchError: Error, Equatable {
     case binaryMissing(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case let .binaryMissing(path): return "The core is missing at \(path)"
-        }
-    }
+    case invalidToken
 }
 
 /// Where the core binary is: `POUPLE_CORE_PATH` in development, `Contents/Resources/pouple-core` in the bundle.
@@ -40,8 +35,7 @@ public enum CoreLocator {
     }
 }
 
-/// Starts the real binary. The token goes through the environment only (never an argument, which any local user
-/// can read with `ps`), and standard input stays open: the core exits when it closes.
+/// Starts the real binary. The token is the first line of standard input, and the core exits when it closes.
 public struct ProcessCoreLauncher: CoreLauncher {
     public let executable: URL
     public let environment: [String: String]
@@ -58,10 +52,15 @@ public struct ProcessCoreLauncher: CoreLauncher {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw CoreLaunchError.binaryMissing(executable.path)
         }
+        guard token.utf8.count == 64, token.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+            throw CoreLaunchError.invalidToken
+        }
         var env = environment
-        env["POUPLE_TOKEN"] = token
+        env.removeValue(forKey: "POUPLE_TOKEN")
         env["POUPLE_PORT"] = "0"
-        return try FoundationCoreProcess(executable: executable, environment: env, logURL: logURL)
+        // The page the core serves carries no token: the shell injects it into the web view itself.
+        env["POUPLE_SHELL_INJECTS_TOKEN"] = "1"
+        return try FoundationCoreProcess(executable: executable, environment: env, logURL: logURL, token: token)
     }
 }
 
@@ -74,7 +73,9 @@ final class FoundationCoreProcess: CoreProcess, @unchecked Sendable {
     private let inputLock = NSLock()
     private var inputClosed = false
 
-    init(executable: URL, environment: [String: String], logURL: URL?) throws {
+    init(executable: URL, environment: [String: String], logURL: URL?, token: String) throws {
+        // Buffer the short startup line while both pipe ends are open.
+        try input.fileHandleForWriting.write(contentsOf: Data((token + "\n").utf8))
         var continuation: AsyncStream<String>.Continuation!
         lines = AsyncStream(bufferingPolicy: .unbounded) { continuation = $0 }
         let sink = continuation!

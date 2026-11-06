@@ -47,7 +47,7 @@ onBeforeUnmount(() => (previous instanceof HTMLElement ? previous.focus() : unde
       >
         <div class="flex items-center justify-between border-b border-line-soft px-5 py-3">
           <h2 class="text-base font-semibold text-ink">{{ title }}</h2>
-          <IconButton label="Close" icon="close" @click="emit('close')" />
+          <IconButton :label="$t('common.close')" icon="close" @click="emit('close')" />
         </div>
         <div class="flex-1 p-5"><slot /></div>
       </div>

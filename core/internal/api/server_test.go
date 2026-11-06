@@ -180,6 +180,10 @@ func TestThePageNeverCarriesTheTokenWhenTheShellInjectsIt(t *testing.T) {
 	if len(recorder.Result().Cookies()) != 0 {
 		t.Fatal("no session cookie may be handed to an unauthenticated visitor")
 	}
+	cookieOnly := map[string]string{"Authorization": "", "Cookie": "pouple_session=secret-token"}
+	if call(s, "GET", "/api/state", "", cookieOnly).Code != http.StatusUnauthorized {
+		t.Fatal("the shell mode must require bearer authentication")
+	}
 	// the standalone development mode keeps its convenience, and it is the only one
 	s.opts.TokenFromShell = false
 	if !strings.Contains(call(s, "GET", "/", "", map[string]string{"Authorization": ""}).Body.String(), "secret-token") {

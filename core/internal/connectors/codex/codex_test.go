@@ -115,12 +115,10 @@ func TestLoginForwardsTheSignInAddressOnce(t *testing.T) {
 }
 
 func TestActionFailuresAreExplained(t *testing.T) {
-	c := &Connector{Home: t.TempDir(), Exec: fakeExec(nil, "codex login", "npm")}
-	for _, id := range []string{"login", "install"} {
-		action, _ := c.Action(id)
-		if err := action(context.Background(), func(connector.Event) {}); err == nil {
-			t.Errorf("%s should fail", id)
-		}
+	c := &Connector{Home: t.TempDir(), Exec: fakeExec(nil, "codex login")}
+	action, _ := c.Action("login")
+	if err := action(context.Background(), func(connector.Event) {}); err == nil {
+		t.Error("login should fail")
 	}
 	if _, ok := c.Action("nope"); ok {
 		t.Fatal("unknown action accepted")

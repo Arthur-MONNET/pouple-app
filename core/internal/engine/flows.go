@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 var optionIDs = []string{"A", "B", "C", "D", "E", "F"}
@@ -94,7 +96,7 @@ func (s *Service) collectFiles(ctx context.Context, id string) {
 				s.fileNotice = "Slack files: add the files:read permission to the Slack app, then reconnect Slack, to let the assistant see attachments."
 				s.mu.Unlock()
 			}
-			notes = append(notes, s.entry("assistant", "step", fmt.Sprintf("Files: %s could not be read (%s)", file.Name, err)))
+			notes = append(notes, s.entry("assistant", "step", s.text("Files: %s could not be read (%s)", file.Name, err)))
 			continue
 		}
 		saved = append(saved, ref)
@@ -108,10 +110,10 @@ func (s *Service) collectFiles(ctx context.Context, id string) {
 
 func (s *Service) downloadFile(ctx context.Context, file PendingFile) (AttachmentRef, error) {
 	if s.deps.Fetch == nil {
-		return AttachmentRef{}, errors.New("Slack is not connected")
+		return AttachmentRef{}, i18n.NewError("Slack is not connected")
 	}
 	if file.Size > MaxAttachmentBytes {
-		return AttachmentRef{}, errors.New("larger than 10 MB")
+		return AttachmentRef{}, i18n.NewError("larger than 10 MB")
 	}
 	data, err := s.deps.Fetch(ctx, file)
 	if err != nil {
@@ -153,7 +155,7 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		s.update(id, func(r *Stored) { r.ThreadID = result.ThreadID })
 	}
 	if result.FinalMessage == "" {
-		return errors.New("Codex finished without an answer")
+		return i18n.NewError("Codex finished without an answer")
 	}
 	outcome, err := ParseOutcome(result.FinalMessage)
 	if err != nil {
@@ -194,7 +196,7 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 			}
 			r.Entries = append(r.Entries, summary)
 		})
-		s.alert(id, "Needs your decision")
+		s.alert(id, s.text("Needs your decision"))
 	case ProposesChange:
 		if outcome.Proposal == nil || s.projectPath(outcome.Proposal.ProjectID) == "" {
 			// A change aimed at a project that does not exist cannot be approved: show the analysis only.
@@ -205,7 +207,7 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 			s.update(id, func(r *Stored) {
 				r.Status, r.Summary, r.DraftReply = StatusReady, ptr(outcome.Summary), outcome.Reply
 				r.Questions, r.Proposal = []Question{}, nil
-				r.Entries = append(r.Entries, summary, s.entry("system", "text", fmt.Sprintf("A change was proposed for “%s”, which is not a project in your projects folder.", name)))
+				r.Entries = append(r.Entries, summary, s.entry("system", "text", s.text("A change was proposed for “%s”, which is not a project in your projects folder.", name)))
 			})
 			s.alert(id, outcome.Summary)
 			return
@@ -222,7 +224,7 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 				return
 			}
 		}
-		s.alert(id, "Proposed change: "+outcome.Proposal.Title)
+		s.alert(id, s.text("Proposed change: %s", outcome.Proposal.Title))
 	}
 }
 
@@ -236,7 +238,7 @@ func (s *Service) Answer(id string, answers []Answer) error {
 		return err
 	}
 	if request.Status != StatusAwaitingUser || len(request.Questions) == 0 {
-		return fmt.Errorf("%w: no question is waiting for an answer", ErrState)
+		return i18n.Wrap(ErrState, "no question is waiting for an answer")
 	}
 	for _, question := range request.Questions {
 		found := false
@@ -249,12 +251,12 @@ func (s *Service) Answer(id string, answers []Answer) error {
 				valid = valid || option.ID == answer.OptionID
 			}
 			if !valid || len(answer.Text) > maxMessageChars {
-				return fmt.Errorf("%w: answer to %s is not valid", ErrInput, question.ID)
+				return i18n.Wrap(ErrInput, "answer to %s is not valid", question.ID)
 			}
 			found = true
 		}
 		if !found {
-			return fmt.Errorf("%w: question %s has no answer", ErrInput, question.ID)
+			return i18n.Wrap(ErrInput, "question %s has no answer", question.ID)
 		}
 	}
 	prompt := s.deps.Persona().AnswersPrompt(request.Questions, answers)
@@ -289,17 +291,17 @@ func answersText(questions []Question, answers []Answer) string {
 func (s *Service) Message(id, text string, attachmentIDs []string) error {
 	text = strings.TrimSpace(text)
 	if text == "" && len(attachmentIDs) == 0 {
-		return fmt.Errorf("%w: write something or add a file", ErrInput)
+		return i18n.Wrap(ErrInput, "write something or add a file")
 	}
 	if len(text) > maxMessageChars {
-		return fmt.Errorf("%w: the message is longer than %d characters", ErrInput, maxMessageChars)
+		return i18n.Wrap(ErrInput, "the message is longer than %d characters", maxMessageChars)
 	}
 	request, err := s.require(id)
 	if err != nil {
 		return err
 	}
 	if request.Status.Pending() {
-		return fmt.Errorf("%w: the assistant is already working on this request", ErrState)
+		return i18n.Wrap(ErrState, "the assistant is already working on this request")
 	}
 	if request.Status == StatusAwaitingUser && request.Proposal != nil && len(attachmentIDs) == 0 {
 		// Typed by the user in the app, a short "yes" is as much their decision as a click on the button.
@@ -317,7 +319,7 @@ func (s *Service) Message(id, text string, attachmentIDs []string) error {
 	for _, attachmentID := range attachmentIDs {
 		ref, _, err := s.deps.Attachments.Open(attachmentID)
 		if err != nil {
-			return fmt.Errorf("%w: unknown attachment", ErrInput)
+			return i18n.Wrap(ErrInput, "unknown attachment")
 		}
 		refs = append(refs, ref)
 	}
@@ -354,16 +356,16 @@ func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
 		return err
 	}
 	if request.Status != StatusAwaitingUser || request.Proposal == nil {
-		return fmt.Errorf("%w: no change is waiting for a decision", ErrState)
+		return i18n.Wrap(ErrState, "no change is waiting for a decision")
 	}
 	proposal := *request.Proposal
 	if wanted != "" && wanted != ProposalFingerprint(proposal) {
-		return fmt.Errorf("%w: the proposal changed since you read it", ErrState)
+		return i18n.Wrap(ErrState, "the proposal changed since you read it")
 	}
 	if !approve {
 		s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) {
 			r.Status, r.Proposal = StatusReady, nil
-			r.Entries = append(r.Entries, s.entry("user", "text", "Declined: "+proposal.Title))
+			r.Entries = append(r.Entries, s.entry("user", "text", s.text("Declined: %s", proposal.Title)))
 			r.UpdatedAt = s.now()
 		})
 		return nil
@@ -371,11 +373,11 @@ func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
 	// Check and set in one step: two approvals at once must not start two writes.
 	started := s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) {
 		r.Status, r.Proposal = StatusApplying, nil
-		r.Entries = append(r.Entries, s.entry("user", "text", "Approved: "+proposal.Title))
+		r.Entries = append(r.Entries, s.entry("user", "text", s.text("Approved: %s", proposal.Title)))
 		r.UpdatedAt = s.now()
 	})
 	if !started {
-		return fmt.Errorf("%w: no change is waiting for a decision", ErrState)
+		return i18n.Wrap(ErrState, "no change is waiting for a decision")
 	}
 	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.apply(ctx, id, proposal) })
 	return nil
@@ -385,7 +387,7 @@ func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
 func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error {
 	directory := s.projectPath(proposal.ProjectID)
 	if directory == "" {
-		return fmt.Errorf("project “%s” no longer exists", proposal.ProjectID)
+		return i18n.NewError("project “%s” no longer exists", proposal.ProjectID)
 	}
 	// What git says before: a turn that changed nothing must not be reported as a change.
 	before, beforeErr := s.deps.ChangeSummary(ctx, directory)
@@ -394,7 +396,7 @@ func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error
 		return err
 	}
 	if result.FinalMessage == "" {
-		return errors.New("Codex finished without an answer")
+		return i18n.NewError("Codex finished without an answer")
 	}
 	outcome, err := ParseOutcome(result.FinalMessage)
 	if err != nil {
@@ -406,9 +408,9 @@ func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error
 		// Codex stopped on something it lacked: say it plainly and keep the request open.
 		s.update(id, func(r *Stored) {
 			r.Status = StatusReady
-			r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary), s.entry("system", "text", "No file was changed."))
+			r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary), s.entry("system", "text", s.text("No file was changed.")))
 		})
-		s.alert(id, "Nothing was changed: "+outcome.Summary)
+		s.alert(id, s.text("Nothing was changed: %s", outcome.Summary))
 		return nil
 	}
 	s.update(id, func(r *Stored) {
@@ -418,7 +420,7 @@ func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error
 			r.Entries = append(r.Entries, s.entry("system", "step", after))
 		}
 	})
-	s.alert(id, "Change applied in "+proposal.ProjectID)
+	s.alert(id, s.text("Change applied in %s", proposal.ProjectID))
 	return nil
 }
 
@@ -429,7 +431,7 @@ func (s *Service) Ignore(id string) error {
 		return err
 	}
 	if request.Status.Pending() {
-		return fmt.Errorf("%w: the assistant is still working on this request", ErrState)
+		return i18n.Wrap(ErrState, "the assistant is still working on this request")
 	}
 	s.update(id, func(r *Stored) { r.Status, r.Questions, r.Proposal = StatusIgnored, []Question{}, nil })
 	return nil
@@ -442,7 +444,7 @@ func (s *Service) Retry(id string) error {
 		return err
 	}
 	if request.Status != StatusFailed && request.Status != StatusIgnored && request.Status != StatusReady {
-		return fmt.Errorf("%w: only a failed, ignored or finished request can be investigated again", ErrState)
+		return i18n.Wrap(ErrState, "only a failed, ignored or finished request can be investigated again")
 	}
 	if err := s.requireActive(); err != nil {
 		return err
@@ -461,7 +463,7 @@ func (s *Service) Remove(id string) error {
 		return err
 	}
 	if request.Status.Pending() {
-		return fmt.Errorf("%w: the assistant is still working on this request", ErrState)
+		return i18n.Wrap(ErrState, "the assistant is still working on this request")
 	}
 	s.deps.Store.Remove(id)
 	return nil
@@ -483,7 +485,7 @@ func (s *Service) Recover() {
 			// A write that was cut short is not repeated on its own: the user decides.
 			s.update(request.ID, func(r *Stored) {
 				r.Status = StatusReady
-				r.Entries = append(r.Entries, s.entry("system", "text", "Pouple was closed while the change was being made. Check the project with git status, then ask again if needed."))
+				r.Entries = append(r.Entries, s.entry("system", "text", s.text("Pouple was closed while the change was being made. Check the project with git status, then ask again if needed.")))
 			})
 		}
 	}

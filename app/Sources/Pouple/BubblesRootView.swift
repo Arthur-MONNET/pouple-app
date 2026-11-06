@@ -4,6 +4,7 @@ import SwiftUI
 /// The whole content of the panel: a column of bubbles with the newest at the bottom, on a transparent background.
 struct BubblesRootView: View {
     @ObservedObject var store: BubbleStore
+    @ObservedObject private var language = LanguageModel.shared
     /// Called with the size the bubbles want, so the owner can fit the window to them.
     var onSizeChange: (CGSize) -> Void = { _ in }
 
@@ -33,7 +34,7 @@ struct BubblesRootView: View {
     private func handle(_ layout: BubbleLayout) -> some View {
         HStack(spacing: 6) {
             OctopusHead(size: 14)
-            Text(layout.overflow > 0 ? "Pouple · +\(layout.overflow) more" : "Pouple").font(.system(size: 10, weight: .medium))
+            Text(layout.overflow > 0 ? L10n.text(.handleOverflow, layout.overflow) : L10n.text(.handleName)).font(.system(size: 10, weight: .medium))
             if !store.connected { Image(systemName: "wifi.slash").font(.system(size: 9)) }
         }
         .foregroundStyle(Theme.muted)
@@ -42,6 +43,7 @@ struct BubblesRootView: View {
         .background(WindowDragArea())
         .background(Capsule().fill(Theme.card.opacity(0.9)))
         .overlay(Capsule().strokeBorder(Theme.line))
-        .help("Drag to move")
+        .help(L10n.text(.handleDrag))
+        .accessibilityLabel(L10n.text(.handleDrag))
     }
 }

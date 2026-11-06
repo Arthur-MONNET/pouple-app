@@ -19,14 +19,14 @@ describe('conversation filters', () => {
   });
 
   it('counts attention and working requests', () => {
-    const fixtures = createFixtures();
+    const fixtures = createFixtures('en');
     expect(attentionCount(fixtures)).toBe(3);
     expect(fixtures.filter(isWorking).map((r) => r.status).sort()).toEqual(['analyzing', 'applying', 'queued']);
   });
 });
 
 describe('requestTitle', () => {
-  const fixtures = createFixtures();
+  const fixtures = createFixtures('en');
   const titleOf = (origin: string): string => requestTitle(fixtures.find((r) => r.source.origin === origin) as (typeof fixtures)[number]);
 
   it('names the sender and where the message came from', () => {
@@ -38,7 +38,7 @@ describe('requestTitle', () => {
 
 describe('ordering and grouping', () => {
   it('lists the latest activity first', () => {
-    const fixtures = createFixtures();
+    const fixtures = createFixtures('en');
     const ordered = byRecentActivity(fixtures);
     for (let i = 1; i < ordered.length; i += 1) expect((ordered[i - 1] as (typeof ordered)[number]).updatedAt >= (ordered[i] as (typeof ordered)[number]).updatedAt).toBe(true);
   });

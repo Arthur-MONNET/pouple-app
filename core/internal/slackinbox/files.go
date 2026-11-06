@@ -2,13 +2,13 @@ package slackinbox
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 const (
@@ -27,10 +27,10 @@ type FileRef struct {
 }
 
 // ErrNotSlackFile is returned when a file is not hosted by Slack, so the token is never sent to it.
-var ErrNotSlackFile = errors.New("this file is not hosted by Slack")
+var ErrNotSlackFile = i18n.NewError("this file is not hosted by Slack")
 
 // ErrFileTooLarge is returned when a file is over the download cap.
-var ErrFileTooLarge = errors.New("the file is larger than 8 MB")
+var ErrFileTooLarge = i18n.NewError("the file is larger than 8 MB")
 
 // FilesAccessError means Slack refused to hand over a file: the token most likely lacks the files:read scope.
 type FilesAccessError struct {
@@ -100,7 +100,7 @@ func (c *Client) DownloadFile(ctx context.Context, f FileRef) ([]byte, error) {
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("slack file %s: build request: %w", f.ID, err)
+		return nil, i18n.Wrap(err, "slack file %s: build request: %s", f.ID, err)
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
 
@@ -108,7 +108,7 @@ func (c *Client) DownloadFile(ctx context.Context, f FileRef) ([]byte, error) {
 	guarded := *c.http
 	guarded.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
-			return errors.New("too many redirects")
+			return i18n.NewError("too many redirects")
 		}
 		if !isSlackHost(next.URL) {
 			return ErrNotSlackFile
@@ -117,7 +117,7 @@ func (c *Client) DownloadFile(ctx context.Context, f FileRef) ([]byte, error) {
 	}
 	response, err := guarded.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("slack file %s: Slack is unreachable (%s): %w", f.ID, target.Host, err)
+		return nil, i18n.Wrap(err, "slack file %s: Slack is unreachable (%s): %s", f.ID, target.Host, err)
 	}
 	defer response.Body.Close()
 
@@ -129,11 +129,11 @@ func (c *Client) DownloadFile(ctx context.Context, f FileRef) ([]byte, error) {
 	case mime == "text/html":
 		return nil, &FilesAccessError{}
 	case response.StatusCode < 200 || response.StatusCode > 299:
-		return nil, fmt.Errorf("slack file %s: Slack responded %d for the file", f.ID, response.StatusCode)
+		return nil, i18n.NewError("slack file %s: Slack responded %d for the file", f.ID, response.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxDownloadBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("slack file %s: read body: %w", f.ID, err)
+		return nil, i18n.Wrap(err, "slack file %s: read body: %s", f.ID, err)
 	}
 	if len(data) > maxDownloadBytes {
 		return nil, ErrFileTooLarge

@@ -4,16 +4,37 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      sign_and_notarize:
+        description: Sign and notarize the validation build with Developer ID
+        type: boolean
+        default: false
 
 # The build runs third-party tools (npm, Go modules): it gets a read-only token, and the job that can publish
 # does nothing but publish.
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  dmg:
+  package-macos:
     runs-on: macos-latest
+    env:
+      USE_DEVELOPER_ID: ${{ (github.event_name == 'push' || inputs.sign_and_notarize) && 'true' || 'false' }}
     steps:
+      - name: Validate the release tag
+        if: github.event_name == 'push'
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo '::error::Use a release tag in the form vMAJOR.MINOR.PATCH.'
+            exit 1
+          fi
+          printf 'PROUPLE_VERSION=%s\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -47,48 +68,139 @@ jobs:
           GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../build/pouple-core-amd64 ./cmd/pouple-core
           lipo -create -output ../build/pouple-core ../build/pouple-core-arm64 ../build/pouple-core-amd64
 
-      # Without these secrets the app is signed ad hoc: it works, but macOS asks the user to confirm the first
-      # opening (right-click, Open). With a Developer ID certificate it is signed and notarized.
-      - name: Import the signing certificate
-        if: env.CERTIFICATE_P12 != ''
+      - name: Collect third-party licenses
+        run: bash scripts/collect-licenses.sh
+
+      - name: Configure Developer ID signing and notarization
+        if: env.USE_DEVELOPER_ID == 'true'
         env:
           CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          echo "$CERTIFICATE_P12" | base64 --decode > certificate.p12
-          security create-keychain -p ci build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p ci build.keychain
-          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
-          rm certificate.p12
+          for secret in CERTIFICATE_P12 CERTIFICATE_PASSWORD SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::Missing required GitHub Actions secret $secret."
+              exit 1
+            fi
+          done
+          if [[ "$SIGN_IDENTITY" != "Developer ID Application: "* || "$SIGN_IDENTITY" == *$'\n'* || "$SIGN_IDENTITY" == *$'\r'* ]]; then
+            echo '::error::SIGN_IDENTITY must be the full name of a Developer ID Application identity.'
+            exit 1
+          fi
 
-      - name: Build the app and the disk image
+          keychain="$RUNNER_TEMP/pouple-signing.keychain-db"
+          profile=pouple-notary
+          password="$(openssl rand -hex 32)"
+          certificate="$(mktemp "$RUNNER_TEMP/pouple-signing.XXXXXX")"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -f pkcs12 -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          if ! security find-identity -v -p codesigning "$keychain" | grep -F "\"$SIGN_IDENTITY\"" > /dev/null; then
+            echo '::error::The imported certificate does not provide the requested valid signing identity.'
+            exit 1
+          fi
+          xcrun notarytool store-credentials "$profile" --keychain "$keychain" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+          printf 'PROUPLE_NOTARY_KEYCHAIN=%s\nPROUPLE_NOTARY_PROFILE=%s\n' "$keychain" "$profile" >> "$GITHUB_ENV"
+
+      - name: Build the universal app
+        env:
+          PROUPLE_SIGN_IDENTITY: ${{ env.USE_DEVELOPER_ID == 'true' && secrets.SIGN_IDENTITY || '' }}
+        run: scripts/build-app.sh --core build/pouple-core --universal --licenses build/third-party-licenses
+
+      - name: Package and verify the release disk image
+        if: github.event_name == 'push'
         env:
           PROUPLE_SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
-          PROUPLE_NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
         run: |
-          scripts/build-app.sh --core build/pouple-core --universal
           scripts/make-dmg.sh
+          codesign --verify --strict --verbose build/Pouple.dmg
+          xcrun stapler validate build/Pouple.dmg
+          spctl --assess --type open --context context:primary-signature --verbose build/Pouple.dmg
+
+      - name: Package the app archive
+        run: ditto -c -k --keepParent build/Pouple.app build/Pouple.zip
+
+      - name: Verify the packaged app
+        run: |
+          verify_app() {
+            local app="$1"
+            local core="$app/Contents/Resources/pouple-core"
+            local executable
+            for executable in "$app/Contents/MacOS/Pouple" "$core"; do
+              lipo -info "$executable"
+              lipo "$executable" -verify_arch arm64
+              lipo "$executable" -verify_arch x86_64
+            done
+            codesign --verify --deep --strict --verbose "$app"
+            codesign --verify --strict --verbose "$core"
+            diff -r build/third-party-licenses "$app/Contents/Resources/ThirdPartyLicenses"
+            if [[ "$USE_DEVELOPER_ID" == true ]]; then
+              xcrun stapler validate "$app"
+              syspolicy_check distribution "$app"
+            fi
+          }
+
+          inspection_dir="$(mktemp -d "$RUNNER_TEMP/pouple-package.XXXXXX")"
+          trap 'rm -rf "$inspection_dir"' EXIT
+          ditto -x -k build/Pouple.zip "$inspection_dir"
+          verify_app "$inspection_dir/Pouple.app"
+
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            mount_dir="$(mktemp -d "$RUNNER_TEMP/pouple-volume.XXXXXX")"
+            trap 'rmdir "$mount_dir"; rm -rf "$inspection_dir"' EXIT
+            hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" build/Pouple.dmg
+            trap 'hdiutil detach "$mount_dir" && rmdir "$mount_dir"; rm -rf "$inspection_dir"' EXIT
+            verify_app "$mount_dir/Pouple.app"
+          fi
+
+      - name: Remove the signing keychain
+        if: always() && env.USE_DEVELOPER_ID == 'true'
+        run: |
+          keychain="$RUNNER_TEMP/pouple-signing.keychain-db"
+          if [[ -f "$keychain" ]]; then
+            security delete-keychain "$keychain"
+          fi
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
         with:
-          name: Pouple.dmg
-          path: build/Pouple.dmg
+          name: Pouple-macOS-release
+          path: |
+            build/Pouple.dmg
+            build/Pouple.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: Pouple-validation
+          path: build/Pouple.zip
           if-no-files-found: error
 
   publish:
-    needs: dmg
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: package-macos
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Pouple.dmg
+          name: Pouple-macOS-release
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" Pouple.dmg --generate-notes --title "Pouple ${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" Pouple.zip Pouple.dmg --verify-tag --generate-notes --title "Pouple ${GITHUB_REF_NAME#v}"

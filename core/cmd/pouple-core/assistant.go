@@ -11,7 +11,9 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // newAssistant builds the engine on top of the connectors and the settings.
@@ -43,17 +45,25 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		}
 		return current
 	}
-	codex := &engine.Metered{
-		Inner: engine.NewRunner(engine.RunnerOptions{Shell: os.Getenv("SHELL"), Home: filepath.Join(dir, "codex")}),
+	codexHome := filepath.Join(dir, "codex")
+	meteredCodex := &engine.Metered{
+		Inner: engine.NewRunner(engine.RunnerOptions{
+			Shell:          os.Getenv("SHELL"),
+			Home:           codexHome,
+			ResolveCommand: func() string { return codex.Command(codexHome) },
+		}),
 		Meter: meter,
 		Limit: func() int { return load().DailyTurnLimit },
 	}
 	projectsRoot := func() string { return load().ProjectsRoot }
+	language := func() i18n.Lang { return i18n.Parse(load().UILanguage) }
 
 	service := engine.NewService(engine.Deps{
-		Store: store, Inbox: slack, Codex: codex, Attachments: attachments, Fetch: slack.Fetch,
+		Store: store, Inbox: slack, Codex: meteredCodex, Attachments: attachments, Fetch: slack.Fetch,
 		Persona:      func() engine.Persona { return personaOf(registry, load()) },
+		Language:     language,
 		ProjectsRoot: projectsRoot,
+		ProtectedDir: dir,
 		WorkDir: func() string {
 			if root := projectsRoot(); root != "" {
 				return root
@@ -62,7 +72,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		},
 		SchemaFile: schemaFile,
 		Redact: func() engine.Redactor {
-			secrets := codexSecrets(filepath.Join(dir, "codex", "auth.json"))
+			secrets := codexSecrets(filepath.Join(codexHome, "auth.json"))
 			if values, err := registry.Values("slack"); err == nil {
 				secrets = append(secrets, values["token"], values["appToken"])
 			}
@@ -75,23 +85,23 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 			}
 			return usage
 		},
-		Inactive:            func() string { return inactiveReason(registry) },
+		Inactive:            func() string { return inactiveReason(registry, language()) },
 		AutoApproveOwnNotes: func() bool { return load().AutoApprove == "own-notes" },
-		SettleDelay:         15 * time.Second,
+		SettleDelay:         3 * time.Second,
 		OnError:             func(err error) { logf("assistant: %v", err) },
 	})
 	return service, attachments, nil
 }
 
 // inactiveReason says why the assistant cannot work yet: both required connectors must be set up.
-func inactiveReason(registry *connector.Registry) string {
+func inactiveReason(registry *connector.Registry, lang i18n.Lang) string {
 	statuses, err := registry.List()
 	if err != nil {
-		return "The connectors could not be read"
+		return i18n.T(lang, "The connectors could not be read")
 	}
 	for _, status := range statuses {
 		if status.Descriptor.Required && !status.Connected {
-			return status.Descriptor.Name + " is not connected yet"
+			return i18n.T(lang, "%s is not connected yet", status.Descriptor.Name)
 		}
 	}
 	return ""
@@ -128,16 +138,18 @@ func systemLanguage() string {
 	return "English"
 }
 
-// runAssistant polls Slack until ctx ends.
-func runAssistant(ctx context.Context, service *engine.Service, settings *config.File) {
+// runAssistant polls Slack until ctx ends. Socket Mode wakes the same polling loop.
+func runAssistant(ctx context.Context, service *engine.Service, settings *config.File, wake <-chan struct{}) {
 	service.Recover()
-	service.Run(ctx, func() time.Duration {
+	service.Run(ctx, func() (time.Duration, time.Duration) {
 		current, err := settings.Load()
 		if err != nil || current.PollSeconds < 15 {
-			return time.Minute
+			current.PollSeconds = 60
 		}
-		return time.Duration(current.PollSeconds) * time.Second
-	})
+		// One poll uses three searches plus one per keyword. Stay below Slack's Tier 2 budget.
+		cooldown := max(15, 4*(3+len(current.Keywords)))
+		return time.Duration(max(current.PollSeconds, cooldown)) * time.Second, time.Duration(cooldown) * time.Second
+	}, wake)
 }
 
 // codexSecrets reads the tokens of Pouple's own Codex login, so that a model that read that file cannot repeat them.

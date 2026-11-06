@@ -18,12 +18,13 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // ID is the connector id.
 const ID = "codex"
 
-// Exec runs a script in a login shell (so `codex`, `node` and `brew` resolve like in a terminal), calling onLine
+// Exec runs a script in a login shell (so an existing `codex` resolves like in a terminal), calling onLine
 // for every line of output. It returns an error when the script fails.
 type Exec func(ctx context.Context, env []string, script string, onLine func(string)) error
 
@@ -79,6 +80,14 @@ func (c *Connector) Descriptor() connector.Descriptor {
 
 func (c *Connector) env() []string { return []string{"CODEX_HOME=" + c.Home} }
 
+func (c *Connector) command() string {
+	command := Command(c.Home)
+	if command == "codex" {
+		return command
+	}
+	return "'" + strings.ReplaceAll(command, "'", `'"'"'`) + "'"
+}
+
 func (c *Connector) Action(id string) (connector.Action, bool) {
 	switch id {
 	case "install":
@@ -87,24 +96,6 @@ func (c *Connector) Action(id string) (connector.Action, bool) {
 		return c.login, true
 	}
 	return nil, false
-}
-
-// installScript prefers npm (the official package), then Homebrew.
-const installScript = `
-if command -v npm >/dev/null 2>&1; then
-  echo "Installing with npm…"; npm install -g @openai/codex
-elif command -v brew >/dev/null 2>&1; then
-  echo "Installing with Homebrew…"; brew install codex
-else
-  echo "Neither npm nor Homebrew was found. Install Homebrew from https://brew.sh, then try again."; exit 3
-fi`
-
-func (c *Connector) install(ctx context.Context, emit func(connector.Event)) error {
-	err := c.Exec(ctx, nil, installScript, func(line string) { emit(connector.Event{Type: "log", Text: line}) })
-	if err != nil {
-		return errors.New("Codex could not be installed: see the output above")
-	}
-	return nil
 }
 
 var urlPattern = regexp.MustCompile(`https://\S+`)
@@ -117,7 +108,7 @@ func (c *Connector) login(ctx context.Context, emit func(connector.Event)) error
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	opened := false
-	err := c.Exec(ctx, c.env(), "codex login", func(line string) {
+	err := c.Exec(ctx, c.env(), c.command()+" login", func(line string) {
 		if url := urlPattern.FindString(line); url != "" && !opened {
 			opened = true
 			// Codex opens the browser by itself; the address is also given to the interface as a fallback.
@@ -127,7 +118,7 @@ func (c *Connector) login(ctx context.Context, emit func(connector.Event)) error
 		emit(connector.Event{Type: "log", Text: line})
 	})
 	if err != nil {
-		return errors.New("Sign-in did not finish. Try again.")
+		return i18n.NewError("Sign-in did not finish. Try again.")
 	}
 	return nil
 }
@@ -170,7 +161,7 @@ func decodeClaims(token string) (idClaims, error) {
 
 func (c *Connector) Validate(ctx context.Context, _ connector.Values) (connector.Profile, error) {
 	version := ""
-	err := c.Exec(ctx, c.env(), "codex --version", func(line string) {
+	err := c.Exec(ctx, c.env(), c.command()+" --version", func(line string) {
 		if version == "" && strings.TrimSpace(line) != "" {
 			version = strings.TrimSpace(line)
 		}

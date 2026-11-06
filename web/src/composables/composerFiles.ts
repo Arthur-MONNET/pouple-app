@@ -1,5 +1,6 @@
 import { onBeforeUnmount, ref, watch, type Ref } from 'vue';
 import { errorMessage } from '../api/client';
+import { t } from '../i18n';
 import type { AttachmentRef } from '../api/types';
 import { useApi } from './useApi';
 
@@ -15,10 +16,10 @@ export interface DraftFile {
 
 /** Why a file cannot be added, or null when it can. */
 export function fileProblem(file: Pick<File, 'name' | 'size' | 'type'>, alreadyAdded: number): string | null {
-  const name = file.name || 'This file';
-  if (alreadyAdded >= MAX_FILES) return `At most ${MAX_FILES} files per message`;
-  if (file.size > MAX_BYTES) return `${name} is larger than 8 MB`;
-  if (!ACCEPTED.test(file.type)) return `${name}: only images and text files can be added`;
+  const name = file.name || t('files.thisFile');
+  if (alreadyAdded >= MAX_FILES) return t('files.tooMany', { max: MAX_FILES });
+  if (file.size > MAX_BYTES) return t('files.tooLarge', { name });
+  if (!ACCEPTED.test(file.type)) return t('files.unsupported', { name });
   return null;
 }
 

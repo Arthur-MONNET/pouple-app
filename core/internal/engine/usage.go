@@ -4,19 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // ErrQuota is returned when the day's limit of Codex turns is used up.
 type QuotaError struct{ Limit int }
 
 func (e *QuotaError) Error() string {
-	return fmt.Sprintf("The daily limit of %d Codex turns is reached. Raise it in the settings, or wait until tomorrow.", e.Limit)
+	return e.ErrorText(i18n.EN)
+}
+
+func (e *QuotaError) ErrorText(lang i18n.Lang) string {
+	return i18n.T(lang, "The daily limit of %d Codex turns is reached. Raise it in the settings, or wait until tomorrow.", e.Limit)
 }
 
 // UsageMeter counts the Codex turns of the day. Each turn costs quota whether or not it succeeds, so it is counted

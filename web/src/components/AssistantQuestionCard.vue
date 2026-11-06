@@ -15,7 +15,7 @@ const props = withDefaults(
     /** Offer a free-text answer next to the proposed options. */
     allowOther?: boolean;
   }>(),
-  { busy: false, submitLabel: 'Send', allowOther: true },
+  { busy: false, submitLabel: undefined, allowOther: true },
 );
 const emit = defineEmits<{ submit: [answers: QuestionAnswer[]] }>();
 
@@ -91,8 +91,8 @@ function next(): void {
               v-model="others[question.id]"
               type="text"
               maxlength="1000"
-              :aria-label="`Other answer to: ${question.text}`"
-              placeholder="Something else…"
+              :aria-label="$t('question.otherAria', { question: question.text })"
+              :placeholder="$t('question.other')"
               class="min-w-0 flex-1 bg-transparent text-ink outline-none"
               @focus="choices[question.id] = OTHER"
             />
@@ -100,7 +100,7 @@ function next(): void {
         </li>
       </ul>
       <div class="mt-3 flex items-center gap-3">
-        <div class="flex gap-1" role="img" :aria-label="`Question ${step + 1} of ${questions.length}`">
+        <div class="flex gap-1" role="img" :aria-label="$t('question.progress', { n: step + 1, total: questions.length })">
           <span
             v-for="(item, index) in questions"
             :key="item.id"
@@ -109,9 +109,9 @@ function next(): void {
           />
         </div>
         <div class="ml-auto flex gap-1.5">
-          <AppButton v-if="step > 0" variant="ghost" size="sm" @click="step -= 1">Back</AppButton>
+          <AppButton v-if="step > 0" variant="ghost" size="sm" @click="step -= 1">{{ $t('question.back') }}</AppButton>
           <AppButton variant="primary" size="sm" :disabled="!canContinue || busy" @click="next">
-            {{ isLast ? submitLabel : 'Next' }}
+            {{ isLast ? (submitLabel ?? $t('question.send')) : $t('question.next') }}
           </AppButton>
         </div>
       </div>

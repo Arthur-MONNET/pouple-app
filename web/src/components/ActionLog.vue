@@ -30,11 +30,11 @@ watch(
       @click="open = !open"
     >
       <AppIcon name="terminal" size="sm" />
-      <span>Output</span>
-      <span class="text-ink-dim">{{ lines.length }} {{ lines.length === 1 ? 'line' : 'lines' }}</span>
+      <span>{{ $t('actions.output') }}</span>
+      <span class="text-ink-dim">{{ $t('actions.lines', lines.length) }}</span>
       <AppIcon :name="open ? 'chevron-down' : 'chevron-right'" size="sm" class="ml-auto" />
     </button>
-    <div v-show="open" id="action-log" ref="box" class="max-h-40 overflow-y-auto border-t border-line-soft px-3 py-2" tabindex="0" aria-label="Output of the action">
+    <div v-show="open" id="action-log" ref="box" class="max-h-40 overflow-y-auto border-t border-line-soft px-3 py-2" tabindex="0" :aria-label="$t('actions.outputLabel')">
       <p v-for="(line, index) in lines" :key="index" class="break-all font-mono text-2xs leading-relaxed text-ink-muted">{{ line }}</p>
     </div>
   </div>

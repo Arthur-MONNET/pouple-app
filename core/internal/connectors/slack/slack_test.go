@@ -12,10 +12,19 @@ import (
 )
 
 const goodToken = "xoxp-" + "1111111111-2222222222-abcdefabcdef"
+const goodAppToken = "xapp-1111111111-2222222222-abcdefabcdef"
 
 func fakeSlack(t *testing.T, scopes string, authOK bool) *Connector {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/apps.connections.open" {
+			if r.Header.Get("Authorization") == "Bearer "+goodAppToken {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "url": "wss://example.com/connection"})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "invalid_auth"})
+			}
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer "+goodToken {
 			t.Errorf("token not sent in the header: %q", r.Header.Get("Authorization"))
 		}
@@ -36,6 +45,20 @@ func fakeSlack(t *testing.T, scopes string, authOK bool) *Connector {
 	}))
 	t.Cleanup(server.Close)
 	return &Connector{HTTP: server.Client(), Base: server.URL}
+}
+
+func TestOptionalAppTokenIsValidatedSeparately(t *testing.T) {
+	client := fakeSlack(t, allScopes(), true)
+	values := connector.Values{"token": goodToken, AppTokenField: goodAppToken}
+	if _, err := client.Validate(context.Background(), values); err != nil {
+		t.Fatal(err)
+	}
+	values[AppTokenField] = "xapp-invalid"
+	_, err := client.Validate(context.Background(), values)
+	var invalid *connector.ValidationError
+	if !errorsAs(err, &invalid) || invalid.Field != AppTokenField {
+		t.Fatalf("want an app-token error, got %v", err)
+	}
 }
 
 func allScopes() string {

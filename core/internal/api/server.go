@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Options configures a Server.
@@ -71,11 +72,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	if strings.HasPrefix(r.URL.Path, "/api/") && !s.authorized(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing or wrong token"})
-		return
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		if !s.authorized(r) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing or wrong token"})
+			return
+		}
+		r = r.WithContext(i18n.WithLanguage(r.Context(), s.language()))
 	}
 	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) language() i18n.Lang {
+	if s.opts.Language == nil {
+		return i18n.FR
+	}
+	return i18n.Parse(s.opts.Language())
 }
 
 func (s *Server) allowedHost(host string) bool {
@@ -88,8 +99,8 @@ func (s *Server) allowedHost(host string) bool {
 
 func (s *Server) authorized(r *http.Request) bool {
 	given := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if given == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
-		// Reads only: an <img> cannot send a header, so the page's own session cookie is accepted for them.
+	if !s.opts.TokenFromShell && given == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		// Standalone development can use the page's own session cookie for reads.
 		if cookie, err := r.Cookie(sessionCookie); err == nil {
 			given = cookie.Value
 		}
@@ -138,10 +149,11 @@ type step struct {
 	Connected bool   `json:"connected"`
 }
 
-func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) state(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.FromContext(r.Context())
 	statuses, err := s.opts.Registry.List()
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
 	}
 	steps := make([]step, 0, len(statuses))
@@ -153,18 +165,23 @@ func (s *Server) state(w http.ResponseWriter, _ *http.Request) {
 			complete = false
 		}
 	}
-	language := "fr"
-	if s.opts.Language != nil {
-		language = s.opts.Language()
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"setupComplete": complete, "steps": steps, "language": language})
+	writeJSON(w, http.StatusOK, map[string]any{"setupComplete": complete, "steps": steps, "language": lang})
 }
 
-func (s *Server) connectors(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) connectors(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.FromContext(r.Context())
 	statuses, err := s.opts.Registry.List()
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
+	}
+	for i := range statuses {
+		status := &statuses[i]
+		status.Descriptor = status.Descriptor.Localized(lang)
+		if status.Profile != nil {
+			profile := status.Profile.Localized(lang, status.Descriptor.ID)
+			status.Profile = &profile
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"connectors": statuses})
 }
@@ -185,40 +202,44 @@ func readValues(r *http.Request) (connector.Values, error) {
 }
 
 func (s *Server) validate(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.FromContext(r.Context())
 	values, err := readValues(r)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	profile, err := s.opts.Registry.Validate(ctx, r.PathValue("id"), values)
+	id := r.PathValue("id")
+	profile, err := s.opts.Registry.Validate(ctx, id, values)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profile.Localized(lang, id)})
 }
 
 func (s *Server) save(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.FromContext(r.Context())
 	values, err := readValues(r)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	profile, err := s.opts.Registry.Save(ctx, r.PathValue("id"), values)
+	id := r.PathValue("id")
+	profile, err := s.opts.Registry.Save(ctx, id, values)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profile.Localized(lang, id)})
 }
 
 func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 	if err := s.opts.Registry.Remove(r.PathValue("id")); err != nil {
-		writeError(w, err)
+		writeError(w, i18n.FromContext(r.Context()), err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -226,9 +247,10 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
 
 // runAction streams what a connector action does as server-sent events: one JSON event per line, then done or error.
 func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.FromContext(r.Context())
 	c, err := s.opts.Registry.Get(r.PathValue("id"))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, lang, err)
 		return
 	}
 	withActions, ok := c.(connector.WithActions)
@@ -254,7 +276,7 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 	if err := action(r.Context(), emit); err != nil {
-		emit(connector.Event{Type: "error", Text: err.Error()})
+		emit(connector.Event{Type: "error", Text: i18n.ErrorText(lang, err)})
 		return
 	}
 	emit(connector.Event{Type: "done"})
@@ -266,15 +288,14 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// writeError answers what the user can fix with 422 and its message; anything else is a plain 500 without details.
-func writeError(w http.ResponseWriter, err error) {
+func writeError(w http.ResponseWriter, lang i18n.Lang, err error) {
 	var invalid *connector.ValidationError
 	switch {
 	case errors.As(err, &invalid):
-		writeJSON(w, http.StatusUnprocessableEntity, invalid)
+		writeJSON(w, http.StatusUnprocessableEntity, connector.ValidationError{Field: invalid.Field, Message: invalid.ErrorText(lang)})
 	case errors.Is(err, connector.ErrUnknown):
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.ErrorText(lang, err)})
 	default:
-		writeJSON(w, http.StatusBadGateway, map[string]string{"message": err.Error()})
+		writeJSON(w, http.StatusBadGateway, map[string]string{"message": i18n.ErrorText(lang, err)})
 	}
 }

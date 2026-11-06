@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 )
 
 // ErrUnknown is returned for a connector id nobody registered.
-var ErrUnknown = errors.New("unknown connector")
+var ErrUnknown = i18n.NewError("unknown connector")
 
 // Saved is what the registry remembers about a connected service; a Persistence implementation stores it.
 type Saved struct {
@@ -30,6 +32,7 @@ type Persistence interface {
 
 // Registry holds the connectors and ties validation, secrets and persistence together.
 type Registry struct {
+	mu         sync.Mutex
 	connectors map[string]Connector
 	secrets    secrets.Store
 	store      Persistence
@@ -55,7 +58,7 @@ type Status struct {
 func (r *Registry) Get(id string) (Connector, error) {
 	c, ok := r.connectors[id]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrUnknown, id)
+		return nil, i18n.Wrap(ErrUnknown, "%s: %s", ErrUnknown, id)
 	}
 	return c, nil
 }
@@ -75,6 +78,8 @@ func (r *Registry) List() ([]Status, error) {
 }
 
 func (r *Registry) Status(id string) (Status, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	c, err := r.Get(id)
 	if err != nil {
 		return Status{}, err
@@ -95,14 +100,17 @@ func checkFields(descriptor Descriptor, values Values) error {
 	for _, field := range descriptor.Fields {
 		value := values[field.ID]
 		if value == "" {
-			return Invalid(field.ID, "%s is required", field.Label)
+			if field.Optional {
+				continue
+			}
+			return Invalid(field.ID, "%s is required", i18n.NewMessage(field.Label))
 		}
 		if field.Pattern != "" && !regexp.MustCompile(field.Pattern).MatchString(value) {
 			hint := field.PatternHint
 			if hint == "" {
 				hint = "does not look right"
 			}
-			return Invalid(field.ID, "%s %s", field.Label, hint)
+			return Invalid(field.ID, "%s %s", i18n.NewMessage(field.Label), i18n.NewMessage(hint))
 		}
 	}
 	return nil
@@ -121,18 +129,43 @@ func (r *Registry) Validate(ctx context.Context, id string, values Values) (Prof
 }
 
 // Save validates, then stores the secrets in the keychain and the rest in the settings.
-func (r *Registry) Save(ctx context.Context, id string, values Values) (Profile, error) {
+func (r *Registry) Save(ctx context.Context, id string, values Values) (_ Profile, saveErr error) {
 	profile, err := r.Validate(ctx, id, values)
 	if err != nil {
 		return Profile{}, err
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	type secretChange struct{ name, before string }
+	var written []secretChange
+	defer func() {
+		if saveErr != nil {
+			for index := len(written) - 1; index >= 0; index-- {
+				change := written[index]
+				if err := r.writeSecret(change.name, change.before); err != nil {
+					saveErr = errors.Join(saveErr, fmt.Errorf("could not restore the previous connector secret: %w", err))
+				}
+			}
+		}
+	}()
 	descriptor := r.connectors[id].Descriptor()
 	plain := map[string]string{}
 	for _, field := range descriptor.Fields {
 		if field.Secret {
-			if err := r.secrets.Set(SecretName(id, field.ID), values[field.ID]); err != nil {
-				return Profile{}, fmt.Errorf("could not save %s in the keychain: %w", field.Label, err)
+			name := SecretName(id, field.ID)
+			before, err := r.secrets.Get(name)
+			if err != nil && !errors.Is(err, secrets.ErrNotFound) {
+				return Profile{}, i18n.Wrap(err, "could not save %s in the keychain: %s", i18n.NewMessage(field.Label), err)
 			}
+			after := values[field.ID]
+			if before == after {
+				continue
+			}
+			if err := r.writeSecret(name, after); err != nil {
+				return Profile{}, i18n.Wrap(err, "could not save %s in the keychain: %s", i18n.NewMessage(field.Label), err)
+			}
+			written = append(written, secretChange{name, before})
 		} else {
 			plain[field.ID] = values[field.ID]
 		}
@@ -143,8 +176,17 @@ func (r *Registry) Save(ctx context.Context, id string, values Values) (Profile,
 	return profile, nil
 }
 
+func (r *Registry) writeSecret(name, value string) error {
+	if value == "" {
+		return r.secrets.Delete(name)
+	}
+	return r.secrets.Set(name, value)
+}
+
 // Remove forgets a connection and its secrets.
 func (r *Registry) Remove(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	c, err := r.Get(id)
 	if err != nil {
 		return err
@@ -161,6 +203,8 @@ func (r *Registry) Remove(id string) error {
 
 // Values returns what a connected service was set up with, secrets included: for the engine, never for the API.
 func (r *Registry) Values(id string) (Values, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	c, err := r.Get(id)
 	if err != nil {
 		return nil, err
@@ -170,7 +214,7 @@ func (r *Registry) Values(id string) (Values, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("%s is not connected", id)
+		return nil, i18n.NewError("%s is not connected", id)
 	}
 	values := Values{}
 	for key, value := range saved.Values {
@@ -181,6 +225,10 @@ func (r *Registry) Values(id string) (Values, error) {
 			continue
 		}
 		secret, err := r.secrets.Get(SecretName(id, field.ID))
+		// An unavailable optional token cannot disable the required connection.
+		if field.Optional && err != nil {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", field.Label, err)
 		}

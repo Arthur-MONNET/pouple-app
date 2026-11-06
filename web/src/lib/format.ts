@@ -1,25 +1,31 @@
-/** "now", "5 min ago", "3 h ago", "yesterday", then "Nov 4". */
-export function relativeTime(iso: string, now: Date = new Date()): string {
+import { lang, t, type Lang } from '../i18n';
+
+const BCP47: Record<Lang, string> = { fr: 'fr-FR', en: 'en-GB' };
+const tag = (locale: Lang): string => BCP47[locale];
+
+/** "à l'instant", "il y a 5 min", "hier", then "4 nov." : through Intl, in the active language. */
+export function relativeTime(iso: string, now: Date = new Date(), locale: Lang = lang.value): string {
   const date = new Date(iso);
   const seconds = Math.round((now.getTime() - date.getTime()) / 1000);
   if (Number.isNaN(seconds)) return '';
-  if (seconds < 45) return 'now';
+  if (seconds < 45) return t('format.now', {}, { locale });
+  const format = new Intl.RelativeTimeFormat(tag(locale), { numeric: 'auto', style: 'short' });
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60) return format.format(-minutes, 'minute');
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
+  if (hours < 24) return format.format(-hours, 'hour');
   const days = Math.round(hours / 24);
-  if (days === 1) return 'yesterday';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (days === 1) return format.format(-1, 'day');
+  return date.toLocaleDateString(tag(locale), { month: 'short', day: 'numeric' });
 }
 
-/** "14:02" for today, "Nov 4, 14:02" otherwise. */
-export function formatReceived(iso: string, now: Date = new Date()): string {
+/** "14:02" for today, "4 nov., 14:02" otherwise. */
+export function formatReceived(iso: string, now: Date = new Date(), locale: Lang = lang.value): string {
   const date = new Date(iso);
-  const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const time = date.toLocaleTimeString(tag(locale), { hour: '2-digit', minute: '2-digit' });
   return date.toDateString() === now.toDateString()
     ? time
-    : `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${time}`;
+    : `${date.toLocaleDateString(tag(locale), { month: 'short', day: 'numeric' })}, ${time}`;
 }
 
 /** Up to two initials, for an avatar without a picture. */
@@ -32,5 +38,7 @@ export function initials(name: string): string {
   return letters.join('') || '?';
 }
 
-export const sizeLabel = (bytes: number): string =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+export function sizeLabel(bytes: number): string {
+  if (bytes < 1024 * 1024) return t('files.sizeKb', { n: Math.max(1, Math.round(bytes / 1024)) });
+  return t('files.sizeMb', { n: (bytes / 1024 / 1024).toLocaleString(tag(lang.value), { maximumFractionDigits: 1, minimumFractionDigits: 1 }) });
+}

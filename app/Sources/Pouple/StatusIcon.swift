@@ -1,3 +1,4 @@
+import PoupleCore
 import AppKit
 
 /// The menu bar glyph, drawn in code: a small octopus. It is a template image, so the system tints it.
@@ -40,7 +41,7 @@ enum StatusIcon {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Pouple"
+        image.accessibilityDescription = L10n.text(.handleName)
         return image
     }
 }

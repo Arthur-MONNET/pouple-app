@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, useId, watch } from 'vue';
+import { computed, ref, useId, watch } from 'vue';
+import { t } from '../i18n';
 import { errorMessage } from '../api/client';
 import { useSettings } from '../composables/useSettings';
 import AppButton from './AppButton.vue';
@@ -7,7 +8,8 @@ import AppIcon from './AppIcon.vue';
 import AppSpinner from './AppSpinner.vue';
 import InlineError from './InlineError.vue';
 
-const props = withDefaults(defineProps<{ skippable?: boolean; saveLabel?: string }>(), { skippable: false, saveLabel: 'Save' });
+const props = withDefaults(defineProps<{ skippable?: boolean; saveLabel?: string }>(), { skippable: false, saveLabel: undefined });
+const saveText = computed(() => props.saveLabel ?? t('projects.saveFolder'));
 const emit = defineEmits<{ saved: []; skip: [] }>();
 
 const { settings, loadError, load, save } = useSettings();
@@ -36,12 +38,12 @@ async function submit(): Promise<void> {
 <template>
   <form class="flex flex-col gap-4" novalidate @submit.prevent="submit">
     <div class="flex flex-col gap-1.5">
-      <label :for="id" class="text-sm font-medium text-ink">Projects folder</label>
+      <label :for="id" class="text-sm font-medium text-ink">{{ $t('projects.label') }}</label>
       <input
         :id="id"
         v-model="path"
         type="text"
-        placeholder="/Users/you/Workspace"
+        :placeholder="$t('projects.placeholder')"
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
@@ -51,21 +53,19 @@ async function submit(): Promise<void> {
         :class="error ? 'border-fail/70' : 'border-line-strong'"
       />
       <p :id="`${id}-help`" class="text-xs leading-relaxed text-ink-dim">
-        The folder that holds one folder per project (for example <span class="font-mono">Workspace/front</span> and <span class="font-mono">Workspace/api</span>).
-        Codex looks into them to answer, and applies a change there only after you approve it. Without a folder, Codex can still analyse requests but never proposes code changes.
-        Use the full path: the app cannot browse your disk.
+        {{ $t('projects.help') }}
       </p>
       <p v-if="error" role="alert" class="flex items-start gap-1.5 text-xs text-fail" data-testid="field-error">
         <AppIcon name="alert" size="sm" /><span>{{ error }}</span>
       </p>
-      <InlineError v-if="loadError">The current value could not be read: {{ loadError }}</InlineError>
+      <InlineError v-if="loadError">{{ $t('projects.loadError', { error: loadError }) }}</InlineError>
     </div>
     <div class="flex flex-wrap gap-2">
       <AppButton type="submit" variant="primary" size="lg" :disabled="saving || path.trim() === ''" data-testid="save-projects">
         <AppSpinner v-if="saving" />
-        {{ props.saveLabel }}
+        {{ saveText }}
       </AppButton>
-      <AppButton v-if="skippable" variant="ghost" size="lg" :disabled="saving" data-testid="skip-projects" @click="emit('skip')">Skip for now</AppButton>
+      <AppButton v-if="skippable" variant="ghost" size="lg" :disabled="saving" data-testid="skip-projects" @click="emit('skip')">{{ $t('projects.skip') }}</AppButton>
     </div>
   </form>
 </template>

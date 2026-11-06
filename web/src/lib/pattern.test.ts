@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { setLanguage } from '../i18n';
 import { checkField } from './pattern';
 
 const slack = { label: 'User OAuth Token', pattern: '^xox[a-z]-[A-Za-z0-9-]{20,}$', patternHint: 'does not look like a Slack token (it starts with xoxp-)' };
@@ -27,5 +28,18 @@ describe('checkField', () => {
 
   it('only requires a value when there is no pattern', () => {
     expect(checkField({ label: 'Name' }, 'x')).toBeNull();
+  });
+
+  it('lets an optional field stay empty, but still checks it once something is typed', () => {
+    const optional = { label: 'App token', pattern: '^xapp-.+$', patternHint: 'starts with xapp-', optional: true };
+    expect(checkField(optional, '')).toBeNull();
+    expect(checkField(optional, 'nope')).toBe('App token starts with xapp-');
+    expect(checkField(optional, 'xapp-1-abc')).toBeNull();
+  });
+
+  it('speaks French in French', () => {
+    setLanguage('fr');
+    expect(checkField({ label: 'Jeton' }, '')).toBe('Jeton est obligatoire');
+    setLanguage('en');
   });
 });

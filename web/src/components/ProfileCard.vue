@@ -23,7 +23,7 @@ defineProps<{ profile: Profile }>();
       </div>
     </dl>
 
-    <ul v-if="(profile.warnings ?? []).length > 0" class="flex flex-col gap-2" aria-label="Warnings">
+    <ul v-if="(profile.warnings ?? []).length > 0" class="flex flex-col gap-2" :aria-label="$t('connect.warnings')">
       <li v-for="warning in profile.warnings ?? []" :key="warning.title" class="flex gap-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2.5">
         <span class="mt-0.5 text-warn"><AppIcon name="alert" /></span>
         <div class="min-w-0">

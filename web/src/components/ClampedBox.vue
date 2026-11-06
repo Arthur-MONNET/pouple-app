@@ -22,7 +22,7 @@ const foldable = computed(() => props.length > props.limit);
       :aria-expanded="open"
       @click="open = !open"
     >
-      {{ open ? 'Show less' : 'Show more' }}
+      {{ open ? $t('chat.showLess') : $t('chat.showMore') }}
     </button>
   </div>
 </template>

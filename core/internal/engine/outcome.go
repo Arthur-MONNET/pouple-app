@@ -5,6 +5,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // OutcomeSchema is given to `codex exec --output-schema`: every analysis turn must end with exactly this shape.
@@ -89,10 +91,10 @@ const (
 func ParseOutcome(text string) (Outcome, error) {
 	var raw Outcome
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		return Outcome{}, errors.Join(ErrOutcome, errors.New("Codex did not answer with the expected JSON"))
+		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex did not answer with the expected JSON")
 	}
 	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange}, raw.Outcome) {
-		return Outcome{}, errors.Join(ErrOutcome, errors.New("Codex answered with an unexpected shape"))
+		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex answered with an unexpected shape")
 	}
 	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}}
 	if raw.Reply != nil && strings.TrimSpace(*raw.Reply) != "" {
@@ -115,9 +117,9 @@ func ParseOutcome(text string) (Outcome, error) {
 	}
 	switch {
 	case out.Outcome == NeedsInput && len(out.Questions) == 0:
-		return Outcome{}, errors.Join(ErrOutcome, errors.New("Codex asked for input without any question"))
+		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex asked for input without any question")
 	case out.Outcome == ProposesChange && out.Proposal == nil:
-		return Outcome{}, errors.Join(ErrOutcome, errors.New("Codex proposed a change without saying what or where"))
+		return Outcome{}, i18n.Wrap(ErrOutcome, "Codex proposed a change without saying what or where")
 	}
 	for _, source := range raw.SourcesUsed {
 		if slices.Contains(contextSources, source) && !slices.Contains(out.SourcesUsed, source) {

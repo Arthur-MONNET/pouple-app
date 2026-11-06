@@ -5,13 +5,14 @@ import SwiftUI
 struct ActivityLog: View {
     let steps: [ChatEntry]
     @State private var open = false
+    @ObservedObject private var language = LanguageModel.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button { open.toggle() } label: {
                 HStack(spacing: 4) {
                     Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 8, weight: .bold))
-                    Text("Activity · \(steps.count) step\(steps.count > 1 ? "s" : "")").font(.system(size: 10.5))
+                    Text(L10n.plural(one: .activityOne, other: .activityOther, count: steps.count)).font(.system(size: 10.5))
                 }
                 .foregroundStyle(Theme.dim)
                 .contentShape(Rectangle())

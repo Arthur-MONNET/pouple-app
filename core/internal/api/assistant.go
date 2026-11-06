@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Assistant is what the HTTP layer needs from the engine.
@@ -37,7 +38,7 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 		handle := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
 			mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 				if err := fn(w, r); err != nil {
-					writeEngineError(w, err)
+					writeEngineError(w, i18n.FromContext(r.Context()), err)
 				}
 			})
 		}
@@ -51,7 +52,7 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 				Answers []engine.Answer `json:"answers"`
 			}
 			if err := decodeBody(r, &body); err != nil || len(body.Answers) == 0 {
-				return fmt.Errorf("%w: \"answers\" must be a non-empty array", engine.ErrInput)
+				return i18n.Wrap(engine.ErrInput, `"answers" must be a non-empty array`)
 			}
 			return accepted(w, assistant.Answer(r.PathValue("id"), body.Answers))
 		})
@@ -61,7 +62,7 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 				AttachmentIDs []string `json:"attachmentIds"`
 			}
 			if err := decodeBody(r, &body); err != nil {
-				return fmt.Errorf("%w: the body is not valid JSON", engine.ErrInput)
+				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
 			}
 			return accepted(w, assistant.Message(r.PathValue("id"), body.Text, body.AttachmentIDs))
 		})
@@ -71,7 +72,7 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 				ProposalID string `json:"proposalId"`
 			}
 			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
-				return fmt.Errorf("%w: \"decision\" must be \"approve\" or \"decline\"", engine.ErrInput)
+				return i18n.Wrap(engine.ErrInput, `"decision" must be "approve" or "decline"`)
 			}
 			return accepted(w, assistant.DecideProposal(r.PathValue("id"), body.Decision == "approve", body.ProposalID))
 		})
@@ -103,7 +104,7 @@ func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(m
 			}
 			ref, err := attachments.Save(name, data)
 			if err != nil {
-				return fmt.Errorf("%w: %s", engine.ErrInput, err)
+				return i18n.Wrap(engine.ErrInput, "%s", err)
 			}
 			writeJSON(w, http.StatusCreated, ref)
 			return nil
@@ -159,7 +160,7 @@ func noContent(w http.ResponseWriter, err error) error {
 	return err
 }
 
-func writeEngineError(w http.ResponseWriter, err error) {
+func writeEngineError(w http.ResponseWriter, lang i18n.Lang, err error) {
 	status := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, engine.ErrNotFound):
@@ -169,9 +170,9 @@ func writeEngineError(w http.ResponseWriter, err error) {
 	case errors.Is(err, engine.ErrInput):
 		status = http.StatusBadRequest
 	}
-	message := err.Error()
+	message := i18n.ErrorText(lang, err)
 	if status == http.StatusInternalServerError {
-		message = "Something went wrong"
+		message = i18n.T(lang, "Something went wrong")
 	}
 	writeJSON(w, status, map[string]string{"error": message})
 }

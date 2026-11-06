@@ -4,7 +4,8 @@ package connector
 
 import (
 	"context"
-	"fmt"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Field is one input of a connector's form.
@@ -15,6 +16,8 @@ type Field struct {
 	Placeholder string `json:"placeholder,omitempty"`
 	// Secret fields are stored in the keychain and are never sent back to the interface.
 	Secret bool `json:"secret"`
+	// Optional fields may be omitted from the form.
+	Optional bool `json:"optional,omitempty"`
 	// Pattern is a regular expression the value must match; it lets the form say "this is not a Slack token" early.
 	Pattern     string `json:"pattern,omitempty"`
 	PatternHint string `json:"patternHint,omitempty"`
@@ -79,13 +82,22 @@ type Values map[string]string
 type ValidationError struct {
 	Field   string `json:"field,omitempty"`
 	Message string `json:"message"`
+	text    *i18n.Message
 }
 
 func (e *ValidationError) Error() string { return e.Message }
 
+func (e *ValidationError) ErrorText(lang i18n.Lang) string {
+	if e.text == nil {
+		return e.Message
+	}
+	return e.text.Text(lang)
+}
+
 // Invalid builds a ValidationError.
 func Invalid(field, format string, args ...any) error {
-	return &ValidationError{Field: field, Message: fmt.Sprintf(format, args...)}
+	text := i18n.NewMessage(format, args...)
+	return &ValidationError{Field: field, Message: text.Text(i18n.EN), text: &text}
 }
 
 // Connector is a service Pouple can connect to.

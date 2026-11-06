@@ -3,7 +3,6 @@ package slackinbox
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 const (
@@ -52,39 +53,47 @@ type APIError struct {
 	// Code is Slack's own error code, e.g. "missing_scope".
 	Code    string
 	Message string
+	text    i18n.Message
 }
 
 func (e *APIError) Error() string { return e.Message }
 
-func describeSlackError(code string, needed any) string {
+func (e *APIError) ErrorText(lang i18n.Lang) string {
+	if localized := e.text.Text(lang); localized != "" {
+		return localized
+	}
+	return e.Message
+}
+
+func describeSlackError(code string, needed any) i18n.Message {
 	switch code {
 	case "invalid_auth", "not_authed", "token_revoked", "token_expired":
-		return "Slack rejected the token: check the Slack token"
+		return i18n.NewMessage("Slack rejected the token: check the Slack token")
 	case "missing_scope":
 		scope := "required"
 		if name, ok := needed.(string); ok {
 			scope = name
 		}
-		return `Slack token lacks the "` + scope + `" scope`
+		return i18n.NewMessage(`Slack token lacks the "%s" scope`, scope)
 	case "not_allowed_token_type":
-		return "Slack search needs a user token (xoxp-): check the Slack token"
+		return i18n.NewMessage("Slack search needs a user token (xoxp-): check the Slack token")
 	case "channel_not_found":
-		return "Slack channel not found: the token owner must be a member of the channel"
+		return i18n.NewMessage("Slack channel not found: the token owner must be a member of the channel")
 	case "ratelimited":
-		return "Slack rate limit reached, try again in a moment"
+		return i18n.NewMessage("Slack rate limit reached, try again in a moment")
 	default:
-		return "Slack error: " + code
+		return i18n.NewMessage("Slack error: %s", code)
 	}
 }
 
-func statusHint(status int) string {
+func statusHint(status int) i18n.Message {
 	switch status {
 	case http.StatusUnauthorized:
-		return " (token rejected: check that it is valid and not expired)"
+		return i18n.NewMessage(" (token rejected: check that it is valid and not expired)")
 	case http.StatusForbidden:
-		return " (access denied: check the token scopes)"
+		return i18n.NewMessage(" (access denied: check the token scopes)")
 	}
-	return ""
+	return i18n.Message{}
 }
 
 // call posts a form to a Slack method and returns its decoded payload once Slack said ok.
@@ -93,27 +102,27 @@ func (c *Client) call(ctx context.Context, method string, params url.Values) (ob
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/"+method, strings.NewReader(params.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("slack %s: build request: %w", method, err)
+		return nil, i18n.Wrap(err, "slack %s: build request: %s", method, err)
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("slack %s: Slack is unreachable: %w", method, err)
+		return nil, i18n.Wrap(err, "slack %s: Slack is unreachable: %s", method, err)
 	}
 	defer response.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("slack %s: read response: %w", method, err)
+		return nil, i18n.Wrap(err, "slack %s: read response: %s", method, err)
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		retry := ""
+		var retry i18n.Message
 		if response.StatusCode == http.StatusTooManyRequests {
 			after := response.Header.Get("Retry-After")
 			if after == "" {
 				after = "?"
 			}
-			retry = " (retry after " + after + "s)"
+			retry = i18n.NewMessage(" (retry after %ss)", after)
 		}
 		excerpt := strings.TrimSpace(string(raw))
 		if len(excerpt) > maxErrorExcerpt {
@@ -122,28 +131,29 @@ func (c *Client) call(ctx context.Context, method string, params url.Values) (ob
 		if excerpt != "" {
 			excerpt = ": " + excerpt
 		}
-		return nil, fmt.Errorf("slack %s: Slack responded %d%s%s%s", method, response.StatusCode, statusHint(response.StatusCode), retry, excerpt)
+		return nil, i18n.NewError("slack %s: Slack responded %d%s%s%s", method, response.StatusCode, statusHint(response.StatusCode), retry, excerpt)
 	}
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil, fmt.Errorf("slack %s: Slack returned a body that is not valid JSON: %w", method, err)
+		return nil, i18n.Wrap(err, "slack %s: Slack returned a body that is not valid JSON: %s", method, err)
 	}
 	body, ok := asObject(decoded)
 	if !ok {
-		return nil, fmt.Errorf("slack %s: Slack returned an unexpected payload", method)
+		return nil, i18n.NewError("slack %s: Slack returned an unexpected payload", method)
 	}
 	if !flag(body, "ok") {
 		code, ok := str(body, "error")
 		if !ok {
 			code = "unknown_error"
 		}
-		return nil, &APIError{Method: method, Code: code, Message: describeSlackError(code, body["needed"])}
+		message := describeSlackError(code, body["needed"])
+		return nil, &APIError{Method: method, Code: code, Message: message.Text(i18n.EN), text: message}
 	}
 	return body, nil
 }
 
 func unexpected(method string) error {
-	return fmt.Errorf("slack %s: Slack returned an unexpected payload", method)
+	return i18n.NewError("slack %s: Slack returned an unexpected payload", method)
 }
 
 // Identity tells who the token belongs to and the workspace URL (with a trailing slash). It is looked up once.

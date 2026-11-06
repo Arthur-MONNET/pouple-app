@@ -8,10 +8,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let supervisor: CoreSupervisor
     private let setup = SetupMonitor()
     private let store = BubbleStore()
+    private let updates = AppUpdateController()
     private var windowController: MainWindowController?
     private var panelController: PanelController?
     private var statusController: StatusItemController?
     private var subscriptions: Set<AnyCancellable> = []
+    private var languageChosenAt: Date?
+    private var savingLanguage = false
 
     override init() {
         let environment = ProcessInfo.processInfo.environment
@@ -34,7 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        MainMenu.install(reload: { [weak self] in self?.windowController?.reload() })
+        MainMenu.install(updates: updates, reload: { [weak self] in self?.windowController?.reload() })
+        languageSubscription()
         store.openApp = { [weak self] in self?.showMainWindow() }
         store.start()
         panelController = PanelController(store: store, corner: Self.argument("--corner").flatMap(Corner.init(rawValue:)))
@@ -51,6 +55,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.statusController?.refresh()
             }
             .store(in: &subscriptions)
+        // The core owns the language: follow it, whoever changed it (this menu or the web UI).
+        setup.$language
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] language in
+                // A poll that was already in flight when the user chose must not undo the choice.
+                if let changed = self?.languageChosenAt, Date().timeIntervalSince(changed) < 8 { return }
+                LanguageModel.shared.set(language)
+            }
+            .store(in: &subscriptions)
         supervisor.start()
 
         // A start at login lives in the menu bar; opening the app by hand shows the window.
@@ -62,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        updates.cancel()
         store.stop()
         setup.stop()
         Task {
@@ -91,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController()
         controller.onClose = { NSApp.setActivationPolicy(.accessory) }
         controller.onRetry = { [weak self] in self?.supervisor.retryNow() }
-        controller.coreChanged(supervisor.state)
+        controller.coreChanged(supervisor.state, token: supervisor.connection?.token)
         windowController = controller
         return controller
     }
@@ -99,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Core
 
     private func coreChanged(_ state: CoreState) {
-        windowController?.coreChanged(state)
+        windowController?.coreChanged(state, token: supervisor.connection?.token)
         if case .ready = state, let connection = supervisor.connection {
             let api = PoupleAPI(connection: connection)
             store.attach(api)
@@ -117,15 +132,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = StatusItemController()
         controller.summary = { [weak self] in
             guard let self else { return "" }
-            return StatusSummary.line(core: supervisor.state, setupComplete: setup.setupComplete)
+            return StatusSummary.line(core: supervisor.state, setupComplete: setup.setupComplete, language: LanguageModel.shared.language)
         }
         controller.bubblesHidden = { [weak self] in self?.store.muted ?? false }
         controller.onOpen = { [weak self] in self?.showMainWindow() }
         controller.onToggleBubbles = { [weak self] in self?.store.muted.toggle() }
         controller.onResetPosition = { [weak self] in self?.panelController?.resetPosition() }
+        controller.currentLanguage = { LanguageModel.shared.language }
+        controller.onSelectLanguage = { [weak self] in self?.chooseLanguage($0) }
         controller.onQuit = { NSApp.terminate(nil) }
         controller.refresh()
         statusController = controller
+    }
+
+    // MARK: - Language
+
+    /// Redraws what AppKit owns (menus, window title) each time the language changes.
+    private func languageSubscription() {
+        LanguageModel.shared.$language
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                MainMenu.install(updates: updates)
+                windowController?.languageChanged()
+                statusController?.refresh()
+            }
+            .store(in: &subscriptions)
+    }
+
+    /// Applies the choice at once, then tells the core, which stores it for the web UI too. A refusal puts it back.
+    private func chooseLanguage(_ language: Language) {
+        let previous = LanguageModel.shared.language
+        guard language != previous, !savingLanguage, let api = store.api else { return }
+        savingLanguage = true
+        languageChosenAt = Date()
+        LanguageModel.shared.set(language)
+        Task {
+            defer { savingLanguage = false }
+            do {
+                try await api.setUILanguage(language)
+                windowController?.refreshWebLanguage()
+            } catch {
+                languageChosenAt = nil
+                LanguageModel.shared.set(previous)
+                let alert = NSAlert()
+                alert.messageText = L10n.text(.languageChangeFailed, error.localizedDescription)
+                alert.runModal()
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -150,12 +205,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 
-    /// Development aid: draws the bubbles of a snapshot file into a PNG (`--render out.png --snapshot file.json [--expand id]`)
+    /// Development aid: draws the bubbles of a snapshot file into a PNG (`--render out.png --snapshot file.json [--expand id] [--lang fr|en]`)
     /// without a screen, so the look can be checked without screen-recording permission.
     private func render(to path: String) {
         do {
             guard let file = Self.argument("--snapshot") else { throw PoupleAPIError.invalidResponse }
             let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(contentsOf: URL(fileURLWithPath: file)))
+            if let code = Self.argument("--lang"), let language = Language(code: code) { LanguageModel.shared.set(language) }
             store.preview(snapshot)
             if let id = Self.argument("--expand") { store.expand(id) }
             let view = BubblesRootView(store: store).padding(20).background(Color(red: 0.35, green: 0.37, blue: 0.42))

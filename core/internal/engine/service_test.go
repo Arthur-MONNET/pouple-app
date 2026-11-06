@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 type fakeInbox struct {
@@ -105,6 +107,7 @@ func newHarness(t *testing.T, steps ...func(context.Context, Turn) (TurnResult, 
 	h.svc = NewService(Deps{
 		Store: store, Inbox: h.inbox, Codex: h.codex, Attachments: NewAttachments(filepath.Join(dir, "att")),
 		Persona:      func() Persona { return Persona{Name: "Arthur", Language: "French"} },
+		Language:     func() i18n.Lang { return i18n.EN },
 		ProjectsRoot: func() string { return root }, WorkDir: func() string { return root },
 		SchemaFile: "/schema.json",
 		Notify: func(title, body string) {
@@ -327,6 +330,51 @@ func TestLoginProblemIsAStandingNotice(t *testing.T) {
 	}
 }
 
+func TestInterfaceLanguageUpdatesCurrentNoticesAndKeepsJournalHistory(t *testing.T) {
+	h := newHarness(t, failWith(ErrLogin), failWith(ErrLogin))
+	lang := i18n.FR
+	h.svc.deps.Language = func() i18n.Lang { return lang }
+	ownNote := func(text string) Incoming {
+		return message(text, func(in *Incoming) { in.Source.Origin = "note-to-self" })
+	}
+	const original = "Needs your decision"
+	h.receive(ownNote(original))
+	french := h.svc.Snapshot()
+	if len(french.Status.Notices) != 1 || !strings.Contains(french.Status.Notices[0], "reconnecte-toi") {
+		t.Fatalf("French notice: %v", french.Status.Notices)
+	}
+	request := french.Requests[0]
+	if request.Text != original || len(request.Entries) != 2 || request.Entries[0].Text != "$ ls" || !strings.HasPrefix(request.Entries[1].Text, "Échec : ") {
+		t.Fatalf("source and French history: %+v", request)
+	}
+	lang = i18n.EN
+	h.receive(ownNote("Second request"))
+	english := h.svc.Snapshot()
+	if len(english.Requests) != 2 {
+		t.Fatalf("want both requests after the language switch: %+v", english.Requests)
+	}
+	if len(english.Status.Notices) != 1 || !strings.Contains(english.Status.Notices[0], "sign in") {
+		t.Fatalf("English notice: %v", english.Status.Notices)
+	}
+	for _, request := range english.Requests {
+		if len(request.Entries) != 2 {
+			t.Fatalf("unexpected journal: %+v", request.Entries)
+		}
+		switch request.Text {
+		case original:
+			if request.Entries[1].Text != french.Requests[0].Entries[1].Text {
+				t.Fatalf("old journal entry changed: %q", request.Entries[1].Text)
+			}
+		case "Second request":
+			if !strings.HasPrefix(request.Entries[1].Text, "Failed: ") {
+				t.Fatalf("new journal entry: %q", request.Entries[1].Text)
+			}
+		default:
+			t.Fatalf("unexpected source: %q", request.Text)
+		}
+	}
+}
+
 func TestStopEndsARunningTurnAndLeavesTheRequestOpen(t *testing.T) {
 	started := make(chan struct{})
 	h := newHarness(t, func(ctx context.Context, _ Turn) (TurnResult, error) {
@@ -506,6 +554,17 @@ func TestOnlyRealProjectsInsideTheRootCanBeWrittenTo(t *testing.T) {
 	}
 	if got := h.svc.projectPath("login-app"); got == "" {
 		t.Fatal("a real project must resolve")
+	}
+
+	insideProject := filepath.Join(h.root, "login-app", "pouple-data")
+	must(os.Mkdir(insideProject, 0o700))
+	alias := filepath.Join(t.TempDir(), "data")
+	must(os.Symlink(insideProject, alias))
+	for _, protected := range []string{alias, h.root} {
+		h.svc.deps.ProtectedDir = protected
+		if got := h.svc.projectPath("login-app"); got != "" {
+			t.Fatal("projects overlapping the app data directory must not be writable")
+		}
 	}
 }
 

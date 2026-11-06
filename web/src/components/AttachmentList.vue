@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import type { AttachmentRef } from '../api/types';
 import { useAttachmentUrl } from '../composables/useAttachmentUrl';
+import { t } from '../i18n';
 import { sizeLabel } from '../lib/format';
 
 const props = defineProps<{ requestId: string; attachments: AttachmentRef[] }>();
 </script>
 
 <template>
-  <ul class="flex flex-wrap gap-2" aria-label="Attached files">
+  <ul class="flex flex-wrap gap-2" :aria-label="$t('chat.attached')">
     <li v-for="file in attachments" :key="file.id">
       <AttachmentItem :request-id="props.requestId" :file="file" />
     </li>
@@ -32,7 +33,7 @@ const AttachmentItem = defineComponent({
           ? h('a', { href: url.value, target: '_blank', rel: 'noopener noreferrer', class: 'block overflow-hidden rounded-lg border border-line', title: file.name }, [
               h('img', { src: url.value, alt: file.name, class: 'max-h-36 max-w-full object-contain' }),
             ])
-          : h('span', { class: 'flex h-20 w-28 items-center justify-center rounded-lg border border-line text-2xs text-ink-dim' }, failed.value ? 'Unavailable' : 'Loading…');
+          : h('span', { class: 'flex h-20 w-28 items-center justify-center rounded-lg border border-line text-2xs text-ink-dim' }, failed.value ? t('chat.unavailable') : t('common.loading'));
       }
       return h(
         'a',

@@ -4,6 +4,7 @@ import { errorMessage } from '../api/client';
 import type { AssistantRequest } from '../api/types';
 import { useAssistantStore } from '../composables/assistantStore';
 import { useComposerFiles } from '../composables/composerFiles';
+import { t } from '../i18n';
 import { isWorking, requestTitle } from '../lib/assistantRequests';
 import AppButton from './AppButton.vue';
 import IconButton from './IconButton.vue';
@@ -22,7 +23,7 @@ const working = computed(() => isWorking(props.request));
 const canWrite = computed(() => !working.value && props.request.status !== 'awaiting-user');
 const files = useComposerFiles(computed(() => (canWrite.value ? props.request.id : null)));
 const canSend = computed(() => canWrite.value && !sending.value && !files.uploading.value && (draft.value.trim() !== '' || files.files.value.length > 0));
-const placeholder = computed(() => (working.value ? 'Working…' : canWrite.value ? 'Ask a follow-up…' : 'Answer the question above to continue'));
+const placeholder = computed(() => (working.value ? t('composer.working') : canWrite.value ? t('composer.followUp') : t('composer.answerAbove')));
 
 watch(
   () => props.request.id,
@@ -65,9 +66,9 @@ async function onFilesChosen(event: Event): Promise<void> {
 
 <template>
   <form class="px-4 py-3" @submit.prevent="send" @dragover.prevent @drop.prevent="files.onDrop">
-    <p class="mb-1.5 truncate text-2xs text-ink-dim">About: {{ requestTitle(request) }}</p>
+    <p class="mb-1.5 truncate text-2xs text-ink-dim">{{ $t('composer.about', { title: requestTitle(request) }) }}</p>
     <InlineError v-if="sendError || files.error.value" class="mb-1.5">{{ sendError ?? files.error.value }}</InlineError>
-    <ul v-if="files.files.value.length > 0" class="mb-2 flex flex-wrap gap-2" aria-label="Files to send">
+    <ul v-if="files.files.value.length > 0" class="mb-2 flex flex-wrap gap-2" :aria-label="$t('composer.filesLabel')">
       <li v-for="file in files.files.value" :key="file.ref.id" class="relative">
         <img v-if="file.preview" :src="file.preview" :alt="file.ref.name" class="size-14 rounded-md border border-line object-cover" />
         <span v-else class="flex h-14 max-w-32 items-center rounded-md border border-line px-2 text-xs text-ink-muted">
@@ -76,7 +77,7 @@ async function onFilesChosen(event: Event): Promise<void> {
         <button
           type="button"
           class="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-surface text-2xs text-ink-muted hover:text-ink"
-          :aria-label="`Remove ${file.ref.name}`"
+          :aria-label="$t('composer.remove', { name: file.ref.name })"
           @click="files.remove(file.ref.id)"
         >
           &#10005;
@@ -91,23 +92,23 @@ async function onFilesChosen(event: Event): Promise<void> {
         accept="image/png,image/jpeg,image/gif,image/webp,text/plain,text/markdown,application/json,.log"
         class="sr-only"
         tabindex="-1"
-        aria-label="Choose files to add"
+        :aria-label="$t('composer.choose')"
         @change="onFilesChosen"
       />
-      <IconButton label="Add a photo or a file" icon="plus" bordered :disabled="!canWrite || files.uploading.value" @click="fileInput?.click()" />
+      <IconButton :label="$t('composer.add')" icon="plus" bordered :disabled="!canWrite || files.uploading.value" @click="fileInput?.click()" />
       <textarea
         v-model="draft"
         rows="1"
         maxlength="4000"
         :disabled="!canWrite"
-        aria-label="Message to the assistant"
+        :aria-label="$t('composer.message')"
         :placeholder="placeholder"
         class="max-h-28 min-h-8 flex-1 resize-none rounded-md border border-line-strong bg-surface px-2.5 py-1.5 text-ink outline-none focus:border-accent disabled:opacity-60"
         @keydown.enter.exact.prevent="send"
         @paste="files.onPaste"
       />
-      <AppButton v-if="working" type="button" variant="danger" aria-label="Stop the assistant" @click="stop">Stop</AppButton>
-      <AppButton v-else type="submit" variant="primary" :disabled="!canSend">Send</AppButton>
+      <AppButton v-if="working" type="button" variant="danger" :aria-label="$t('composer.stopAria')" @click="stop">{{ $t('composer.stop') }}</AppButton>
+      <AppButton v-else type="submit" variant="primary" :disabled="!canSend">{{ $t('composer.send') }}</AppButton>
     </div>
   </form>
 </template>

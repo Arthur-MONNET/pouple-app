@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Settings is the part of the configuration the interface can read and change.
@@ -25,21 +25,23 @@ type Settings struct {
 }
 
 func viewOf(s config.Settings) Settings {
-	return Settings{s.PollSeconds, s.DailyTurnLimit, s.ProjectsRoot, s.Language, s.UILanguage, s.AutoApprove, s.Keywords, s.IgnoreChannels}
+	return Settings{s.PollSeconds, s.DailyTurnLimit, s.ProjectsRoot, s.Language, string(i18n.Parse(s.UILanguage)), s.AutoApprove, s.Keywords, s.IgnoreChannels}
 }
 
 // MountSettings adds GET and PUT /api/settings. A PUT carries only the fields to change.
 func MountSettings(file *config.File) func(mux *http.ServeMux) {
 	return func(mux *http.ServeMux) {
-		mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
+		mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
+			lang := i18n.FromContext(r.Context())
 			settings, err := file.Load()
 			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "The settings could not be read"})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(lang, "The settings could not be read")})
 				return
 			}
 			writeJSON(w, http.StatusOK, viewOf(settings))
 		})
 		mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+			lang := i18n.FromContext(r.Context())
 			var patch struct {
 				PollSeconds    *int      `json:"pollSeconds"`
 				DailyTurnLimit *int      `json:"dailyTurnLimit"`
@@ -51,10 +53,10 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				IgnoreChannels *[]string `json:"ignoreChannels"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&patch); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "The request is not valid JSON"})
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(lang, "The request is not valid JSON")})
 				return
 			}
-			if problem := validate(patch.PollSeconds, patch.DailyTurnLimit, patch.ProjectsRoot, patch.AutoApprove, patch.UILanguage); problem != "" {
+			if problem := validate(lang, patch.PollSeconds, patch.DailyTurnLimit, patch.ProjectsRoot, patch.AutoApprove, patch.UILanguage); problem != "" {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": problem})
 				return
 			}
@@ -85,7 +87,7 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 			})
 			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "The settings could not be saved"})
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(lang, "The settings could not be saved")})
 				return
 			}
 			writeJSON(w, http.StatusOK, viewOf(settings))
@@ -93,25 +95,25 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 	}
 }
 
-func validate(poll, limit *int, root, autoApprove, uiLanguage *string) string {
+func validate(lang i18n.Lang, poll, limit *int, root, autoApprove, uiLanguage *string) string {
 	switch {
 	case poll != nil && (*poll < 15 || *poll > 3600):
-		return "Slack is read every 15 to 3600 seconds"
+		return i18n.T(lang, "Slack is read every 15 to 3600 seconds")
 	case limit != nil && *limit < 0:
-		return "The daily limit cannot be negative (0 means no limit)"
+		return i18n.T(lang, "The daily limit cannot be negative (0 means no limit)")
 	case uiLanguage != nil && *uiLanguage != "fr" && *uiLanguage != "en":
-		return `The interface language must be "fr" or "en"`
+		return i18n.T(lang, `The interface language must be "fr" or "en"`)
 	case autoApprove != nil && *autoApprove != "off" && *autoApprove != "own-notes":
-		return `Automatic approval must be "off" or "own-notes"`
+		return i18n.T(lang, `Automatic approval must be "off" or "own-notes"`)
 	case root != nil && strings.TrimSpace(*root) != "":
 		path := strings.TrimSpace(*root)
 		if info, err := os.Stat(path); err != nil || !info.IsDir() {
-			return fmt.Sprintf("“%s” is not a folder", path)
+			return i18n.T(lang, "“%s” is not a folder", path)
 		}
 		// Too wide: every folder of the disk (or of the home folder, with its keys and settings) would be a project.
 		home, _ := os.UserHomeDir()
 		if clean := filepath.Clean(path); !filepath.IsAbs(clean) || clean == "/" || (home != "" && clean == filepath.Clean(home)) {
-			return "Choose a folder that holds only your projects, not / or your home folder"
+			return i18n.T(lang, "Choose a folder that holds only your projects, not / or your home folder")
 		}
 	}
 	return ""

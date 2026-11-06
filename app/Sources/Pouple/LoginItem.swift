@@ -35,8 +35,8 @@ enum LoginItem {
             if state == .needsApproval { SMAppService.openSystemSettingsLoginItems() }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Pouple could not change the login item"
-            alert.informativeText = "\(error.localizedDescription)\n\nThis usually means the app is not signed or is not in the Applications folder."
+            alert.messageText = L10n.text(.loginErrorTitle)
+            alert.informativeText = L10n.text(.loginErrorBody, error.localizedDescription)
             alert.runModal()
         }
     }

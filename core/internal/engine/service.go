@@ -5,21 +5,23 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Errors the API maps to HTTP statuses.
 var (
-	ErrNotFound = errors.New("request not found")
-	ErrState    = errors.New("not possible in the current state")
-	ErrInput    = errors.New("invalid input")
-	ErrInactive = errors.New("the assistant is not running")
+	ErrNotFound = i18n.NewError("request not found")
+	ErrState    = i18n.NewError("not possible in the current state")
+	ErrInput    = i18n.NewError("invalid input")
+	ErrInactive = i18n.NewError("the assistant is not running")
 )
 
 // Inbox finds the Slack messages that would notify the user.
@@ -39,7 +41,7 @@ type Incoming struct {
 type PollResult struct {
 	Incoming []Incoming
 	Cursor   Cursor
-	Notices  []string
+	Notices  []i18n.Message
 }
 
 // Deps is everything the service needs from the outside.
@@ -52,8 +54,12 @@ type Deps struct {
 	Fetch func(ctx context.Context, file PendingFile) ([]byte, error)
 	// Persona says who the assistant works for; read at each prompt, so a change applies at once.
 	Persona func() Persona
+	// Language is the interface language, read when displaying current state or writing new journal entries.
+	Language func() i18n.Lang
 	// ProjectsRoot is the folder holding one folder per project; "" means none is chosen yet.
 	ProjectsRoot func() string
+	// ProtectedDir is Pouple's data directory, which must stay outside writable projects.
+	ProtectedDir string
 	// WorkDir is where read-only investigations run (usually ProjectsRoot, or a scratch folder).
 	WorkDir    func() string
 	SchemaFile string
@@ -89,7 +95,7 @@ type Service struct {
 	queue *Queue
 
 	mu           sync.Mutex
-	notices      []string
+	notices      []i18n.Message
 	lastPollAt   *string
 	pausedUntil  time.Time
 	loginProblem string
@@ -109,6 +115,9 @@ func NewService(deps Deps) *Service {
 	}
 	if deps.Persona == nil {
 		deps.Persona = func() Persona { return Persona{} }
+	}
+	if deps.Language == nil {
+		deps.Language = func() i18n.Lang { return i18n.FR }
 	}
 	if deps.ChangeSummary == nil {
 		deps.ChangeSummary = gitChanges
@@ -156,6 +165,10 @@ func (s *Service) broadcast() {
 	}
 }
 
+func (s *Service) text(key string, args ...any) string {
+	return i18n.T(s.deps.Language(), key, args...)
+}
+
 func (s *Service) now() string { return stamp(s.deps.Now()) }
 
 func newID() string {
@@ -185,18 +198,20 @@ func (s *Service) require(id string) (Stored, error) {
 
 func (s *Service) requireActive() error {
 	if reason := s.deps.Inactive(); reason != "" {
-		return fmt.Errorf("%w: %s", ErrInactive, reason)
+		return i18n.Wrap(ErrInactive, "%s: %s", ErrInactive, reason)
 	}
 	return nil
 }
 
 // Snapshot is the whole state, as the interface reads it.
 func (s *Service) Snapshot() Snapshot {
+	lang := s.deps.Language()
 	s.mu.Lock()
-	notices := append([]string(nil), s.notices...)
-	for _, standing := range s.standingNoticesLocked() {
-		notices = append(notices, standing)
+	notices := make([]string, 0, len(s.notices))
+	for _, notice := range s.notices {
+		notices = append(notices, notice.Text(lang))
 	}
+	notices = append(notices, s.standingNoticesLocked(lang)...)
 	lastPoll := s.lastPollAt
 	s.mu.Unlock()
 
@@ -216,35 +231,43 @@ func (s *Service) Snapshot() Snapshot {
 		}
 		requests[i] = view
 	}
-	if notices == nil {
-		status.Notices = []string{}
-	}
 	return Snapshot{Status: status, Requests: requests}
 }
 
-func (s *Service) standingNoticesLocked() []string {
+func (s *Service) standingNoticesLocked(lang i18n.Lang) []string {
 	var out []string
 	if s.fileNotice != "" {
-		out = append(out, s.fileNotice)
+		out = append(out, i18n.T(lang, s.fileNotice))
 	}
 	if s.loginProblem != "" {
-		out = append(out, s.loginProblem)
+		out = append(out, i18n.T(lang, s.loginProblem))
 	}
 	if s.deps.Now().Before(s.pausedUntil) {
-		out = append(out, "Codex's usage limit is reached: new Slack requests wait until "+s.pausedUntil.Local().Format("15:04")+". What you ask yourself still goes through.")
+		out = append(out, i18n.T(lang, "Codex's usage limit is reached: new Slack requests wait until %s. What you ask yourself still goes through.", i18n.Time(s.pausedUntil.Local())))
 	}
 	return out
 }
 
-// Run polls Slack every interval until ctx ends.
-func (s *Service) Run(ctx context.Context, interval func() time.Duration) {
-	for {
+// Run polls Slack periodically and lets a pending live event bring the next poll forward.
+// The cooldown keeps a burst of events from issuing a search for every message.
+func (s *Service) Run(ctx context.Context, intervals func() (period, cooldown time.Duration), wake <-chan struct{}) {
+	for ctx.Err() == nil {
 		s.Poll(ctx)
+		period, cooldown := intervals()
+		timer := time.NewTimer(period)
+		ready := time.NewTimer(cooldown)
 		select {
 		case <-ctx.Done():
-			return
-		case <-time.After(interval()):
+		case <-timer.C:
+		case <-ready.C:
+			select {
+			case <-ctx.Done():
+			case <-timer.C:
+			case <-wake:
+			}
 		}
+		timer.Stop()
+		ready.Stop()
 	}
 }
 
@@ -256,7 +279,7 @@ func (s *Service) Poll(ctx context.Context) {
 	result, err := s.deps.Inbox.Poll(ctx, s.deps.Store.Cursor())
 	if err != nil {
 		s.mu.Lock()
-		s.notices = []string{"Slack could not be read: " + err.Error()}
+		s.notices = []i18n.Message{i18n.NewMessage("Slack could not be read: %s", err)}
 		s.mu.Unlock()
 		s.broadcast()
 		return
@@ -284,7 +307,7 @@ func (s *Service) receive(in Incoming) {
 	ownNote := in.Source.Origin == "note-to-self"
 	skip := func(reason string) {
 		request.Status = StatusIgnored
-		request.Entries = []Entry{s.entry("system", "text", reason)}
+		request.Entries = []Entry{s.entry("system", "text", s.text(reason))}
 		s.deps.Store.Add(request)
 	}
 	if !ownNote && len(in.Files) == 0 && IsSmallTalk(in.Text) {
@@ -353,7 +376,7 @@ func (s *Service) expireStale() {
 		if request.Status == StatusAwaitingUser && err == nil && updated.Before(limit) {
 			s.update(request.ID, func(r *Stored) {
 				r.Status, r.Questions, r.Proposal = StatusIgnored, []Question{}, nil
-				r.Entries = append(r.Entries, s.entry("system", "text", "Expired: no answer for 7 days."))
+				r.Entries = append(r.Entries, s.entry("system", "text", s.text("Expired: no answer for 7 days.")))
 			})
 		}
 	}
@@ -392,7 +415,7 @@ func (s *Service) Stop(id string) error {
 		return err
 	}
 	if !request.Status.Pending() {
-		return fmt.Errorf("%w: nothing is running for this request", ErrState)
+		return i18n.Wrap(ErrState, "nothing is running for this request")
 	}
 	s.mu.Lock()
 	s.stops[id]++
@@ -404,7 +427,7 @@ func (s *Service) Stop(id string) error {
 	}
 	s.update(id, func(r *Stored) {
 		r.Status = StatusIgnored
-		r.Entries = append(r.Entries, s.entry("system", "text", "Stopped before it started."))
+		r.Entries = append(r.Entries, s.entry("system", "text", s.text("Stopped before it started.")))
 	})
 	return nil
 }
@@ -434,7 +457,8 @@ func (s *Service) fail(id string, cause error) {
 	}
 	var quota *QuotaError
 	quiet := errors.As(cause, &quota) || errors.Is(cause, ErrLimit)
-	message := cause.Error()
+	lang := s.deps.Language()
+	message := i18n.ErrorText(lang, cause)
 	if errors.Is(cause, ErrLimit) {
 		s.mu.Lock()
 		first := !s.deps.Now().Before(s.pausedUntil)
@@ -443,9 +467,9 @@ func (s *Service) fail(id string, cause error) {
 		}
 		s.mu.Unlock()
 		if first {
-			s.notify("Codex limit reached", "New Slack requests wait 30 minutes; what you ask yourself still goes through.")
+			s.notify(i18n.T(lang, "Codex limit reached"), i18n.T(lang, "New Slack requests wait 30 minutes; what you ask yourself still goes through."))
 		}
-		message = "Codex's usage limit is reached. Try again later with “Investigate again”."
+		message = i18n.T(lang, "Codex's usage limit is reached. Try again later with “Investigate again”.")
 	}
 	login := errors.Is(cause, ErrLogin)
 	if login {
@@ -454,9 +478,9 @@ func (s *Service) fail(id string, cause error) {
 		s.loginProblem = "Codex is not signed in any more: open Connectors and sign in again."
 		s.mu.Unlock()
 		if first {
-			s.notify("Codex needs you to sign in again", "The assistant cannot answer until you do.")
+			s.notify(i18n.T(lang, "Codex needs you to sign in again"), i18n.T(lang, "The assistant cannot answer until you do."))
 		}
-		message = "Codex is not signed in any more. Open Connectors to sign in again."
+		message = i18n.T(lang, "Codex is not signed in any more. Open Connectors to sign in again.")
 	}
 	if !quiet && !login {
 		s.deps.OnError(cause)
@@ -464,12 +488,13 @@ func (s *Service) fail(id string, cause error) {
 	if _, ok := s.deps.Store.Get(id); !ok {
 		return
 	}
+	failure := i18n.T(lang, "Failed: %s", message)
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error = StatusFailed, ptr(message)
-		r.Entries = append(r.Entries, s.entry("system", "text", "Failed: "+message))
+		r.Entries = append(r.Entries, s.entry("system", "text", failure))
 	})
 	if !quiet && !login {
-		s.alert(id, "Failed: "+message)
+		s.alert(id, failure)
 	}
 }
 
@@ -486,7 +511,7 @@ func (s *Service) settleStopped(id string) {
 	}
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error, r.Questions, r.Proposal = StatusReady, nil, []Question{}, nil
-		r.Entries = append(r.Entries, s.entry("system", "text", text))
+		r.Entries = append(r.Entries, s.entry("system", "text", s.text(text)))
 	})
 }
 
@@ -501,12 +526,13 @@ func (s *Service) alert(id, message string) {
 	if !ok {
 		return
 	}
-	title := "Request from " + request.Source.SenderName
+	lang := s.deps.Language()
+	title := i18n.T(lang, "Request from %s", request.Source.SenderName)
 	if request.Source.ChannelName != nil {
-		title += " in #" + *request.Source.ChannelName
+		title = i18n.T(lang, "Request from %s in #%s", request.Source.SenderName, *request.Source.ChannelName)
 	}
 	if request.Source.Origin == "note-to-self" {
-		title = "Note to self"
+		title = i18n.T(lang, "Note to self")
 	}
 	message = strings.Join(strings.Fields(strings.ReplaceAll(message, "**", "")), " ")
 	if runes := []rune(message); len(runes) > 160 {
@@ -518,7 +544,7 @@ func (s *Service) alert(id, message string) {
 // runCodex runs a turn under the job's context, so that Stop reaches it.
 func (s *Service) runCodex(ctx context.Context, id string, turn Turn, trackThread bool) (TurnResult, error) {
 	turn.OnEvent = func(event Event) { s.onEvent(id, event, trackThread) }
-	result, err := s.deps.Codex.Run(ctx, turn)
+	result, err := s.deps.Codex.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
 	if err == nil {
 		// A turn that went through shows Codex works again: its limit and login problems are over.
 		s.mu.Lock()
@@ -569,5 +595,28 @@ func (s *Service) projectPath(id string) string {
 	if isDir, err := statDir(path); err != nil || !isDir {
 		return ""
 	}
+	if protected := s.deps.ProtectedDir; protected != "" {
+		projectInfo, projectErr := os.Stat(path)
+		protectedInfo, protectedErr := os.Stat(protected)
+		realProtected, resolveErr := filepath.EvalSymlinks(protected)
+		if projectErr != nil || protectedErr != nil || resolveErr != nil ||
+			hasAncestor(path, protectedInfo) || hasAncestor(realProtected, projectInfo) {
+			return ""
+		}
+	}
 	return path
+}
+
+func hasAncestor(path string, ancestor os.FileInfo) bool {
+	for {
+		info, err := os.Stat(path)
+		if err == nil && os.SameFile(info, ancestor) {
+			return true
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return false
+		}
+		path = parent
+	}
 }

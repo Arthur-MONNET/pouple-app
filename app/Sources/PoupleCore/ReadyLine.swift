@@ -2,18 +2,10 @@ import Foundation
 
 /// The first line the core prints on its standard output: `{"ready":true,"port":N}`.
 public enum ReadyLine {
-    public enum Failure: Error, Equatable, LocalizedError {
+    public enum Failure: Error, Equatable {
         case malformed
         case notReady
         case invalidPort(Int)
-
-        public var errorDescription: String? {
-            switch self {
-            case .malformed: return "The core's first line of output is not valid"
-            case .notReady: return "The core did not say it is ready"
-            case let .invalidPort(port): return "The core announced an unusable port (\(port))"
-            }
-        }
     }
 
     private struct Payload: Decodable {

@@ -3,6 +3,7 @@ import SwiftUI
 
 /// The multiple-choice card of the web app: lettered options, a free-text answer, Back / Next / Send.
 struct QuestionWizard: View {
+    @ObservedObject private var language = LanguageModel.shared
     private static let other = "__other"
 
     let questions: [AssistantQuestion]
@@ -44,7 +45,7 @@ struct QuestionWizard: View {
     private var otherRow: some View {
         HStack(spacing: 9) {
             badge(question.options.count)
-            TextField("Something else…", text: Binding(get: { others[question.id] ?? "" }, set: { others[question.id] = $0; choices[question.id] = Self.other }))
+            TextField(L10n.text(.wizardOther), text: Binding(get: { others[question.id] ?? "" }, set: { others[question.id] = $0; choices[question.id] = Self.other }))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .onSubmit(next)
@@ -60,8 +61,8 @@ struct QuestionWizard: View {
                 Circle().fill(index == step ? Color.white : Color.white.opacity(0.25)).frame(width: 5, height: 5)
             }
             Spacer()
-            if step > 0 { Button("Back") { step -= 1 }.buttonStyle(PillButtonStyle(role: .quiet)) }
-            Button(isLast ? "Send" : "Next", action: next)
+            if step > 0 { Button(L10n.text(.wizardBack)) { step -= 1 }.buttonStyle(PillButtonStyle(role: .quiet)) }
+            Button(isLast ? L10n.text(.wizardSend) : L10n.text(.wizardNext), action: next)
                 .buttonStyle(PillButtonStyle(role: .primary))
                 .disabled(!canContinue || busy)
                 .opacity(canContinue ? 1 : 0.5)

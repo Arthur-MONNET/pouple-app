@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue';
+import { languageEpoch } from '../i18n';
 import { useRoute, useRouter } from 'vue-router';
 import AppIcon from '../components/AppIcon.vue';
 import ConversationList from '../components/ConversationList.vue';
@@ -20,6 +21,9 @@ const usage = computed(() => status.value?.usage ?? null);
 
 const select = (id: string): void => void router.push({ name: 'conversation', params: { id } });
 
+// Refresh the live notices after the core switches language.
+watch(languageEpoch, () => void store.refresh());
+
 // Land on the conversation that most needs the user, or the latest one; a deleted selection falls back the same way.
 watch(
   () => [store.loaded.value, selected.value === null, store.requests.value.length] as const,
@@ -38,9 +42,9 @@ watch(
     <div v-if="status?.problem || store.error.value || (status?.notices.length ?? 0) > 0" class="flex items-start gap-3 border-b border-line-soft bg-surface px-4 py-2 text-xs" aria-live="polite" data-testid="status-banner">
       <MascotStage v-if="status?.problem || store.error.value" pose="oops" size="sm" />
       <div class="flex min-w-0 flex-col justify-center gap-1 self-center">
-        <InlineError v-if="store.error.value">Pouple&rsquo;s core is not answering: {{ store.error.value }}</InlineError>
-        <InlineError v-if="status?.problem && status.active">Slack check failed: {{ status.problem }}</InlineError>
-        <p v-else-if="status?.problem" role="status" class="text-ink-muted">Pouple is paused: {{ status.problem }}</p>
+        <InlineError v-if="store.error.value">{{ $t('home.coreDown', { error: store.error.value }) }}</InlineError>
+        <InlineError v-if="status?.problem && status.active">{{ $t('home.slackFailed', { problem: status.problem }) }}</InlineError>
+        <p v-else-if="status?.problem" role="status" class="text-ink-muted">{{ $t('home.paused', { problem: status.problem }) }}</p>
         <p v-for="notice in status?.notices ?? []" :key="notice" class="text-ink-muted">{{ notice }}</p>
       </div>
     </div>
@@ -49,11 +53,13 @@ watch(
       <aside
         class="flex w-72 shrink-0 flex-col border-r border-line-soft bg-canvas max-[699px]:w-full max-[699px]:border-r-0"
         :class="{ 'max-[699px]:hidden': selected }"
-        aria-label="Conversations"
+        :aria-label="$t('list.label')"
       >
         <ConversationList :requests="store.requests.value" :selected-id="selectedId" :attention="store.attention.value" :loaded="store.loaded.value" @select="select" />
-        <p v-if="usage" class="border-t border-line-soft px-4 py-2 font-mono text-2xs text-ink-dim" :title="usage.limit === null ? 'Codex turns used today (no limit)' : 'Codex turns used today, out of the daily limit'">
-          Codex today: {{ usage.today }}{{ usage.limit === null ? '' : ` / ${usage.limit}` }}
+        <p v-if="usage" class="border-t border-line-soft px-4 py-2 font-mono text-2xs text-ink-dim"
+          :title="usage.limit === null ? $t('home.usageTitle') : $t('home.usageTitleLimit')"
+        >
+          {{ usage.limit === null ? $t('home.usage', { today: usage.today }) : $t('home.usageLimit', { today: usage.today, limit: usage.limit }) }}
         </p>
       </aside>
 
@@ -65,16 +71,16 @@ watch(
           @click="router.push({ name: 'home' })"
         >
           <AppIcon name="chevron-right" size="sm" class="rotate-180" />
-          All conversations
+          {{ $t('home.allConversations') }}
         </button>
         <ConversationView v-if="selected" :request="selected" @removed="router.replace({ name: 'home' })" />
         <div v-else class="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-ink-dim">
           <template v-if="store.loaded.value">
             <MascotStage pose="sleep" size="md" class="!size-36" />
-            <p class="font-display text-xl font-semibold text-ink">{{ store.requests.value.length === 0 ? 'Nothing to do. Pouple is napping.' : 'Pick a conversation.' }}</p>
-            <p class="max-w-sm text-sm text-ink-muted">{{ store.requests.value.length === 0 ? 'The next request that would notify you shows up here.' : 'Or wait for the next request.' }}</p>
+            <p class="font-display text-xl font-semibold text-ink">{{ store.requests.value.length === 0 ? $t('home.emptyTitle') : $t('home.pickTitle') }}</p>
+            <p class="max-w-sm text-sm text-ink-muted">{{ store.requests.value.length === 0 ? $t('home.emptyBody') : $t('home.pickBody') }}</p>
           </template>
-          <p v-else role="status">Loading…</p>
+          <p v-else role="status">{{ $t('common.loading') }}</p>
         </div>
       </main>
     </div>

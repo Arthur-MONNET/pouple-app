@@ -1,3 +1,4 @@
+import PoupleCore
 import SwiftUI
 
 /// What the window shows instead of the web page while the core is starting, failed, or the page is loading.
@@ -6,7 +7,7 @@ final class PlaceholderModel: ObservableObject {
     enum Mode: Equatable {
         case starting
         case loading
-        case failed(String)
+        case failed(CoreFailure)
     }
 
     @Published var mode: Mode = .starting
@@ -15,6 +16,7 @@ final class PlaceholderModel: ObservableObject {
 
 struct PlaceholderView: View {
     @ObservedObject var model: PlaceholderModel
+    @ObservedObject private var language = LanguageModel.shared
 
     var body: some View {
         VStack(spacing: 14) {
@@ -22,25 +24,25 @@ struct PlaceholderView: View {
             case .starting:
                 mascot("sleep")
                 ProgressView().controlSize(.large)
-                Text("Starting Pouple…").font(.system(size: 15, weight: .medium))
+                Text(L10n.text(.placeholderStarting)).font(.system(size: 15, weight: .medium))
             case .loading:
                 mascot("sleep")
                 ProgressView().controlSize(.large)
-                Text("Loading…").font(.system(size: 15, weight: .medium))
-            case let .failed(message):
+                Text(L10n.text(.placeholderLoading)).font(.system(size: 15, weight: .medium))
+            case let .failed(failure):
                 if let image = Mascot.image("oops") {
                     MascotStage(image: image)
                 } else {
                     Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(Theme.warn)
                 }
-                Text("Pouple could not start").font(.system(size: 15, weight: .semibold))
-                Text(message)
+                Text(L10n.text(.placeholderFailedTitle)).font(.system(size: 15, weight: .semibold))
+                Text(failure.message())
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
                     .textSelection(.enabled)
-                Button("Retry") { model.retry() }.buttonStyle(PillButtonStyle(role: .primary))
+                Button(L10n.text(.retry)) { model.retry() }.buttonStyle(PillButtonStyle(role: .primary))
             }
         }
         .foregroundStyle(.white.opacity(0.9))

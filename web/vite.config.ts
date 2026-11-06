@@ -33,9 +33,11 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL('./dist', import.meta.url)),
     emptyOutDir: true,
+    license: { fileName: 'ThirdPartyWebLicenses.md' },
   },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    setupFiles: ['src/test/setup.ts'],
   },
 });

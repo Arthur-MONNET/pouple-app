@@ -69,20 +69,27 @@ final class NavigationPolicyTests: XCTestCase {
 }
 
 final class StatusSummaryTests: XCTestCase {
-    func testTheMenuLineFollowsTheCoreAndTheSetup() {
-        XCTAssertEqual(StatusSummary.line(core: .starting, setupComplete: nil), "Starting…")
-        XCTAssertEqual(StatusSummary.line(core: .failed("x"), setupComplete: true), "Core unavailable")
-        XCTAssertEqual(StatusSummary.line(core: .ready(port: 1), setupComplete: nil), "Checking…")
-        XCTAssertEqual(StatusSummary.line(core: .ready(port: 1), setupComplete: false), "Setup needed")
-        XCTAssertEqual(StatusSummary.line(core: .ready(port: 1), setupComplete: true), "Connected")
+    func testTheMenuLineFollowsTheCoreAndTheSetupInBothLanguages() {
+        let cases: [(CoreState, Bool?, String, String)] = [
+            (.starting, nil, "Démarrage…", "Starting…"),
+            (.failed(.closedBeforeReady), true, "Moteur indisponible", "Core unavailable"),
+            (.ready(port: 1), nil, "Vérification…", "Checking…"),
+            (.ready(port: 1), false, "Configuration à terminer", "Setup needed"),
+            (.ready(port: 1), true, "Connecté", "Connected"),
+        ]
+        for (core, setup, fr, en) in cases {
+            XCTAssertEqual(StatusSummary.line(core: core, setupComplete: setup, language: .fr), fr)
+            XCTAssertEqual(StatusSummary.line(core: core, setupComplete: setup, language: .en), en)
+        }
     }
 
     func testLoginItemStatesExplainThemselves() {
         XCTAssertTrue(LoginItemState.enabled.isOn)
         XCTAssertTrue(LoginItemState.needsApproval.isOn)
         XCTAssertFalse(LoginItemState.disabled.isOn)
-        XCTAssertNotNil(LoginItemState.needsApproval.detail)
-        XCTAssertNil(LoginItemState.enabled.detail)
+        XCTAssertEqual(LoginItemState.needsApproval.detail(language: .fr), "à valider dans Réglages Système")
+        XCTAssertEqual(LoginItemState.needsApproval.detail(language: .en), "waiting for approval in System Settings")
+        XCTAssertNil(LoginItemState.enabled.detail(language: .fr))
     }
 }
 

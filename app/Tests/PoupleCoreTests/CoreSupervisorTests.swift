@@ -121,8 +121,8 @@ final class CoreSupervisorTests: XCTestCase {
         launcher.processes[0].die(status: 9)
         try await waitUntil { if case .failed = supervisor.state { return true } else { return false } }
         XCTAssertNil(supervisor.connection)
-        guard case let .failed(message) = supervisor.state else { return XCTFail() }
-        XCTAssertTrue(message.contains("exit status 9"), message)
+        XCTAssertEqual(supervisor.state, .failed(.stopped(status: 9)))
+        XCTAssertTrue(CoreFailure.stopped(status: 9).message(language: .en).contains("exit status 9"))
         await supervisor.shutdown()
     }
 
@@ -146,8 +146,7 @@ final class CoreSupervisorTests: XCTestCase {
         let supervisor = supervisor(launcher)
         supervisor.start()
         try await waitUntil { if case .failed = supervisor.state { return true } else { return false } }
-        guard case let .failed(message) = supervisor.state else { return XCTFail() }
-        XCTAssertTrue(message.contains("did not become ready"), message)
+        XCTAssertEqual(supervisor.state, .failed(.timeout(seconds: 0)))
         try await waitUntil { supervisor.state == .ready(port: 3334) }
         await supervisor.shutdown()
     }
@@ -171,7 +170,7 @@ final class CoreSupervisorTests: XCTestCase {
         let supervisor = supervisor(launcher)
         supervisor.start()
         try await waitUntil { launcher.tokens.count >= 3 }
-        XCTAssertEqual(supervisor.state, .failed("The core is missing"))
+        XCTAssertEqual(supervisor.state, .failed(.other("The core is missing")))
         await supervisor.shutdown()
     }
 
@@ -181,7 +180,7 @@ final class CoreSupervisorTests: XCTestCase {
         timing.backoff = Backoff(base: .seconds(30), cap: .seconds(30))
         let supervisor = CoreSupervisor(launcher: launcher, timing: timing)
         supervisor.start()
-        try await waitUntil { supervisor.state == .failed("The core is missing at /x") }
+        try await waitUntil { supervisor.state == .failed(.binaryMissing(path: "/x")) }
         supervisor.retryNow()
         try await waitUntil { supervisor.state == .ready(port: 3336) }
         await supervisor.shutdown()

@@ -1,5 +1,6 @@
 import { onBeforeUnmount, ref } from 'vue';
 import { errorMessage } from '../api/client';
+import { t } from '../i18n';
 import type { ActionEvent } from '../api/types';
 import { useApi } from './useApi';
 
@@ -39,7 +40,7 @@ export function useActionRun() {
         },
         abort.signal,
       );
-      if (!finished && !error.value) error.value = 'The action ended without saying it was done.';
+      if (!finished && !error.value) error.value = t('actions.noDone');
     } catch (cause) {
       if (!abort.signal.aborted) error.value = errorMessage(cause);
     } finally {

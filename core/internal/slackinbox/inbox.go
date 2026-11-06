@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // Origin is why a message reached the inbox.
@@ -85,7 +87,7 @@ type Poll struct {
 	Incoming []Incoming
 	Cursor   Cursor
 	// Notices name the optional sources that could not be read this time (missing scope...); the others are unaffected.
-	Notices []string
+	Notices []i18n.Message
 }
 
 const (
@@ -172,7 +174,7 @@ func (i *Inbox) slackDay(epochSeconds int64) string {
 func (i *Inbox) Poll(ctx context.Context, cursor *Cursor) (Poll, error) {
 	userID, teamURL, err := i.client.Identity(ctx)
 	if err != nil {
-		return Poll{}, fmt.Errorf("slack inbox: identity: %w", err)
+		return Poll{}, i18n.Wrap(err, "slack inbox: identity: %s", err)
 	}
 	nowSeconds := i.now().Unix()
 	floor := nowSeconds - lookbackSeconds
@@ -198,14 +200,14 @@ func (i *Inbox) Poll(ctx context.Context, cursor *Cursor) (Poll, error) {
 		candidates = append(candidates, candidate{OriginDirectMessage, hit})
 	}
 
-	notices := []string{}
+	notices := []i18n.Message{}
 	optional := func(label string, source func() ([]candidate, error)) error {
 		found, err := source()
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			notices = append(notices, label+": "+err.Error())
+			notices = append(notices, i18n.NewMessage("%s: %s", i18n.NewMessage(label), err))
 			return nil
 		}
 		candidates = append(candidates, found...)
@@ -222,7 +224,7 @@ func (i *Inbox) Poll(ctx context.Context, cursor *Cursor) (Poll, error) {
 	}
 	for _, s := range sources {
 		if err := optional(s.label, s.source); err != nil {
-			return Poll{}, fmt.Errorf("slack inbox: %w", err)
+			return Poll{}, i18n.Wrap(err, "slack inbox: %s", err)
 		}
 	}
 
@@ -297,10 +299,10 @@ func (i *Inbox) coreSearches(ctx context.Context, userID, after string) (mention
 	}()
 	wg.Wait()
 	if mentionsErr != nil {
-		return nil, nil, fmt.Errorf("slack inbox: mentions: %w", mentionsErr)
+		return nil, nil, i18n.Wrap(mentionsErr, "slack inbox: mentions: %s", mentionsErr)
 	}
 	if directsErr != nil {
-		return nil, nil, fmt.Errorf("slack inbox: direct messages: %w", directsErr)
+		return nil, nil, i18n.Wrap(directsErr, "slack inbox: direct messages: %s", directsErr)
 	}
 	return mentions, directs, nil
 }
@@ -580,7 +582,7 @@ func (i *Inbox) toIncoming(ctx context.Context, c candidate, userID string) (Inc
 	before, err := i.client.messagesBefore(ctx, hit.channelID, hit.ts, contextMessages)
 	if err != nil {
 		if ctx.Err() != nil {
-			return Incoming{}, fmt.Errorf("slack inbox: %w", ctx.Err())
+			return Incoming{}, i18n.Wrap(ctx.Err(), "slack inbox: %s", ctx.Err())
 		}
 		before = nil
 	}
@@ -605,7 +607,7 @@ func (i *Inbox) toIncoming(ctx context.Context, c candidate, userID string) (Inc
 		files, err = i.client.messageFiles(ctx, hit.channelID, hit.ts)
 		if err != nil {
 			if ctx.Err() != nil {
-				return Incoming{}, fmt.Errorf("slack inbox: %w", ctx.Err())
+				return Incoming{}, i18n.Wrap(ctx.Err(), "slack inbox: %s", ctx.Err())
 			}
 			files = []FileRef{}
 		}

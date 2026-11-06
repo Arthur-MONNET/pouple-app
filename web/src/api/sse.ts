@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 /**
  * Server-sent events over fetch. EventSource cannot send an Authorization header nor a POST body, so the answer body
  * is read as a stream and cut into frames here: `data: {json}` lines closed by a blank line.
@@ -35,7 +37,7 @@ export function createSseParser(onData: (data: string) => void): { push: (chunk:
 
 /** Reads a streamed response to its end, calling onData with each frame's payload. */
 export async function readSse(response: Response, onData: (data: string) => void): Promise<void> {
-  if (!response.body) throw new Error('This browser cannot stream a response');
+  if (!response.body) throw new Error(t('errors.noStream'));
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const parser = createSseParser(onData);

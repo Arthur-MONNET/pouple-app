@@ -6,8 +6,8 @@ public enum PoupleAPIError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case let .http(status, message): return message.isEmpty ? "Pouple answered \(status)" : message
-        case .invalidResponse: return "Pouple sent an unexpected response"
+        case let .http(status, message): return message.isEmpty ? L10n.text(.apiAnswered, status) : message
+        case .invalidResponse: return L10n.text(.apiUnexpected)
         }
     }
 }
@@ -40,10 +40,22 @@ public struct SetupState: Codable, Equatable, Sendable {
 
     public let setupComplete: Bool
     public let steps: [Step]
+    /// The interface language the core is set to; nil when it does not say (or says something unknown).
+    public let language: Language?
 
-    public init(setupComplete: Bool, steps: [Step] = []) {
+    public init(setupComplete: Bool, steps: [Step] = [], language: Language? = nil) {
         self.setupComplete = setupComplete
         self.steps = steps
+        self.language = language
+    }
+
+    private enum CodingKeys: String, CodingKey { case setupComplete, steps, language }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        setupComplete = try container.decode(Bool.self, forKey: .setupComplete)
+        steps = try container.decodeIfPresent([Step].self, forKey: .steps) ?? []
+        language = (try? container.decodeIfPresent(String.self, forKey: .language)).flatMap { $0 }.flatMap(Language.init(code:))
     }
 }
 
@@ -63,6 +75,11 @@ public struct PoupleAPI: Sendable {
     public func setupState() async throws -> SetupState {
         let data = try await send("GET", "/api/state")
         return try JSONDecoder().decode(SetupState.self, from: data)
+    }
+
+    /// Switches the interface language of the whole app (the core stores it, the web UI follows).
+    public func setUILanguage(_ language: Language) async throws {
+        _ = try await send("PUT", "/api/settings", body: ["uiLanguage": language.rawValue])
     }
 
     public func snapshot() async throws -> AssistantSnapshot {

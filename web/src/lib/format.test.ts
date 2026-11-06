@@ -6,15 +6,21 @@ const ago = (ms: number): string => new Date(now.getTime() - ms).toISOString();
 
 describe('relativeTime', () => {
   it('reads recent times in words', () => {
-    expect(relativeTime(ago(10_000), now)).toBe('now');
-    expect(relativeTime(ago(5 * 60_000), now)).toBe('5 min ago');
-    expect(relativeTime(ago(3 * 3_600_000), now)).toBe('3 h ago');
-    expect(relativeTime(ago(26 * 3_600_000), now)).toBe('yesterday');
+    expect(relativeTime(ago(10_000), now, 'en')).toBe('now');
+    expect(relativeTime(ago(5 * 60_000), now, 'en')).toMatch(/^5 min/);
+    expect(relativeTime(ago(3 * 3_600_000), now, 'en')).toMatch(/^3 h/);
+    expect(relativeTime(ago(26 * 3_600_000), now, 'en')).toBe('yesterday');
+  });
+
+  it('speaks French when the interface does', () => {
+    expect(relativeTime(ago(10_000), now, 'fr')).toBe('à l\u2019instant');
+    expect(relativeTime(ago(5 * 60_000), now, 'fr')).toMatch(/^il y a 5\smin/);
+    expect(relativeTime(ago(26 * 3_600_000), now, 'fr')).toBe('hier');
   });
 
   it('falls back to the date, and to nothing for garbage', () => {
-    expect(relativeTime(ago(10 * 86_400_000), now)).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/);
-    expect(relativeTime('not a date', now)).toBe('');
+    expect(relativeTime(ago(10 * 86_400_000), now, 'en')).toMatch(/\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2}/);
+    expect(relativeTime('not a date', now, 'en')).toBe('');
   });
 });
 

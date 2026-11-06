@@ -12,6 +12,7 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     private let placeholderHost: NSHostingView<PlaceholderView>
     private var loadedURL: URL?
     private var policy: NavigationPolicy?
+    private var activeNavigation: WKNavigation?
     private var pageShown = false
     private var coreState: CoreState = .starting
 
@@ -38,7 +39,7 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
         super.init()
         placeholder.retry = { [weak self] in self?.retry() }
 
-        window.title = "Pouple"
+        window.title = L10n.text(.windowTitle)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: .darkAqua)
@@ -86,6 +87,11 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
 
     var isVisible: Bool { window.isVisible }
 
+    /// The language changed: what AppKit holds as text follows (SwiftUI views redraw on their own).
+    func languageChanged() {
+        window.title = L10n.text(.windowTitle)
+    }
+
     func show() {
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
@@ -93,31 +99,57 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     }
 
     func reload() {
-        if pageShown { webView.reload() }
+        if pageShown { activeNavigation = webView.reload() }
+    }
+
+    func refreshWebLanguage() {
+        guard loadedURL != nil else { return }
+        webView.evaluateJavaScript("window.dispatchEvent(new Event('pouple:language-changed'))", completionHandler: nil)
     }
 
     // MARK: - Core state
 
-    func coreChanged(_ state: CoreState) {
+    func coreChanged(_ state: CoreState, token: String?) {
         coreState = state
         switch state {
         case .starting:
-            loadedURL = nil
+            clearPage()
             showPlaceholder(.starting)
-        case let .failed(message):
-            loadedURL = nil
-            showPlaceholder(.failed(message))
+        case let .failed(failure):
+            clearPage()
+            showPlaceholder(.failed(failure))
         case let .ready(port):
             let url = URL(string: "http://127.0.0.1:\(port)/")!
+            guard let token else { return }
             policy = NavigationPolicy(port: port)
             if loadedURL != url {
                 loadedURL = url
                 showPlaceholder(.loading)
-                webView.load(URLRequest(url: url))
+                load(url, port: port, token: token)
             } else if !pageShown {
-                webView.load(URLRequest(url: url))
+                load(url, port: port, token: token)
             }
         }
+    }
+
+    private func clearPage() {
+        loadedURL = nil
+        policy = nil
+        activeNavigation = nil
+        webView.stopLoading()
+        webView.configuration.userContentController.removeAllUserScripts()
+    }
+
+    /// Defines `window.__POUPLE__` before the page runs, for the core's own origin only.
+    private func load(_ url: URL, port: Int, token: String) {
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(
+            source: PageBootstrap.userScript(token: token, port: port),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        activeNavigation = webView.load(URLRequest(url: url))
     }
 
     private func showPlaceholder(_ mode: PlaceholderModel.Mode) {
@@ -139,7 +171,7 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
             onRetry()
         } else if let loadedURL {
             placeholder.mode = .loading
-            webView.load(URLRequest(url: loadedURL))
+            activeNavigation = webView.load(URLRequest(url: loadedURL))
         }
     }
 
@@ -166,20 +198,32 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let navigation, navigation === activeNavigation else { return }
         showPage()
+        #if DEBUG
+        // Development aid: `POUPLE_DEBUG_JS=<expression>` prints what it evaluates to once the page has loaded.
+        if let expression = ProcessInfo.processInfo.environment["POUPLE_DEBUG_JS"] {
+            webView.evaluateJavaScript(expression) { result, error in
+                print("POUPLE_DEBUG_JS ->", result.map { "\($0)" } ?? "nil", error?.localizedDescription ?? ""); fflush(stdout)
+            }
+        }
+        #endif
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        showPlaceholder(.failed(error.localizedDescription))
+        guard let navigation, navigation === activeNavigation else { return }
+        showPlaceholder(.failed(.other(error.localizedDescription)))
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        showPlaceholder(.failed(error.localizedDescription))
+        guard let navigation, navigation === activeNavigation else { return }
+        showPlaceholder(.failed(.other(error.localizedDescription)))
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard let loadedURL else { return }
         showPlaceholder(.loading)
-        webView.reload()
+        activeNavigation = webView.load(URLRequest(url: loadedURL))
     }
 
     // MARK: - WKUIDelegate
@@ -206,8 +250,8 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async -> Bool {
         let alert = NSAlert()
         alert.messageText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.text(.dialogOK))
+        alert.addButton(withTitle: L10n.text(.dialogCancel))
         return alert.runModal() == .alertFirstButtonReturn
     }
 

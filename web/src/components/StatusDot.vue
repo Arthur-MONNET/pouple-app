@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AssistantStatus } from '../api/types';
-import { STATUS_LABELS } from '../lib/assistantRequests';
+import { statusLabel } from '../lib/assistantRequests';
 
 defineProps<{ status: AssistantStatus }>();
 </script>
@@ -17,7 +17,7 @@ defineProps<{ status: AssistantStatus }>();
       'bg-fail': status === 'failed',
     }"
     role="img"
-    :aria-label="STATUS_LABELS[status]"
-    :title="STATUS_LABELS[status]"
+    :aria-label="statusLabel(status)"
+    :title="statusLabel(status)"
   />
 </template>
