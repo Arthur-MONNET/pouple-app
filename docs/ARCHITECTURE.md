@@ -42,6 +42,7 @@ web page cannot drive the assistant.
 | `requests.json` | Conversations. |
 | `attachments/` | Files that came with messages. |
 | `codex/` | Dedicated `CODEX_HOME`: Pouple uses its own Codex login. |
+| `install.json` | Written by `scripts/install-local.sh`: where the source checkout is, and which commit was built. |
 
 **Secrets** (Slack token, other connectors' keys) are stored in the **macOS Keychain** (service `app.pouple`),
 through `/usr/bin/security`, never in a dotfile. They are write-only for the UI: the API returns whether a secret
@@ -137,6 +138,38 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 - GitHub Pages serves `site/`, with commands to clone the public repository and run `scripts/install-local.sh`.
 - The installer compiles for the Mac's architecture, signs the local app ad hoc, and verifies it before
   replacing the installed bundle. Application data lives outside the bundle.
+
+## Updates
+
+An installation from source leaves `install.json` (`sourceRoot`, `commit`, `version`, `installedAt`) next to
+`config.json`. The `core/internal/updates` package reads it and answers two routes, behind the same token as the rest
+of the API (they are not on the local assistant socket):
+
+- `GET /api/update`: the last known status. It never touches the network.
+- `POST /api/update/check`: fetches `origin/main` and returns the new status; at most one real fetch every 30 seconds,
+  otherwise the cached status. The core also checks 30 seconds after it starts and every 6 hours.
+
+```json
+{"supported":true,"reason":"","message":"","installed":{"version":"0.1.0","commit":"abc1234","installedAt":"2026-11-01T09:30:00Z"},
+ "latest":{"commit":"def5678"},"available":true,"behind":3,"changes":["subject"],
+ "blockers":[{"code":"local-changes","message":"..."}],"checkedAt":"2026-11-06T12:00:00Z","checking":false,"error":null}
+```
+
+`reason` is `""`, `not-installed-from-source`, `checkout-missing` or `checkout-invalid` (then `message` explains it
+and `installed` may be `null`). A blocker `code` is `local-changes`, `not-on-main` or `diverged`: blockers are
+reported, they do not hide the update. `error` is a localized sentence (offline, access refused, timeout); the last
+good answer is kept beside it. Commits are 7 characters; `changes` holds at most 15 one-line subjects of the commits
+not installed yet.
+
+The record is not trusted blindly: the checkout must be an absolute, unlinked folder holding
+`scripts/install-local.sh` and `core/go.mod`, git's top level must be that folder, and `origin` must be exactly
+`https://github.com/Arthur-MONNET/pouple-app(.git)` or `git@github.com:Arthur-MONNET/pouple-app(.git)` (after git's
+own URL rewriting), so a forged `install.json` cannot aim the updater at another repository. Git runs without a
+shell, with `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`, `core.fsmonitor=false`, `core.hooksPath=/dev/null`
+and `--no-optional-locks`, under a 30-second timeout. The core only reads: quitting the app, `git pull --ff-only`
+and re-running the installer happen in a Terminal started by the macOS shell. The installer replaces the bundle
+only; it never touches Application Support (apart from writing `install.json`) or the Keychain, so connections
+survive an update.
 
 ## Milestones
 

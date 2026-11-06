@@ -1,8 +1,18 @@
 <script setup lang="ts">
 import BrandMark from './BrandMark.vue';
+import { useRouter } from 'vue-router';
+import { useUpdate } from '../composables/useUpdate';
 import LanguageSwitch from './LanguageSwitch.vue';
 
 defineProps<{ attention: number }>();
+
+const { available } = useUpdate();
+const router = useRouter();
+
+/** Already on the page: the route does not change, so the section is brought into view by hand. */
+function scrollToUpdates(): void {
+  if (router.currentRoute.value.path === '/settings') document.getElementById('updates')?.scrollIntoView({ block: 'start' });
+}
 </script>
 
 <template>
@@ -34,6 +44,17 @@ defineProps<{ attention: number }>();
         {{ $t('nav.settings') }}
       </RouterLink>
     </nav>
-    <LanguageSwitch class="ml-auto" />
+    <RouterLink
+      v-if="available"
+      :to="{ path: '/settings', hash: '#updates' }"
+      :aria-label="$t('update.badgeAria')"
+      class="ml-auto flex items-center gap-1.5 rounded-full border border-accent/50 bg-accent/10 px-2.5 py-1 text-xs text-accent transition hover:bg-accent/20 motion-reduce:transition-none"
+      data-testid="update-badge"
+      @click="scrollToUpdates"
+    >
+      <span class="size-1.5 rounded-full bg-accent" aria-hidden="true" />
+      {{ $t('update.badge') }}
+    </RouterLink>
+    <LanguageSwitch :class="available ? '' : 'ml-auto'" />
   </header>
 </template>

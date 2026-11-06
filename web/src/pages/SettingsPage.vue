@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { errorMessage } from '../api/client';
 import type { AutoApprove } from '../api/types';
 import AppButton from '../components/AppButton.vue';
 import AppSpinner from '../components/AppSpinner.vue';
 import InlineError from '../components/InlineError.vue';
 import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
+import UpdateSection from '../components/UpdateSection.vue';
 import { useLanguage } from '../composables/useLanguage';
 import { useSettings } from '../composables/useSettings';
 import { LANGS, type Lang } from '../i18n';
 
 const { settings, loadError, load, save } = useSettings();
 const language = useLanguage();
+const route = useRoute();
+
+// The page opens on the Updates section when the badge of the top bar sent the reader here.
+onMounted(async () => {
+  if (route.hash === '#updates') {
+    await nextTick();
+    document.getElementById('updates')?.scrollIntoView({ block: 'start' });
+  }
+});
 
 const form = reactive({ language: '', dailyTurnLimit: 0, autoApprove: 'off' as AutoApprove, keywords: '' });
 const saving = ref(false);
@@ -80,6 +91,8 @@ async function submit(): Promise<void> {
         <h2 id="projects-title" class="text-base font-semibold text-ink">{{ $t('settings.projects') }}</h2>
         <ProjectsFolderForm :save-label="$t('projects.saveFolder')" />
       </section>
+
+      <UpdateSection />
 
       <form class="flex flex-col gap-6 rounded-xl border border-line bg-surface p-5" novalidate @submit.prevent="submit">
         <h2 class="text-base font-semibold text-ink">{{ $t('settings.assistant') }}</h2>

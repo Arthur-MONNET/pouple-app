@@ -12,6 +12,7 @@ import type {
   QuestionAnswer,
   Settings,
   SettingsPatch,
+  UpdateInfo,
 } from './types';
 
 /** An answer the core refused. `field` names the form field of a 422 when there is one. */
@@ -42,6 +43,11 @@ export interface PoupleApi {
   getSettings(): Promise<Settings>;
   /** Changes only the given fields; rejects with a 422 ApiError when a value is refused. */
   updateSettings(patch: SettingsPatch): Promise<Settings>;
+
+  /** The last known update state; never waits for a check. */
+  getUpdate(): Promise<UpdateInfo>;
+  /** Forces a check against the source checkout; may take up to 30 s. */
+  checkUpdate(): Promise<UpdateInfo>;
 
   getSnapshot(): Promise<AssistantSnapshot>;
   /** Calls onSnapshot with the full state on connect and after every change; resolves when the stream ends. */
@@ -127,6 +133,9 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
 
     getSettings: () => read<Settings>('/api/settings'),
     updateSettings: (patch) => read<Settings>('/api/settings', { method: 'PUT' }, patch),
+
+    getUpdate: () => read<UpdateInfo>('/api/update'),
+    checkUpdate: () => read<UpdateInfo>('/api/update/check', { method: 'POST' }, {}),
 
     getSnapshot: () => read<AssistantSnapshot>('/api/assistant'),
     async streamSnapshots(onSnapshot, signal) {

@@ -33,6 +33,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 	"github.com/Arthur-MONNET/pouple/core/internal/ui"
+	"github.com/Arthur-MONNET/pouple/core/internal/updates"
 )
 
 const keychainService = "app.pouple"
@@ -141,6 +142,8 @@ func run() error {
 	}
 	mountAssistant := api.MountAssistant(service, attachments)
 	mountSettings := api.MountSettings(settings)
+	updateChecker := updates.New(updates.Options{DataDir: dir})
+	mountUpdates := api.MountUpdates(updateChecker)
 	language := func() string {
 		current, err := settings.Load()
 		if err != nil || current.UILanguage == "" {
@@ -150,7 +153,7 @@ func run() error {
 	}
 	handler := api.New(api.Options{
 		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
-		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux) },
+		Mount: func(mux *http.ServeMux) { mountAssistant(mux); mountSettings(mux); mountUpdates(mux) },
 	}, port)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -187,6 +190,7 @@ func run() error {
 	}()
 	wake := make(chan struct{}, 1)
 	go watchSlackLive(ctx, registry, wake)
+	go updateChecker.Run(ctx)
 	go runAssistant(ctx, service, settings, wake)
 	shutdownComplete := make(chan struct{})
 	go func() {

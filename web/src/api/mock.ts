@@ -3,6 +3,7 @@ import { lang as activeLang, type Lang } from '../i18n';
 import { codexConnector, codexProfile, createFixtures, slackConnector, slackProfile } from './mockFixtures';
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
+import { mockCheckResult, mockUpdateInfo, type UpdateScenario } from './mockUpdate';
 import type {
   ActionEvent,
   AppState,
@@ -29,6 +30,8 @@ export interface MockOptions {
   lang?: Lang;
   /** `empty`: no conversation at all; `paused`: the assistant is off and says why. */
   view?: 'empty' | 'paused';
+  /** What the Updates section starts with (default `uptodate`). */
+  update?: UpdateScenario;
 }
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -73,6 +76,8 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     if (options.view !== 'empty') requests = createFixtures(lang);
     publish();
   }
+
+  let updateScenario: UpdateScenario = options.update ?? 'uptodate';
 
   const wait = (): Promise<void> => sleep(latency);
   /** With no latency (tests) nothing waits; otherwise the pauses of slow operations keep their real feel. */
@@ -210,6 +215,18 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       Object.assign(settings, patch, root !== undefined && { projectsRoot: root });
       if (patch.uiLanguage && patch.uiLanguage !== lang) switchLanguage(patch.uiLanguage);
       return structuredClone(settings);
+    },
+
+    async getUpdate() {
+      await wait();
+      return mockUpdateInfo(updateScenario, lang);
+    },
+    async checkUpdate() {
+      await sleep(latency + slow(1500));
+      const result = mockCheckResult(updateScenario, lang);
+      // A check that was running ends on the available state; the next read agrees.
+      if (updateScenario === 'checking') updateScenario = 'available';
+      return result;
     },
 
     async getSnapshot() {

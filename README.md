@@ -19,7 +19,8 @@ If you use NVM, run `nvm install` from the checkout before running the installer
 If pnpm is missing after switching Node versions, run `npm install --global pnpm@10`.
 
 The script builds and verifies the app, installs it at `~/Applications/Pouple.app`, and launches it. It preserves
-application data and the macOS security settings.
+application data and the macOS security settings, and records where the checkout is so that the app can
+[update itself](#updates).
 
 The first launch guides you through two connections, with a confirmation card showing whose account you connected:
 
@@ -40,15 +41,29 @@ save the connection again. Pouple still checks Slack periodically to catch messa
 
 ## Updates
 
-Open **Pouple → Check for Updates…**. Quit Pouple before updating, then run the following from the source directory:
+Pouple tells you when a newer version is available: the core checks the public repository 30 seconds after it
+starts and every 6 hours (**Pouple → Check for Updates…** looks right away), and the update button shows what
+changed. Press it, and Pouple:
+
+1. quits;
+2. opens Terminal, goes to the source folder you installed from, and runs `git pull --ff-only`;
+3. re-runs `scripts/install-local.sh`, which rebuilds the app, replaces `~/Applications/Pouple.app`, and opens it.
+
+Your connections and settings are kept. Slack, Codex and the other connectors' tokens stay in the macOS Keychain,
+and settings, conversations and attachments stay in `~/Library/Application Support/Pouple`; the installer only
+replaces the app bundle (and keeps the previous one as `.pouple-previous.app`). It also writes a small
+`install.json` in that folder, which is how Pouple finds its source folder.
+
+The button needs Pouple to have been installed with `scripts/install-local.sh` from a clone of this repository,
+still in place, on `main`, with no local changes and no commits that are not on `origin/main`. Otherwise Pouple
+says what is wrong instead of updating. Installations made before this feature have no `install.json` yet: update
+them once by hand, as below.
+
+To update by hand, quit Pouple, then:
 
 ```sh
-git pull --ff-only
-bash scripts/install-local.sh
+cd pouple-app && git pull --ff-only && bash scripts/install-local.sh
 ```
-
-The installer replaces the previous build at the same location. Settings and conversations live in Application
-Support, and Slack tokens are stored in Keychain.
 
 ## Security
 
@@ -79,6 +94,7 @@ cd core && go test -race ./...
 cd web && pnpm install && pnpm test && pnpm build:embed
 cd core && go build -o /tmp/pouple-core ./cmd/pouple-core
 scripts/build-app.sh --core /tmp/pouple-core    # build/Pouple.app
+bash scripts/test-install-record.sh             # dry run of the install record (no build)
 ```
 
 Run the core alone with a fixed port and token for web development:

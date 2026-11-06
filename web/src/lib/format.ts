@@ -42,3 +42,9 @@ export function sizeLabel(bytes: number): string {
   if (bytes < 1024 * 1024) return t('files.sizeKb', { n: Math.max(1, Math.round(bytes / 1024)) });
   return t('files.sizeMb', { n: (bytes / 1024 / 1024).toLocaleString(tag(lang.value), { maximumFractionDigits: 1, minimumFractionDigits: 1 }) });
 }
+
+/** "28 oct. 2026" : a day, with its year, in the active language. */
+export function formatDay(iso: string, locale: Lang = lang.value): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(tag(locale), { day: 'numeric', month: 'short', year: 'numeric' });
+}
