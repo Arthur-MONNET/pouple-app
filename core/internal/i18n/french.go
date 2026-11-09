@@ -112,7 +112,14 @@ var fr = map[string]string{
 	"Paste the key": "Coller la clé",
 	"Copy it right away (Slite shows it only once) and paste it here. Pouple shows whose account it is before saving.": "Copie-la tout de suite (Slite ne l’affiche qu’une fois) et colle-la ici. Pouple montre à qui appartient le compte avant d’enregistrer.",
 	"Slite does not accept this key. Create a new API key in the API settings and paste it again.":                     "Slite n’accepte pas cette clé. Crée une nouvelle clé d’API dans les réglages API et colle-la à nouveau.",
-	"Domain": "Domaine",
+	"Domain":        "Domaine",
+	"Slite address": "Adresse de Slite",
+	"The address you use to open Slite, for example https://your-team.slite.com. Pouple uses it to open the right settings page.": "L’adresse que tu utilises pour ouvrir Slite, par exemple https://ton-equipe.slite.com. Pouple s’en sert pour ouvrir la bonne page de réglages.",
+	"Open my Slite settings": "Ouvrir les réglages de mon Slite",
+	"Type the address you use to open Slite, for example https://your-team.slite.com.": "Saisis l’adresse que tu utilises pour ouvrir Slite, par exemple https://ton-equipe.slite.com.",
+	"This is not a valid Slite address. Example: https://your-team.slite.com":          "Ce n’est pas une adresse Slite valide. Exemple : https://ton-equipe.slite.com",
+	"A Slite address looks like https://your-team.slite.com.":                          "Une adresse Slite ressemble à https://ton-equipe.slite.com.",
+	"Address": "Adresse",
 
 	// Journal: lookups in the connected services
 	"%s: could not be read (%s)":                               "%s : lecture impossible (%s)",

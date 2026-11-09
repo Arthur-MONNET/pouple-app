@@ -125,6 +125,11 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		Required: false,
 		Order:    12,
 		Fields: []connector.Field{{
+			ID:          "url",
+			Label:       "Slite address",
+			Help:        "The address you use to open Slite, for example https://your-team.slite.com. Pouple uses it to open the right settings page.",
+			Placeholder: "https://your-team.slite.com",
+		}, {
 			ID:          "token",
 			Label:       "API key",
 			Help:        "It stays in your Mac's keychain and is never shown again.",
@@ -134,7 +139,7 @@ func (c *Connector) Descriptor() connector.Descriptor {
 			PatternHint: "does not look like a Slite API key (no spaces)",
 		}},
 		Guide: []connector.GuideStep{
-			{Title: "Open the Slite settings", Body: "In Slite, open your organization menu (top left), then Settings, then API. Slite explains the same steps on its developer page.", Link: &connector.Link{Label: "Slite API help", URL: DocsURL}},
+			{Title: "Open the Slite settings", Body: "In Slite, open your organization menu (top left), then Settings, then API. Slite explains the same steps on its developer page.", Link: &connector.Link{Label: "Open my Slite settings", URL: "https://slite.com/settings", HostField: "url"}},
 			{Title: "Create an API key", Body: "On the API page, click Create a new key and follow the instructions. Pouple only searches and reads notes: it never changes anything in Slite."},
 			{Title: "Paste the key", Body: "Copy it right away (Slite shows it only once) and paste it here. Pouple shows whose account it is before saving."},
 		},
@@ -153,6 +158,10 @@ func (c *Connector) client(key string) *Client {
 }
 
 func (c *Connector) Validate(ctx context.Context, values connector.Values) (connector.Profile, error) {
+	workspace, err := ParseWorkspaceURL(values["url"])
+	if err != nil {
+		return connector.Profile{}, err
+	}
 	client := c.client(strings.TrimSpace(values["token"]))
 	me, err := client.Me(ctx)
 	switch {
@@ -165,6 +174,7 @@ func (c *Connector) Validate(ctx context.Context, values connector.Values) (conn
 	if profile.Name == "" {
 		profile.Name = me.Email
 	}
+	profile.Facts = append(profile.Facts, connector.Fact{Label: "Address", Value: workspace.Host})
 	if me.OrganizationName != "" {
 		profile.Facts = append(profile.Facts, connector.Fact{Label: "Organization", Value: me.OrganizationName})
 	}

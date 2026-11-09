@@ -3,6 +3,7 @@ package slite
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,23 +50,23 @@ func fakeSlite(t *testing.T, meBody string) *Connector {
 }
 
 func TestValidateReturnsTheProfile(t *testing.T) {
-	profile, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"token": goodKey})
+	profile, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"url": "https://acme.slite.com", "token": goodKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.Name != "Arthur Monnet" || len(profile.Facts) != 3 || profile.Facts[0] != (connector.Fact{Label: "Organization", Value: "Acme"}) || len(profile.Warnings) != 0 {
+	if profile.Name != "Arthur Monnet" || len(profile.Facts) != 4 || profile.Facts[0] != (connector.Fact{Label: "Address", Value: "acme.slite.com"}) || profile.Facts[1] != (connector.Fact{Label: "Organization", Value: "Acme"}) || len(profile.Warnings) != 0 {
 		t.Fatalf("unexpected profile %+v", profile)
 	}
 }
 
 func TestBadKeyAndMalformedAnswer(t *testing.T) {
-	_, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"token": "wrong-key-0123456789"})
+	_, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"url": "https://acme.slite.com", "token": "wrong-key-0123456789"})
 	invalid, ok := err.(*connector.ValidationError)
 	if !ok || invalid.Field != "token" || !strings.Contains(invalid.Message, "does not accept") {
 		t.Fatalf("got %v", err)
 	}
 	for _, body := range []string{`<html></html>`, `{}`, `[]`} {
-		if _, err := fakeSlite(t, body).Validate(context.Background(), connector.Values{"token": goodKey}); err == nil {
+		if _, err := fakeSlite(t, body).Validate(context.Background(), connector.Values{"url": "https://acme.slite.com", "token": goodKey}); err == nil {
 			t.Errorf("%s was accepted", body)
 		}
 	}
@@ -95,9 +96,9 @@ func TestEveryTextHasAFrenchTranslation(t *testing.T) {
 			keys = append(keys, step.Link.Label)
 		}
 	}
-	_, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"token": "wrong-key-0123456789"})
+	_, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"url": "https://acme.slite.com", "token": "wrong-key-0123456789"})
 	keys = append(keys, err.(*connector.ValidationError).Message)
-	profile, _ := fakeSlite(t, "").Validate(context.Background(), connector.Values{"token": goodKey})
+	profile, _ := fakeSlite(t, "").Validate(context.Background(), connector.Values{"url": "https://acme.slite.com", "token": goodKey})
 	for _, fact := range profile.Facts {
 		keys = append(keys, fact.Label)
 	}
@@ -106,7 +107,34 @@ func TestEveryTextHasAFrenchTranslation(t *testing.T) {
 			t.Errorf("no French for %q", key)
 		}
 	}
-	if descriptor.Required || descriptor.Order != 12 || descriptor.ID != "slite" || descriptor.Guide[0].Link.URL != DocsURL {
+	if descriptor.Required || descriptor.Order != 12 || descriptor.ID != "slite" || descriptor.Guide[0].Link.HostField != "url" {
 		t.Fatalf("unexpected descriptor %+v", descriptor)
+	}
+}
+
+func TestWorkspaceAddress(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://darylsocialsoftware.slite.com/": "darylsocialsoftware.slite.com",
+		"darylsocialsoftware.slite.com":          "darylsocialsoftware.slite.com",
+		"  DarylSocialSoftware ":                 "darylsocialsoftware.slite.com",
+		"https://acme.slite.com/settings/api":    "acme.slite.com",
+	} {
+		got, err := ParseWorkspaceURL(raw)
+		if err != nil || got.Host != want || got.Scheme != "https" {
+			t.Errorf("%q: got %v, %v; want https://%s", raw, got, err, want)
+		}
+	}
+	for _, raw := range []string{"", "http://acme.slite.com", "https://evil.example.com", "https://a.b.slite.com", "https://user@acme.slite.com", "https://acme.slite.com:8443", "https://.slite.com"} {
+		if _, err := ParseWorkspaceURL(raw); err == nil {
+			t.Errorf("%q should be refused", raw)
+		}
+	}
+}
+
+func TestValidateNeedsTheAddress(t *testing.T) {
+	_, err := fakeSlite(t, "").Validate(context.Background(), connector.Values{"token": goodKey})
+	var invalid *connector.ValidationError
+	if !errors.As(err, &invalid) || invalid.Field != "url" {
+		t.Fatalf("expected an error on the url field, got %v", err)
 	}
 }
