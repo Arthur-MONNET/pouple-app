@@ -70,6 +70,9 @@ type Options struct {
 	Channels map[string]ChannelMode
 	// Keywords are words that make a message a request, wherever it is posted.
 	Keywords []string
+	// Hints are threads where a live event just reported a message. A thread the user follows on Slack is read even
+	// when no search found it. Nil means polling only.
+	Hints *ThreadHints
 	// Now is the clock; nil means time.Now. Its location decides the day boundaries of Slack's day-granular search.
 	Now func() time.Time
 }
@@ -95,6 +98,7 @@ const (
 	threadWindowDays  = 7
 	maxSeen           = 500
 	maxThreads        = 15
+	maxHintedThreads  = 20
 	maxChannelsPolled = 25
 	groupListTTL      = 10 * time.Minute
 	contextMessages   = 6
@@ -130,10 +134,12 @@ type Inbox struct {
 	ignored  map[string]bool
 	channels map[string]ChannelMode
 	keywords []string
+	hints    *ThreadHints
 	now      func() time.Time
 
 	mu     sync.Mutex
 	groups *groupList
+	info   map[string]conversationInfo
 }
 
 type groupList struct {
@@ -155,7 +161,7 @@ func NewInbox(client *Client, opts Options) *Inbox {
 	if now == nil {
 		now = time.Now
 	}
-	return &Inbox{client: client, ignored: ignored, channels: channels, keywords: append([]string(nil), opts.Keywords...), now: now}
+	return &Inbox{client: client, ignored: ignored, channels: channels, keywords: append([]string(nil), opts.Keywords...), hints: opts.Hints, now: now, info: map[string]conversationInfo{}}
 }
 
 // Identity tells who the token belongs to and the workspace URL.
@@ -347,45 +353,128 @@ type threadRef struct {
 	threadTS               string
 }
 
-// threadReplies finds replies written by others in the threads the user took part in recently.
+// threadReplies finds replies written by others in the threads the user follows: the ones they took part in (their
+// messages and replies) and the ones that mention them, in the first message or in a reply, within the last
+// threadWindowDays. Threads where a live event just reported a message are added when Slack says the user follows them.
 func (i *Inbox) threadReplies(ctx context.Context, userID, teamURL string, floor int64) ([]candidate, error) {
 	windowStart := i.slackDay(floor - threadWindowDays*daySeconds)
 	mine, err := i.client.search(ctx, fmt.Sprintf("from:<@%s> is:thread after:%s", userID, windowStart), 100)
 	if err != nil {
 		return nil, err
 	}
-	var order []string
-	threads := map[string]threadRef{}
-	for _, hit := range mine {
+	mentioned, err := i.client.search(ctx, fmt.Sprintf("<@%s> after:%s", userID, windowStart), 100)
+	if err != nil {
+		return nil, err
+	}
+	var found []candidate
+	searched := map[string]bool{}
+	for _, thread := range followedThreads(threadsOf(mine), threadsOf(mentioned)) {
+		searched[thread.channelID+":"+thread.threadTS] = true
+		messages, err := i.client.replies(ctx, thread.channelID, thread.threadTS, floor)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, repliesOf(messages.replies, thread, userID, teamURL)...)
+	}
+
+	hinted := i.hints.take(maxHintedThreads)
+	for position, thread := range hinted {
+		if searched[thread.channelID+":"+thread.threadTS] {
+			continue
+		}
+		messages, err := i.client.replies(ctx, thread.channelID, thread.threadTS, floor)
+		if err != nil {
+			i.hints.putBack(hinted[position:])
+			return nil, err
+		}
+		if !messages.subscribed {
+			continue
+		}
+		thread = i.withConversation(ctx, thread)
+		found = append(found, repliesOf(messages.replies, thread, userID, teamURL)...)
+	}
+	return found, nil
+}
+
+// repliesOf turns the replies of others in a thread into candidates; the user's own replies are never requests.
+func repliesOf(replies []conversationMessage, thread threadRef, userID, teamURL string) []candidate {
+	var found []candidate
+	for _, reply := range replies {
+		if reply.userID == "" || reply.userID == userID {
+			continue
+		}
+		link := "?thread_ts=" + thread.threadTS + "&cid=" + thread.channelID
+		found = append(found, candidate{OriginThreadReply, fromMessage(reply, thread.channelID, thread.channelName, thread.isDM, teamURL, link)})
+	}
+	return found
+}
+
+// withConversation fills in the name and kind of the thread's conversation, which a live event does not carry. Without
+// the optional *:read scopes the name stays empty: the request is still found, only less well labelled.
+func (i *Inbox) withConversation(ctx context.Context, thread threadRef) threadRef {
+	i.mu.Lock()
+	info, known := i.info[thread.channelID]
+	i.mu.Unlock()
+	if !known {
+		found, err := i.client.channelInfo(ctx, thread.channelID)
+		if err != nil {
+			// A direct message id starts with D; anything else keeps the plain channel treatment.
+			found = conversationInfo{isDM: strings.HasPrefix(thread.channelID, "D")}
+		}
+		info = found
+		i.mu.Lock()
+		i.info[thread.channelID] = info
+		i.mu.Unlock()
+	}
+	thread.channelName, thread.isDM = info.name, info.isDM
+	return thread
+}
+
+// threadsOf lists the threads the hits belong to, in the order of the hits, each once. A top-level hit is the first
+// message of its own thread.
+func threadsOf(hits []searchHit) []threadRef {
+	var threads []threadRef
+	known := map[string]bool{}
+	for _, hit := range hits {
 		threadTS := hit.threadTS
 		if threadTS == "" {
 			threadTS = hit.ts
 		}
 		key := hit.channelID + ":" + threadTS
-		if _, known := threads[key]; !known {
-			order = append(order, key)
+		if known[key] {
+			continue
 		}
-		threads[key] = threadRef{channelID: hit.channelID, channelName: hit.channelName, isDM: hit.isDM, threadTS: threadTS}
+		known[key] = true
+		threads = append(threads, threadRef{channelID: hit.channelID, channelName: hit.channelName, isDM: hit.isDM, threadTS: threadTS})
 	}
-	if len(order) > maxThreads {
-		order = order[:maxThreads]
-	}
-	var found []candidate
-	for _, key := range order {
-		thread := threads[key]
-		replies, err := i.client.replies(ctx, thread.channelID, thread.threadTS, floor)
-		if err != nil {
-			return nil, err
-		}
-		for _, reply := range replies {
-			if reply.userID == "" || reply.userID == userID {
+	return threads
+}
+
+// followedThreads merges the thread lists taking one of each in turn, so neither source starves the other when
+// maxThreads cuts the result, and keeps each thread once.
+func followedThreads(sources ...[]threadRef) []threadRef {
+	var merged []threadRef
+	known := map[string]bool{}
+	for position := 0; len(merged) < maxThreads; position++ {
+		more := false
+		for _, source := range sources {
+			if position >= len(source) {
 				continue
 			}
-			link := "?thread_ts=" + thread.threadTS + "&cid=" + thread.channelID
-			found = append(found, candidate{OriginThreadReply, fromMessage(reply, thread.channelID, thread.channelName, thread.isDM, teamURL, link)})
+			more = true
+			thread := source[position]
+			key := thread.channelID + ":" + thread.threadTS
+			if known[key] || len(merged) == maxThreads {
+				continue
+			}
+			known[key] = true
+			merged = append(merged, thread)
+		}
+		if !more {
+			break
 		}
 	}
-	return found, nil
+	return merged
 }
 
 func (i *Inbox) keywordHits(ctx context.Context, after string) ([]candidate, error) {
@@ -502,7 +591,8 @@ func (i *Inbox) modeOf(hit searchHit) ChannelMode {
 // isRequest applies the same rules Slack applies before it notifies.
 func (i *Inbox) isRequest(c candidate, userID string) bool {
 	hit := c.hit
-	if i.ignored[hit.channelID] || strings.TrimSpace(hit.text) == "" {
+	// A message of an app has no author the assistant could answer: it only reveals the thread it starts.
+	if i.ignored[hit.channelID] || strings.TrimSpace(hit.text) == "" || hit.userID == "" {
 		return false
 	}
 	// Your own messages are never requests, except the ones you write to yourself.

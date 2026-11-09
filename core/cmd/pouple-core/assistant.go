@@ -16,10 +16,11 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 	"github.com/Arthur-MONNET/pouple/core/internal/servicectx"
+	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 )
 
 // newAssistant builds the engine on top of the connectors and the settings.
-func newAssistant(dir string, registry *connector.Registry, settings *config.File, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
+func newAssistant(dir string, registry *connector.Registry, settings *config.File, hints *slackinbox.ThreadHints, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
 	store, err := engine.OpenStore(filepath.Join(dir, "requests.json"), func(err error) { logf("conversations not saved: %v", err) })
 	if err != nil {
 		return nil, nil, err
@@ -37,7 +38,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		return nil, nil, err
 	}
 	attachments := engine.NewAttachments(filepath.Join(dir, "attachments"))
-	slack := &slackSource{registry: registry, settings: settings}
+	slack := &slackSource{registry: registry, settings: settings, hints: hints}
 
 	load := func() config.Settings {
 		current, err := settings.Load()
@@ -178,8 +179,8 @@ func runAssistant(ctx context.Context, service *engine.Service, settings *config
 		if err != nil || current.PollSeconds < 15 {
 			current.PollSeconds = 60
 		}
-		// One poll uses three searches plus one per keyword. Stay below Slack's Tier 2 budget.
-		cooldown := max(15, 4*(3+len(current.Keywords)))
+		// One poll uses four searches plus one per keyword. Stay below Slack's Tier 2 budget.
+		cooldown := max(15, 4*(4+len(current.Keywords)))
 		return time.Duration(max(current.PollSeconds, cooldown)) * time.Second, time.Duration(cooldown) * time.Second
 	}, wake)
 }

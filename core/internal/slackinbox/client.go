@@ -179,7 +179,8 @@ func (c *Client) Identity(ctx context.Context) (userID, teamURL string, err erro
 	return userID, teamURL, nil
 }
 
-// searchHit is a message found by Slack search, with where it was posted.
+// searchHit is a message found by Slack search, with where it was posted. userID is empty for a message of an app
+// that has no user.
 type searchHit struct {
 	ts        string
 	text      string
@@ -246,6 +247,11 @@ func (c *Client) search(ctx context.Context, query string, count int) ([]searchH
 		channel, _ := asObject(match["channel"])
 		channelID, okChannel := str(channel, "id")
 		userID, okUser := str(match, "user")
+		if !okUser {
+			// An app's message may come without a user; it is kept (without author) so the thread it starts can be followed.
+			_, fromApp := str(match, "bot_id")
+			okUser = fromApp
+		}
 		if !okTS || !okText || !okChannel || !okUser {
 			continue
 		}
@@ -315,25 +321,39 @@ func (c *Client) messagesSince(ctx context.Context, channel string, oldest int64
 	return messages, nil
 }
 
-// replies returns the replies of a thread posted since oldest (epoch seconds), parent message excluded, oldest first.
-func (c *Client) replies(ctx context.Context, channel, threadTS string, oldest int64) ([]conversationMessage, error) {
+// threadMessages is what Slack says about a thread.
+type threadMessages struct {
+	// subscribed is whether the user follows the thread, as Slack itself tells it on the first message.
+	subscribed bool
+	// replies are the messages posted since the asked time, first message excluded, oldest first.
+	replies []conversationMessage
+}
+
+// replies reads a thread: the replies posted since oldest (epoch seconds) and whether the user follows it. Slack
+// returns the first message whatever oldest is, which is where it says "subscribed".
+func (c *Client) replies(ctx context.Context, channel, threadTS string, oldest int64) (threadMessages, error) {
 	body, err := c.call(ctx, "conversations.replies", url.Values{
 		"channel": {channel}, "ts": {threadTS}, "oldest": {strconv.FormatInt(oldest, 10)}, "limit": {"50"},
 	})
 	if err != nil {
-		return nil, err
+		return threadMessages{}, err
 	}
 	messages, err := parseConversationMessages(body, "conversations.replies")
 	if err != nil {
-		return nil, err
+		return threadMessages{}, err
 	}
-	replies := messages[:0]
-	for _, message := range messages {
-		if message.ts != threadTS {
-			replies = append(replies, message)
+	thread := threadMessages{replies: []conversationMessage{}}
+	if items, _ := list(body, "messages"); len(items) > 0 {
+		if first, ok := asObject(items[0]); ok {
+			thread.subscribed = flag(first, "subscribed")
 		}
 	}
-	return replies, nil
+	for _, message := range messages {
+		if message.ts != threadTS {
+			thread.replies = append(thread.replies, message)
+		}
+	}
+	return thread, nil
 }
 
 // groupConversations lists the group conversations the user is in. It needs the mpim:read scope.
@@ -407,6 +427,30 @@ func (c *Client) messagesBefore(ctx context.Context, channel, ts string, limit i
 		messages = append(messages, contextMessage{userID: userID, text: text})
 	}
 	return messages, nil
+}
+
+// conversationInfo is what Slack says about a conversation.
+type conversationInfo struct {
+	// name is empty for direct and group messages.
+	name string
+	isDM bool
+}
+
+// channelInfo reads a conversation's name. It needs the matching *:read scope, which is optional.
+func (c *Client) channelInfo(ctx context.Context, channel string) (conversationInfo, error) {
+	body, err := c.call(ctx, "conversations.info", url.Values{"channel": {channel}})
+	if err != nil {
+		return conversationInfo{}, err
+	}
+	info, ok := asObject(body["channel"])
+	if !ok {
+		return conversationInfo{}, unexpected("conversations.info")
+	}
+	result := conversationInfo{isDM: flag(info, "is_im")}
+	if !result.isDM && !flag(info, "is_mpim") {
+		result.name, _ = str(info, "name")
+	}
+	return result, nil
 }
 
 // displayName resolves a user id to the name people know them by, caching the answer.

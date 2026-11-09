@@ -56,7 +56,12 @@ func (h hitSpec) match() object {
 	if h.thread != "" {
 		permalink += "?thread_ts=" + h.thread + "&cid=" + h.channelID
 	}
-	match := object{"ts": h.ts, "text": h.text, "user": h.user, "channel": channel, "permalink": permalink}
+	match := object{"ts": h.ts, "text": h.text, "channel": channel, "permalink": permalink}
+	if h.user == "" {
+		match["bot_id"] = "B1"
+	} else {
+		match["user"] = h.user
+	}
 	if h.files != nil {
 		match["files"] = h.files
 	}
@@ -107,8 +112,10 @@ func history(messages []message) object {
 type world struct {
 	mentions, directs, keywordHits, myThreads []hitSpec
 	replies                                   []message
-	groups                                    []object
-	groupMessages, channelMessages            []message
+	// subscribed is what Slack says on the first message of any thread: whether the user follows it.
+	subscribed                     bool
+	groups                         []object
+	groupMessages, channelMessages []message
 	// messageFiles answers the one-message lookup, by timestamp.
 	messageFiles map[string][]any
 }
@@ -149,12 +156,13 @@ func newHarness(t *testing.T, w world, opts Options) *harness {
 		return history(w.channelMessages)
 	})
 	fake.on("conversations.replies", func(call) any {
-		list := []any{object{"ts": "1730000000.000100", "text": "parent", "user": me}}
+		list := []any{object{"ts": "1730000000.000100", "text": "parent", "user": me, "subscribed": w.subscribed}}
 		for _, m := range w.replies {
 			list = append(list, object{"ts": m.ts, "text": m.text, "user": m.user})
 		}
 		return ok(object{"messages": list})
 	})
+	fake.on("conversations.info", func(call) any { return ok(object{"channel": object{"name": "tests-before-deploy"}}) })
 	fake.on("users.conversations", func(call) any { return ok(object{"channels": append([]any{}, toAny(w.groups)...)}) })
 	fake.on("users.info", func(c call) any {
 		names := map[string]string{"U9": "Morgan", "U2": "Bob"}
@@ -249,7 +257,7 @@ func TestSearchesAskForTheDayBeforeTheLookback(t *testing.T) {
 		queries = append(queries, c.form.Get("query"))
 	}
 	slices.Sort(queries)
-	want := []string{`"amber" after:2026-11-04`, "<@U1> after:2026-11-04", "from:<@U1> is:thread after:2026-10-29", "is:dm after:2026-11-04"}
+	want := []string{`"amber" after:2026-11-04`, "<@U1> after:2026-11-04", "<@U1> after:2026-10-29", "from:<@U1> is:thread after:2026-10-29", "is:dm after:2026-11-04"}
 	slices.Sort(want)
 	if !reflect.DeepEqual(queries, want) {
 		t.Fatalf("queries = %q\nwant %q", queries, want)
@@ -429,6 +437,80 @@ func TestWhatElseSlackWouldNotify(t *testing.T) {
 		h.poll(t, fresh())
 		if got := h.fake.callsTo("conversations.replies")[0].form.Get("ts"); got != "1730000000.000100" {
 			t.Fatalf("ts = %q", got)
+		}
+	})
+
+	t.Run("replies to a message that mentions me, even when I never wrote in the thread", func(t *testing.T) {
+		parent := hit(func(h *hitSpec) { h.ts, h.channelID, h.channelName = "1730000000.000100", "C3", "tech" })
+		h := newHarness(t, world{mentions: []hitSpec{parent}, replies: []message{msg(40, "U9", "I took a look")}}, Options{})
+		c := fresh()
+
+		result := h.poll(t, c)
+
+		call := h.fake.callsTo("conversations.replies")[0]
+		if call.form.Get("channel") != "C3" || call.form.Get("ts") != "1730000000.000100" || call.form.Get("oldest") != floorOf(c) {
+			t.Fatalf("replies call = %v", call.form)
+		}
+		if len(result.Incoming) != 1 {
+			t.Fatalf("incoming = %+v", result.Incoming)
+		}
+		reply := result.Incoming[0]
+		if reply.Source.Origin != OriginThreadReply || reply.Source.ChannelID != "C3" || reply.Text != "I took a look" {
+			t.Fatalf("reply = %+v", reply)
+		}
+	})
+
+	t.Run("a reply that mentions me makes me follow its thread", func(t *testing.T) {
+		tag := hit(func(h *hitSpec) { h.thread, h.channelID = "1730000000.000100", "C3" })
+		h := newHarness(t, world{mentions: []hitSpec{tag}, replies: []message{msg(40, "U9", "A & B, small style diffs")}}, Options{})
+		c := fresh()
+		result := h.poll(t, c)
+		if got := h.fake.callsTo("conversations.replies")[0].form.Get("ts"); got != "1730000000.000100" {
+			t.Fatalf("followed thread = %q", got)
+		}
+		if want := []Origin{OriginMention, OriginThreadReply}; !reflect.DeepEqual(sortedOrigins(result.Incoming), want) {
+			t.Fatalf("origins = %v", origins(result.Incoming))
+		}
+	})
+
+	t.Run("an app message that mentions me is not a request but its thread is followed", func(t *testing.T) {
+		parent := hit(func(h *hitSpec) { h.user, h.ts, h.channelID = "", "1730000000.000100", "C3" })
+		h := newHarness(t, world{mentions: []hitSpec{parent}, replies: []message{msg(40, "U9", "I am testing")}}, Options{})
+		result := h.poll(t, fresh())
+		if want := []Origin{OriginThreadReply}; !reflect.DeepEqual(origins(result.Incoming), want) {
+			t.Fatalf("origins = %v, want %v", origins(result.Incoming), want)
+		}
+	})
+
+	t.Run("a thread I wrote in and that mentions me is followed once", func(t *testing.T) {
+		parent := hit(func(h *hitSpec) { h.ts = "1730000000.000100" })
+		mine := hit(func(h *hitSpec) { h.user, h.thread = me, "1730000000.000100" })
+		h := newHarness(t, world{mentions: []hitSpec{parent}, myThreads: []hitSpec{mine}}, Options{})
+		h.poll(t, fresh())
+		if n := len(h.fake.callsTo("conversations.replies")); n != 1 {
+			t.Fatalf("threads followed = %d, want 1", n)
+		}
+	})
+
+	t.Run("mentioned threads are not starved by the threads I wrote in", func(t *testing.T) {
+		var threads []hitSpec
+		for i := range 20 {
+			ts := fmt.Sprintf("17300000%02d.000100", i)
+			threads = append(threads, hit(func(h *hitSpec) { h.user, h.thread, h.channelID = me, ts, "C3" }))
+		}
+		parent := hit(func(h *hitSpec) { h.ts, h.channelID = "1729999999.000100", "C4" })
+		h := newHarness(t, world{myThreads: threads, mentions: []hitSpec{parent}}, Options{})
+		h.poll(t, fresh())
+		followed := h.fake.callsTo("conversations.replies")
+		if len(followed) != 15 {
+			t.Fatalf("threads followed = %d, want 15", len(followed))
+		}
+		var mentioned bool
+		for _, c := range followed {
+			mentioned = mentioned || c.form.Get("channel") == "C4"
+		}
+		if !mentioned {
+			t.Fatal("the mentioned thread was never followed")
 		}
 	})
 
@@ -841,4 +923,126 @@ func TestPollNeverReachesSlackWithTheTokenInAnAddress(t *testing.T) {
 	if len(h.fake.callsTo("auth.test")) == 0 {
 		t.Fatal("no call reached the fake Slack")
 	}
+}
+
+func TestHintedThreads(t *testing.T) {
+	const thread = "1730000000.000100"
+	hinted := func() *ThreadHints {
+		hints := NewThreadHints()
+		hints.Add("C7", thread)
+		return hints
+	}
+
+	t.Run("a thread Slack says I follow is read although no search found it", func(t *testing.T) {
+		h := newHarness(t, world{subscribed: true, replies: []message{msg(40, "U9", "A & B, small style diffs")}}, Options{Hints: hinted()})
+		result := h.poll(t, fresh())
+		if len(result.Incoming) != 1 {
+			t.Fatalf("incoming = %+v", result.Incoming)
+		}
+		reply := result.Incoming[0]
+		if reply.Source.Origin != OriginThreadReply || reply.Source.ChannelID != "C7" || reply.Text != "A & B, small style diffs" {
+			t.Fatalf("reply = %+v", reply)
+		}
+		if reply.Source.ChannelName == nil || *reply.Source.ChannelName != "tests-before-deploy" {
+			t.Fatalf("channel name = %v", reply.Source.ChannelName)
+		}
+	})
+
+	t.Run("a thread I do not follow is ignored", func(t *testing.T) {
+		h := newHarness(t, world{subscribed: false, replies: []message{msg(40, "U9", "chatter")}}, Options{Hints: hinted()})
+		if result := h.poll(t, fresh()); len(result.Incoming) != 0 {
+			t.Fatalf("incoming = %+v", result.Incoming)
+		}
+	})
+
+	t.Run("a thread already read through the searches is not read twice", func(t *testing.T) {
+		mine := hit(func(h *hitSpec) { h.user, h.thread, h.channelID = me, thread, "C7" })
+		hints := hinted()
+		h := newHarness(t, world{myThreads: []hitSpec{mine}, subscribed: true}, Options{Hints: hints})
+		h.poll(t, fresh())
+		if n := len(h.fake.callsTo("conversations.replies")); n != 1 {
+			t.Fatalf("reads = %d, want 1", n)
+		}
+	})
+
+	t.Run("a hint is consumed by a poll", func(t *testing.T) {
+		h := newHarness(t, world{subscribed: true}, Options{Hints: hinted()})
+		h.poll(t, fresh())
+		h.poll(t, fresh())
+		if n := len(h.fake.callsTo("conversations.replies")); n != 1 {
+			t.Fatalf("reads = %d, want 1", n)
+		}
+	})
+
+	t.Run("a thread that could not be read is tried again at the next poll", func(t *testing.T) {
+		h := newHarness(t, world{subscribed: true, replies: []message{msg(40, "U9", "any update?")}}, Options{Hints: hinted()})
+		h.fake.respond("conversations.replies", slackError("ratelimited"))
+		if first := h.poll(t, fresh()); len(first.Notices) == 0 {
+			t.Fatal("the failure should be reported as a notice")
+		}
+		h.fake.on("conversations.replies", func(call) any {
+			return ok(object{"messages": []any{
+				object{"ts": thread, "text": "parent", "user": "U9", "subscribed": true},
+				object{"ts": tsAgo(40), "text": "any update?", "user": "U9"},
+			}})
+		})
+		if second := h.poll(t, fresh()); len(second.Incoming) != 1 {
+			t.Fatalf("incoming = %+v", second.Incoming)
+		}
+	})
+
+	t.Run("a muted channel stays silent", func(t *testing.T) {
+		h := newHarness(t, world{subscribed: true, replies: []message{msg(40, "U9", "any update?")}}, Options{Hints: hinted(), Channels: map[string]ChannelMode{"C7": ModeMuted}})
+		if result := h.poll(t, fresh()); len(result.Incoming) != 0 {
+			t.Fatalf("incoming = %+v", result.Incoming)
+		}
+	})
+}
+
+func TestThreadHints(t *testing.T) {
+	t.Run("a thread is kept once and taken oldest first", func(t *testing.T) {
+		hints := NewThreadHints()
+		hints.Add("C1", "1.1")
+		hints.Add("C2", "2.1")
+		hints.Add("C1", "1.1")
+		taken := hints.take(10)
+		if len(taken) != 2 || taken[0].channelID != "C1" || taken[1].channelID != "C2" {
+			t.Fatalf("taken = %+v", taken)
+		}
+		if again := hints.take(10); len(again) != 0 {
+			t.Fatalf("taken twice: %+v", again)
+		}
+	})
+
+	t.Run("take leaves the rest for the next poll", func(t *testing.T) {
+		hints := NewThreadHints()
+		for i := range 5 {
+			hints.Add("C1", fmt.Sprintf("%d.1", i))
+		}
+		if got := len(hints.take(2)); got != 2 {
+			t.Fatalf("taken = %d", got)
+		}
+		if got := len(hints.take(10)); got != 3 {
+			t.Fatalf("left = %d", got)
+		}
+	})
+
+	t.Run("the oldest are forgotten past the cap", func(t *testing.T) {
+		hints := NewThreadHints()
+		for i := range maxHints + 10 {
+			hints.Add("C1", fmt.Sprintf("%d.1", i))
+		}
+		taken := hints.take(maxHints + 10)
+		if len(taken) != maxHints || taken[0].threadTS != "10.1" {
+			t.Fatalf("kept %d, first %q", len(taken), taken[0].threadTS)
+		}
+	})
+
+	t.Run("a nil set accepts and forgets", func(t *testing.T) {
+		var hints *ThreadHints
+		hints.Add("C1", "1.1")
+		if got := hints.take(5); got != nil {
+			t.Fatalf("taken = %+v", got)
+		}
+	})
 }

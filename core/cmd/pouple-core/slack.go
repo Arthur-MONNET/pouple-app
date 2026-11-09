@@ -15,6 +15,8 @@ import (
 type slackSource struct {
 	registry *connector.Registry
 	settings *config.File
+	// hints are the threads live events reported; they outlive the inbox, which is rebuilt when the token changes.
+	hints *slackinbox.ThreadHints
 
 	mu     sync.Mutex
 	token  string
@@ -36,7 +38,7 @@ func (s *slackSource) current() (*slackinbox.Client, *slackinbox.Inbox, error) {
 	// The inbox keeps its own caches, so it is rebuilt only when what it depends on changed.
 	s.client = slackinbox.NewClient(values["token"], nil, "")
 	s.token = values["token"]
-	s.inbox = slackinbox.NewInbox(s.client, slackinbox.Options{IgnoreChannels: settings.IgnoreChannels, Keywords: settings.Keywords})
+	s.inbox = slackinbox.NewInbox(s.client, slackinbox.Options{IgnoreChannels: settings.IgnoreChannels, Keywords: settings.Keywords, Hints: s.hints})
 	return s.client, s.inbox, nil
 }
 

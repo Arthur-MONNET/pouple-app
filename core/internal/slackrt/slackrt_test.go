@@ -174,3 +174,47 @@ func TestRunEndsWhenTheContextEnds(t *testing.T) {
 		t.Fatal("Run did not stop")
 	}
 }
+
+func threadEvent(id string, event map[string]any) map[string]any {
+	event["type"] = "message"
+	return map[string]any{"type": "events_api", "envelope_id": id, "payload": map[string]any{"event": event}}
+}
+
+func TestOnlyNewThreadRepliesAreReportedAsThreads(t *testing.T) {
+	f := newFake(t, func(ctx context.Context, socket *websocket.Conn) {
+		send(ctx, socket, map[string]any{"type": "hello"})
+		send(ctx, socket, threadEvent("reply", map[string]any{"channel": "C1", "ts": "2.2", "thread_ts": "1.1"}))
+		send(ctx, socket, threadEvent("broadcast", map[string]any{"channel": "C2", "ts": "4.4", "thread_ts": "3.3", "subtype": "thread_broadcast"}))
+		send(ctx, socket, threadEvent("first", map[string]any{"channel": "C1", "ts": "1.1", "thread_ts": "1.1"}))
+		send(ctx, socket, threadEvent("plain", map[string]any{"channel": "C1", "ts": "5.5"}))
+		send(ctx, socket, threadEvent("edit", map[string]any{"channel": "C1", "ts": "6.6", "thread_ts": "1.1", "subtype": "message_changed"}))
+		send(ctx, socket, threadEvent("last", map[string]any{"channel": "C3", "ts": "8.8", "thread_ts": "7.7"}))
+		<-ctx.Done()
+	})
+	var mu sync.Mutex
+	var threads []string
+	wakes := make(chan struct{}, 8)
+	c := &Client{AppToken: "xapp-good", HTTP: f.server.Client(), Base: f.server.URL, MaxBackoff: 50 * time.Millisecond,
+		OnEvent: func() { wakes <- struct{}{} },
+		OnThread: func(channelID, threadTS string) {
+			mu.Lock()
+			threads = append(threads, channelID+":"+threadTS)
+			mu.Unlock()
+		}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+
+	for range 6 {
+		select {
+		case <-wakes:
+		case <-time.After(5 * time.Second):
+			t.Fatal("every message event must still wake the inbox")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := "C1:1.1,C2:3.3,C3:7.7"; strings.Join(threads, ",") != want {
+		t.Fatalf("threads = %v, want %s", threads, want)
+	}
+}

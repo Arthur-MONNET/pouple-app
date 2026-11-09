@@ -33,6 +33,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
+	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 	"github.com/Arthur-MONNET/pouple/core/internal/ui"
 	"github.com/Arthur-MONNET/pouple/core/internal/updates"
 )
@@ -138,7 +139,8 @@ func run() error {
 			assistantSocket = socket
 		}
 	}
-	service, attachments, err := newAssistant(dir, registry, settings, log.Printf)
+	hints := slackinbox.NewThreadHints()
+	service, attachments, err := newAssistant(dir, registry, settings, hints, log.Printf)
 	if err != nil {
 		return err
 	}
@@ -197,7 +199,7 @@ func run() error {
 		stop()
 	}()
 	wake := make(chan struct{}, 1)
-	go watchSlackLive(ctx, registry, wake)
+	go watchSlackLive(ctx, registry, wake, hints)
 	go updateChecker.Run(ctx)
 	go runAssistant(ctx, service, settings, wake)
 	shutdownComplete := make(chan struct{})

@@ -7,11 +7,12 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
+	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 	"github.com/Arthur-MONNET/pouple/core/internal/slackrt"
 )
 
 // watchSlackLive follows the saved Slack connection so setup and token replacement take effect without a restart.
-func watchSlackLive(ctx context.Context, registry *connector.Registry, wake chan<- struct{}) {
+func watchSlackLive(ctx context.Context, registry *connector.Registry, wake chan<- struct{}, hints *slackinbox.ThreadHints) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	var connectedAt *time.Time
@@ -42,7 +43,7 @@ func watchSlackLive(ctx context.Context, registry *connector.Registry, wake chan
 				connectedAt = status.ConnectedAt
 				signal()
 				if token := values[slack.AppTokenField]; token != "" {
-					stopSession = startSlackLive(ctx, token, signal)
+					stopSession = startSlackLive(ctx, token, signal, hints)
 				}
 			}
 		}
@@ -54,8 +55,9 @@ func watchSlackLive(ctx context.Context, registry *connector.Registry, wake chan
 	}
 }
 
-func startSlackLive(parent context.Context, token string, signal func()) func() {
+func startSlackLive(parent context.Context, token string, signal func(), hints *slackinbox.ThreadHints) func() {
 	client := slackrt.New(token)
+	client.OnThread = hints.Add
 	client.OnEvent = signal
 	client.OnState = func(connected bool, _ string) {
 		if connected {

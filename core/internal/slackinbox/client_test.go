@@ -344,8 +344,25 @@ func TestRepliesExcludeTheParentMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []conversationMessage{{ts: "5.1", text: "reply", userID: "U2", files: []FileRef{}}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("replies = %+v", got)
+	if !reflect.DeepEqual(got.replies, want) {
+		t.Fatalf("replies = %+v", got.replies)
+	}
+	if got.subscribed {
+		t.Fatal("a thread Slack does not flag as followed must not be reported as followed")
+	}
+}
+
+func TestRepliesTellWhetherTheUserFollowsTheThread(t *testing.T) {
+	fake := newFakeSlack(t)
+	fake.respond("conversations.replies", ok(object{"messages": []any{
+		object{"ts": "4.1", "text": "parent", "user": "U1", "subscribed": true},
+	}}))
+	got, err := fake.client().replies(context.Background(), "C1", "4.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.subscribed {
+		t.Fatal("subscribed on the first message was not read")
 	}
 }
 

@@ -214,6 +214,8 @@ Other rules of the runner:
 Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 
 - Slack inbox: what would notify you (mentions, DMs, notes to self, group chats, thread replies, keywords).
+  Thread replies come from the threads you wrote in, the threads that mention you, and, with live events, any thread
+  Slack says you follow (`subscribed` on the first message), the same rule as Slack's Activity view.
 - Request state machine: queued, analyzing, awaiting-user, ready, applying, done, ignored, failed.
 - AI runner (Codex or Claude, see above): read-only by default, structured outcome (JSON schema), untrusted text
   always wrapped as data, writes only after approval and only in the chosen project, stop at any time, daily limit,

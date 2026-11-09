@@ -1,6 +1,6 @@
 // Package slackrt listens to Slack's Socket Mode, so Pouple learns about a new message the moment it is posted
-// instead of at the next poll. It does not read the messages itself: every event only wakes the inbox, which keeps
-// the single place where "would Slack notify the user?" is decided.
+// instead of at the next poll. It does not read the messages itself: every event only wakes the inbox (and, for a
+// reply in a thread, names the thread), which keeps the single place where "would Slack notify the user?" is decided.
 package slackrt
 
 import (
@@ -27,6 +27,9 @@ type Client struct {
 	Base string
 	// OnEvent is called for each message event (it must not block).
 	OnEvent func()
+	// OnThread is called, before OnEvent, for each message posted in a thread, with the channel and the thread's first
+	// message. Only identifiers are passed: deciding whether the message matters stays with the inbox. It must not block.
+	OnThread func(channelID, threadTS string)
 	// OnState is called when the connection comes up or goes down.
 	OnState func(connected bool, reason string)
 	// MaxBackoff caps the wait between two reconnection attempts.
@@ -53,7 +56,11 @@ type envelope struct {
 	EnvelopeID string `json:"envelope_id"`
 	Payload    struct {
 		Event struct {
-			Type string `json:"type"`
+			Type     string `json:"type"`
+			Subtype  string `json:"subtype"`
+			Channel  string `json:"channel"`
+			TS       string `json:"ts"`
+			ThreadTS string `json:"thread_ts"`
 		} `json:"event"`
 	} `json:"payload"`
 	Reason string `json:"reason"`
@@ -170,9 +177,22 @@ func (c *Client) session(ctx context.Context) error {
 		case "disconnect":
 			return fmt.Errorf("Slack asked to reconnect (%s)", message.Reason)
 		case "events_api":
-			if t := message.Payload.Event.Type; (t == "message" || t == "app_mention") && c.OnEvent != nil {
+			event := message.Payload.Event
+			if event.Type == "message" && c.OnThread != nil && isThreadReply(event.Channel, event.TS, event.ThreadTS, event.Subtype) {
+				c.OnThread(event.Channel, event.ThreadTS)
+			}
+			if (event.Type == "message" || event.Type == "app_mention") && c.OnEvent != nil {
 				c.OnEvent()
 			}
 		}
 	}
+}
+
+// isThreadReply tells whether a message event is a new reply in a thread: it has a thread, is not the thread's first
+// message, and is not an edit or a deletion of an earlier message.
+func isThreadReply(channelID, ts, threadTS, subtype string) bool {
+	if channelID == "" || threadTS == "" || threadTS == ts {
+		return false
+	}
+	return subtype != "message_changed" && subtype != "message_deleted"
 }
