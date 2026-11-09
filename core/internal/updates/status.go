@@ -42,13 +42,16 @@ type Result struct {
 	Reason    Reason
 	Installed *Installed
 	// Latest is the short commit of origin/main, empty before the first successful check.
-	Latest    string
+	Latest string
+	// Behind is how many commits of origin/main the running build does not have.
 	Behind    int
 	Changes   []string
 	Blockers  []BlockerCode
 	CheckedAt time.Time
 	Checking  bool
 	failure   failure
+	// buildCommit is the full commit of the running build, from the install record.
+	buildCommit string
 }
 
 // Installed describes the build that is running.

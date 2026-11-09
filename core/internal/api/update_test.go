@@ -45,11 +45,13 @@ func (g *updateGit) run(_ context.Context, cmd updates.Command) (string, error) 
 		return "main\n", nil
 	case "rev-parse --verify --quiet origin/main^{commit}":
 		return updateLatest + "\n", nil
-	case "rev-list --count HEAD..origin/main --":
+	case "rev-parse --verify --quiet " + updateHead + "^{commit}":
+		return updateHead + "\n", nil
+	case "rev-list --count " + updateHead + "..origin/main --":
 		return "3\n", nil
 	case "rev-list --count origin/main..HEAD --":
 		return "0\n", nil
-	case "log --format=%s -n 15 HEAD..origin/main --":
+	case "log --format=%s -n 15 " + updateHead + "..origin/main --":
 		return "feat: one\nfix: two\nchore: three\n", nil
 	case "status --porcelain --untracked-files=no":
 		return " M README.md\n", nil

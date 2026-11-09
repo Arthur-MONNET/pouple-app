@@ -194,9 +194,9 @@ func TestUpToDate(t *testing.T) {
 
 func TestBehindListsWhatChanges(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "3\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "3\n", nil)
 	long := strings.Repeat("très long ", 40)
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --",
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --",
 		"feat: add updates\n\n  fix:\tspaces   and\x1b[31m controls\r\n"+long+"\n", nil)
 	s := status(fx.checker().Check(context.Background()))
 	if !s.Available || s.Behind != 3 {
@@ -218,14 +218,49 @@ func TestBehindListsWhatChanges(t *testing.T) {
 	}
 }
 
+func TestTheInstalledBuildIsWhatBehindIsMeasuredFrom(t *testing.T) {
+	// The checkout is already on origin/main (HEAD..origin/main is 0) but the running build is older.
+	fx := newFixture(t)
+	fx.git.set("rev-list --count HEAD..origin/main --", "0\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "2\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "feat: newer\nfix: older\n", nil)
+	s := status(fx.checker().Check(context.Background()))
+	if !s.Available || s.Behind != 2 || !reflect.DeepEqual(s.Changes, []string{"feat: newer", "fix: older"}) {
+		t.Fatalf("an older build is offered the update: %+v", s)
+	}
+	if len(s.Blockers) != 0 {
+		t.Errorf("blockers: %+v", s.Blockers)
+	}
+}
+
+func TestACheckoutThatLostTheInstalledCommitFallsBackToItsHead(t *testing.T) {
+	fx := newFixture(t)
+	fx.git.set("rev-parse --verify --quiet "+headSHA+"^{commit}", "", &CommandError{ExitCode: 1})
+	fx.git.set("rev-list --count HEAD..origin/main --", "4\n", nil)
+	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "a\nb\nc\nd\n", nil)
+	s := status(fx.checker().Check(context.Background()))
+	if !s.Available || s.Behind != 4 || s.Error != nil {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAGitThatCannotAnswerAboutTheInstalledCommitIsAnErrorNotAFallback(t *testing.T) {
+	fx := newFixture(t)
+	fx.git.set("rev-parse --verify --quiet "+headSHA+"^{commit}", "", context.DeadlineExceeded)
+	s := status(fx.checker().Check(context.Background()))
+	if s.Error == nil || s.Available {
+		t.Fatalf("%+v", s)
+	}
+}
+
 func TestChangesAreCappedAtFifteen(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "40\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "40\n", nil)
 	var lines []string
 	for i := range 40 {
 		lines = append(lines, fmt.Sprintf("commit %d", i))
 	}
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", strings.Join(lines, "\n")+"\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", strings.Join(lines, "\n")+"\n", nil)
 	s := status(fx.checker().Check(context.Background()))
 	if s.Behind != 40 || len(s.Changes) != 15 {
 		t.Errorf("behind %d, %d changes", s.Behind, len(s.Changes))
@@ -234,9 +269,9 @@ func TestChangesAreCappedAtFifteen(t *testing.T) {
 
 func TestBlockersAreReportedAndDoNotHideTheUpdate(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "2\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "2\n", nil)
 	fx.git.set("rev-list --count origin/main..HEAD --", "1\n", nil)
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "one\ntwo\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "one\ntwo\n", nil)
 	fx.git.set("rev-parse --abbrev-ref HEAD", "feature\n", nil)
 	fx.git.set("status --porcelain --untracked-files=no", " M core/go.mod\n", nil)
 	s := status(fx.checker().Check(context.Background()))
@@ -304,8 +339,8 @@ func TestGitFailuresBecomeLocalizedErrorsWithoutLeakingOutput(t *testing.T) {
 
 func TestFailedRefreshKeepsWhatWasKnown(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "2\n", nil)
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "one\ntwo\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "2\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "one\ntwo\n", nil)
 	c := fx.checker()
 	first := status(c.Check(context.Background()))
 	fx.advance(time.Minute)
@@ -378,12 +413,12 @@ func TestTheRealTimeoutIsThirtySeconds(t *testing.T) {
 
 func TestEveryCommandIsHardenedAndNeverUsesAShell(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "1\n", nil)
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "one\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "1\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "one\n", nil)
 	fx.checker().Check(context.Background())
 	wantPrefix := []string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks"}
 	wantEnv := []string{"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1"}
-	if len(fx.git.calls) != 9 {
+	if len(fx.git.calls) != 10 {
 		t.Fatalf("calls: %v", fx.git.keys())
 	}
 	for _, call := range fx.git.calls {
@@ -409,9 +444,10 @@ func TestEveryCommandIsHardenedAndNeverUsesAShell(t *testing.T) {
 		"fetch --quiet origin main",
 		"rev-parse --abbrev-ref HEAD",
 		"rev-parse --verify --quiet origin/main^{commit}",
-		"rev-list --count HEAD..origin/main --",
+		"rev-parse --verify --quiet " + headSHA + "^{commit}",
+		"rev-list --count " + headSHA + "..origin/main --",
 		"rev-list --count origin/main..HEAD --",
-		"log --format=%s -n 15 HEAD..origin/main --",
+		"log --format=%s -n 15 " + headSHA + "..origin/main --",
 		"status --porcelain --untracked-files=no",
 	}
 	if !reflect.DeepEqual(fx.git.keys(), want) {
@@ -421,8 +457,8 @@ func TestEveryCommandIsHardenedAndNeverUsesAShell(t *testing.T) {
 
 func TestManualChecksAreRateLimitedAndCached(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "1\n", nil)
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "one\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "1\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "one\n", nil)
 	c := fx.checker()
 	first := c.Check(context.Background())
 	fetches := func() int { return fx.git.count("fetch") }
@@ -582,8 +618,8 @@ func TestDefaultSchedule(t *testing.T) {
 
 func TestStatusJSONShape(t *testing.T) {
 	fx := newFixture(t)
-	fx.git.set("rev-list --count HEAD..origin/main --", "3\n", nil)
-	fx.git.set("log --format=%s -n 15 HEAD..origin/main --", "a\nb\nc\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "3\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "a\nb\nc\n", nil)
 	supported, _ := json.Marshal(status(fx.checker().Check(context.Background())))
 	want := `{"supported":true,"reason":"","message":"","installed":{"version":"0.1.0","commit":"1111111","installedAt":"2026-11-01T09:30:00Z"},"latest":{"commit":"def5678"},"available":true,"behind":3,"changes":["a","b","c"],"blockers":[],"checkedAt":"2026-11-06T12:00:00Z","checking":false,"error":null}`
 	if string(supported) != want {

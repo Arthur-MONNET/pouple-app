@@ -218,7 +218,11 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
-	behind, err := c.count(ctx, root, "HEAD..origin/main")
+	baseline, err := c.baseline(ctx, root, base.buildCommit)
+	if err != nil {
+		return fail(classify(ctx, err))
+	}
+	behind, err := c.count(ctx, root, baseline+"..origin/main")
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
@@ -228,7 +232,7 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 	}
 	var changes []string
 	if behind > 0 {
-		log, err := c.run(ctx, root, "log", "--format=%s", "-n", strconv.Itoa(maxChanges), "HEAD..origin/main", "--")
+		log, err := c.run(ctx, root, "log", "--format=%s", "-n", strconv.Itoa(maxChanges), baseline+"..origin/main", "--")
 		if err != nil {
 			return fail(classify(ctx, err))
 		}
@@ -273,7 +277,7 @@ func (c *Checker) inspect(ctx context.Context) (Result, string) {
 		return Result{Reason: reason, Installed: installed}, ""
 	}
 	// problem is set when git could not answer (timeout, git missing): the checkout is not judged invalid.
-	return Result{Supported: true, Installed: installed, Changes: []string{}, Blockers: []BlockerCode{}, failure: problem}, record.SourceRoot
+	return Result{Supported: true, Installed: installed, buildCommit: record.Commit, Changes: []string{}, Blockers: []BlockerCode{}, failure: problem}, record.SourceRoot
 }
 
 // validateCheckout makes sure root is a real, unlinked folder holding the Pouple sources whose git repository is
@@ -337,6 +341,22 @@ func (c *Checker) commit(ctx context.Context, root, ref string) (string, error) 
 		return "", fmt.Errorf("unexpected rev-parse output")
 	}
 	return out, nil
+}
+
+// baseline is what "behind" is measured from: the commit the running build was made from, so an update is offered
+// whenever that build is older than origin/main, even when the checkout has already moved on. It falls back to the
+// checkout's HEAD when the checkout no longer has that commit (rewritten history, a fresh clone). A git that could
+// not answer is an error, not a reason to fall back.
+func (c *Checker) baseline(ctx context.Context, root, buildCommit string) (string, error) {
+	sha, err := c.commit(ctx, root, buildCommit)
+	if err == nil {
+		return sha, nil
+	}
+	var failed *CommandError
+	if errors.As(err, &failed) {
+		return "HEAD", nil
+	}
+	return "", err
 }
 
 func (c *Checker) count(ctx context.Context, root, rangeSpec string) (int, error) {
