@@ -38,9 +38,44 @@ func (f *fakeAsana) SearchTasks(_ context.Context, words []string) ([]asana.Task
 type fakeGitLab struct {
 	overview gitlab.Overview
 	err      error
+
+	// The merge request side: ParseMergeRequest is the real one, on a fixed server.
+	details  gitlab.MergeRequestDetails
+	comments []gitlab.Comment
+	diffs    gitlab.Diffs
+	diffErr  error
+
+	mu    sync.Mutex
+	asked []string
 }
 
-func (f fakeGitLab) Overview(context.Context) (gitlab.Overview, error) { return f.overview, f.err }
+func (f *fakeGitLab) Overview(context.Context) (gitlab.Overview, error) { return f.overview, f.err }
+
+func (f *fakeGitLab) ParseMergeRequest(text string) (gitlab.MRRef, bool) {
+	client, _ := gitlab.NewClient("https://gitlab.example.com", "t")
+	return client.ParseMergeRequest(text)
+}
+
+func (f *fakeGitLab) record(call string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, call)
+}
+
+func (f *fakeGitLab) MergeRequest(_ context.Context, ref gitlab.MRRef) (gitlab.MergeRequestDetails, error) {
+	f.record("mr " + ref.String())
+	return f.details, nil
+}
+
+func (f *fakeGitLab) Comments(_ context.Context, ref gitlab.MRRef, _ int) ([]gitlab.Comment, error) {
+	f.record("comments " + ref.String())
+	return f.comments, nil
+}
+
+func (f *fakeGitLab) Diffs(_ context.Context, ref gitlab.MRRef, _ int) (gitlab.Diffs, error) {
+	f.record("diffs " + ref.String())
+	return f.diffs, f.diffErr
+}
 
 type fakeSlite struct {
 	mu   sync.Mutex
@@ -282,7 +317,7 @@ func unauthorized(t *testing.T) error {
 func TestTheBudgetIsHard(t *testing.T) {
 	r := newRig(t)
 	r.connect(t, "asana", "gitlab")
-	r.gatherer.NewGitLab = func(string, string) (GitLab, error) { return blocked{}, nil }
+	r.gatherer.NewGitLab = func(string, string) (GitLab, error) { return &blocked{}, nil }
 	r.gatherer.Budget = 100 * time.Millisecond
 	r.asana.open = asana.Open{Tasks: []asana.Task{{GID: "1", Name: "Fix login"}}}
 	started := time.Now()
@@ -296,9 +331,9 @@ func TestTheBudgetIsHard(t *testing.T) {
 }
 
 // blocked never answers, and does not even watch its context.
-type blocked struct{}
+type blocked struct{ fakeGitLab }
 
-func (blocked) Overview(context.Context) (gitlab.Overview, error) {
+func (*blocked) Overview(context.Context) (gitlab.Overview, error) {
 	time.Sleep(3 * time.Second)
 	return gitlab.Overview{}, nil
 }
@@ -306,16 +341,16 @@ func (blocked) Overview(context.Context) (gitlab.Overview, error) {
 func TestAPanicInAClientIsAContainedFailure(t *testing.T) {
 	r := newRig(t)
 	r.connect(t, "gitlab")
-	r.gatherer.NewGitLab = func(string, string) (GitLab, error) { return panicking{}, nil }
+	r.gatherer.NewGitLab = func(string, string) (GitLab, error) { return &panicking{}, nil }
 	got := r.gatherer.Gather(context.Background(), engine.ServiceQuery{Text: "ok"})
 	if !strings.Contains(got.Text, "GitLab: unavailable") {
 		t.Fatalf("got %q", got.Text)
 	}
 }
 
-type panicking struct{}
+type panicking struct{ fakeGitLab }
 
-func (panicking) Overview(context.Context) (gitlab.Overview, error) { panic("boom") }
+func (*panicking) Overview(context.Context) (gitlab.Overview, error) { panic("boom") }
 
 func TestSmallTalkSkipsTheKnowledgeBaseButNotTheOverview(t *testing.T) {
 	r := newRig(t)

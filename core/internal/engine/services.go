@@ -38,8 +38,8 @@ type Lookup struct {
 	Target  string `json:"target"`
 }
 
-// maxServiceChars bounds what the connected services add to a prompt.
-const maxServiceChars = 8000
+// maxServiceChars bounds what the connected services add to a prompt: enough for a merge request with its code.
+const maxServiceChars = 40000
 
 // serviceSources are the sourcesUsed values that name a connected service.
 var serviceSources = []string{"asana", "gitlab", "slite"}

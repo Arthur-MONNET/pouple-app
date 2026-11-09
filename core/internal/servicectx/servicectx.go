@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
@@ -56,6 +57,11 @@ type Asana interface {
 // GitLab is the part of the GitLab client the gatherer uses.
 type GitLab interface {
 	Overview(ctx context.Context) (gitlab.Overview, error)
+	// ParseMergeRequest reads a merge request of this server from an address or "group/project!123".
+	ParseMergeRequest(text string) (gitlab.MRRef, bool)
+	MergeRequest(ctx context.Context, ref gitlab.MRRef) (gitlab.MergeRequestDetails, error)
+	Comments(ctx context.Context, ref gitlab.MRRef, limit int) ([]gitlab.Comment, error)
+	Diffs(ctx context.Context, ref gitlab.MRRef, limit int) (gitlab.Diffs, error)
 }
 
 // Slite is the part of the Slite client the gatherer uses.
@@ -199,7 +205,7 @@ func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 				if err != nil {
 					return failure(source, name, i18n.NewMessage("the saved connection could not be used"))
 				}
-				return g.gitlab(ctx, client)
+				return g.gitlab(ctx, client, query.Text)
 			}})
 		case slite.ID:
 			if len(words) == 0 {
@@ -319,7 +325,28 @@ func (g *Gatherer) taskLine(task asana.Task, withAssignee bool) string {
 	return line
 }
 
-func (g *Gatherer) gitlab(ctx context.Context, client GitLab) section {
+// gitlab reads the user's merge requests, and in full the ones the message links to (their code included), so a
+// review request needs no "send me the diff".
+func (g *Gatherer) gitlab(ctx context.Context, client GitLab, text string) section {
+	refs := mergeRequestRefs(client, text)
+	if len(refs) == 0 {
+		return g.gitlabOverview(ctx, client)
+	}
+	var overview, review section
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() { defer wait.Done(); defer func() { _ = recover() }(); overview = g.gitlabOverview(ctx, client) }()
+	go func() {
+		defer wait.Done()
+		defer func() { _ = recover() }()
+		review = g.reviewSection(ctx, client, refs)
+	}()
+	wait.Wait()
+	// What the message is about comes first.
+	return section{source: gitlab.ID, lines: append(review.lines, overview.lines...), steps: append(review.steps, overview.steps...)}
+}
+
+func (g *Gatherer) gitlabOverview(ctx context.Context, client GitLab) section {
 	out := section{source: gitlab.ID}
 	overview, err := client.Overview(ctx)
 	if err != nil {

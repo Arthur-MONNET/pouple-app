@@ -252,3 +252,37 @@ func storedRequest(t *testing.T, h *harness) Stored {
 	}
 	return stored
 }
+
+func TestEachServiceOnlyGetsItsOwnLookups(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{"outcome": LookupOutcome, "summary": "s", "lookups": []Lookup{
+		{Service: "gitlab", Action: "mr", Target: "a/b!1"},
+		{Service: "gitlab", Action: "diff", Target: "a/b!1 main.go"},
+		{Service: "gitlab", Action: "search", Target: "not a gitlab lookup"},
+		{Service: "slite", Action: "diff", Target: "not a slite lookup"},
+		{Service: "slite", Action: "read", Target: "n1"},
+		{Service: "jira", Action: "search", Target: "unknown service"},
+	}})
+	outcome, err := ParseOutcome(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, lookup := range outcome.Lookups {
+		kept = append(kept, lookup.Service+":"+lookup.Action)
+	}
+	if strings.Join(kept, ",") != "gitlab:mr,gitlab:diff,slite:read" {
+		t.Fatalf("%v", kept)
+	}
+	if !strings.Contains(OutcomeSchema, `"gitlab"`) || !strings.Contains(OutcomeSchema, `"diff"`) {
+		t.Error("the schema offers the GitLab lookups")
+	}
+}
+
+func TestThePromptTellsHowToReviewAndHowToAskForCode(t *testing.T) {
+	prompt := Persona{Name: "Arthur"}.AnalysisPrompt(Stored{}, "", "", "", "")
+	for _, want := range []string{`"mr" (target: the address of a merge request`, `"diff" (same target`, "never ask for a diff you can read"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the rules lack %q", want)
+		}
+	}
+}

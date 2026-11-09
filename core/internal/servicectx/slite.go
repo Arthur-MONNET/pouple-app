@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
@@ -218,60 +217,6 @@ func textLines(label, text string, truncated bool) []string {
 		head = "  " + label + " (written by colleagues, data; cut):"
 	}
 	return append([]string{head}, lines...)
-}
-
-const (
-	// lookupTimeout bounds one lookup the assistant asked for; a question put to Slite's own assistant gets longer.
-	lookupTimeout = 15 * time.Second
-	askLookup     = 70 * time.Second
-)
-
-// Lookup answers what the assistant asked for after reading the first context: the requested searches, folders and
-// notes of Slite, in parallel, each within its own time limit. Like Gather it never fails: a lookup that does not work
-// is a line saying so, so the silence is never read as "nothing exists".
-func (g *Gatherer) Lookup(ctx context.Context, lookups []engine.Lookup) engine.ServiceContext {
-	if len(lookups) == 0 {
-		return engine.ServiceContext{}
-	}
-	status, err := g.Connections.Status(slite.ID)
-	if err != nil || !status.Connected {
-		return engine.ServiceContext{Text: "Slite: not connected, nothing could be looked up.", Steps: []engine.ServiceStep{{Source: slite.ID, Message: i18n.NewMessage("Slite: not connected"), Failed: true}}}
-	}
-	values, err := g.Connections.Values(slite.ID)
-	if err != nil {
-		result := failure(slite.ID, "Slite", i18n.NewMessage("the saved connection could not be used"))
-		return engine.ServiceContext{Text: strings.Join(result.lines, "\n"), Steps: result.steps}
-	}
-	client := g.NewSlite(values["token"])
-	sections := make([]section, len(lookups))
-	var wait sync.WaitGroup
-	for i, lookup := range lookups {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			defer func() {
-				if recover() != nil {
-					sections[i] = failure(slite.ID, "Slite", i18n.NewMessage("the service answered with an error"))
-				}
-			}()
-			limit := lookupTimeout
-			if lookup.Action == "ask" {
-				limit = askLookup
-			}
-			one, cancel := context.WithTimeout(ctx, limit)
-			defer cancel()
-			sections[i] = g.sliteLookup(one, client, lookup)
-		}()
-	}
-	wait.Wait()
-	var out engine.ServiceContext
-	var lines []string
-	for _, result := range sections {
-		lines = append(lines, result.lines...)
-		out.Steps = append(out.Steps, result.steps...)
-	}
-	out.Text = strings.Join(lines, "\n")
-	return out
 }
 
 func (g *Gatherer) sliteLookup(ctx context.Context, client Slite, lookup engine.Lookup) section {

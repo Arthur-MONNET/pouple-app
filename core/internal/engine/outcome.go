@@ -26,8 +26,8 @@ const OutcomeSchema = `{
         "additionalProperties": false,
         "required": ["service", "action", "target"],
         "properties": {
-          "service": {"type": "string", "enum": ["slite"]},
-          "action": {"type": "string", "enum": ["search", "children", "read", "ask"]},
+          "service": {"type": "string", "enum": ["slite", "gitlab"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff"]},
           "target": {"type": "string"}
         }
       }
@@ -107,7 +107,11 @@ const (
 	maxLookupTarget = 500
 )
 
-var lookupActions = []string{"search", "children", "read", "ask"}
+// lookupActions are the lookups each service understands.
+var lookupActions = map[string][]string{
+	"slite":  {"search", "children", "read", "ask"},
+	"gitlab": {"mr", "diff"},
+}
 
 // ParseOutcome validates the final message of a turn.
 func ParseOutcome(text string) (Outcome, error) {
@@ -139,7 +143,7 @@ func ParseOutcome(text string) (Outcome, error) {
 	}
 	for _, lookup := range raw.Lookups {
 		target := strings.TrimSpace(lookup.Target)
-		if len(out.Lookups) == maxLookups || lookup.Service != "slite" || !slices.Contains(lookupActions, lookup.Action) || target == "" {
+		if len(out.Lookups) == maxLookups || !slices.Contains(lookupActions[lookup.Service], lookup.Action) || target == "" {
 			continue
 		}
 		out.Lookups = append(out.Lookups, Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)})
