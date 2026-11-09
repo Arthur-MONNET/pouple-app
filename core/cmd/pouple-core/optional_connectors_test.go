@@ -123,7 +123,7 @@ func TestOptionalConnectorsAreListedConnectedAndRemovedWithoutARestart(t *testin
 	for id, body := range map[string]string{
 		"gitlab": `{"values":{"url":"","token":"` + gitlabToken + `"}}`,
 		"asana":  `{"values":{"token":"` + asanaToken + `"}}`,
-		"slite":  `{"values":{"token":"` + sliteKey + `"}}`,
+		"slite":  `{"values":{"url":"https://your-team.slite.com","token":"` + sliteKey + `"}}`,
 	} {
 		saved := do(server, "PUT", "/api/connectors/"+id, body)
 		if saved.Code != 200 || !strings.Contains(saved.Body.String(), "Arthur Monnet") {
