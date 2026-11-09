@@ -72,7 +72,11 @@ final class UpdateLauncher {
                     self.show(L10n.text(.updateTerminalFailed, error.localizedDescription))
                 } else {
                     // The script waits for this process to end, then does the work: the app only has to get out of the way.
-                    NSApp.terminate(nil)
+                    // Not `NSApp.terminate(nil)` here: this block runs inside the main queue's drain, and quitting
+                    // closes the core from a main-actor task (applicationShouldTerminate answers .terminateLater).
+                    // That task can only run once this block has returned, so the app would wait for itself and never
+                    // quit. A run loop timer calls terminate from the event loop instead.
+                    NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
                 }
             }
         }
