@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainMenu.install(updates: updates, reload: { [weak self] in self?.windowController?.reload() })
         languageSubscription()
         updates.onUpdateNow = { [weak self] in self?.updateLauncher.launch() }
-        store.openApp = { [weak self] in self?.showMainWindow() }
+        store.openApp = { [weak self] id in self?.showMainWindow(conversation: id) }
         store.start()
         panelController = PanelController(store: store, corner: Self.argument("--corner").flatMap(Corner.init(rawValue:)))
         installStatusItem()
@@ -99,9 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Window
 
-    private func showMainWindow() {
+    private func showMainWindow(conversation: String? = nil) {
         let controller = windowController ?? makeWindowController()
-        controller.show()
+        controller.show(conversation: conversation)
     }
 
     private func makeWindowController() -> MainWindowController {

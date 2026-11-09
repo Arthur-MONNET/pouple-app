@@ -156,7 +156,7 @@ struct BubbleCard: View {
     }
 
     private var openButton: some View {
-        Button(L10n.text(.bubbleOpen)) { store.openPouple() }.buttonStyle(PillButtonStyle(role: .quiet))
+        Button(L10n.text(.bubbleOpen)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .quiet))
     }
 
     private func replyBox(_ text: String) -> some View {

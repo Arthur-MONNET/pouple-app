@@ -307,6 +307,11 @@ export const fr: MessageTree = {
     usageTitle: "Tours Codex utilisés aujourd'hui (sans limite)",
     usageTitleLimit: "Tours Codex utilisés aujourd'hui, sur la limite quotidienne",
   },
+  groups: {
+    notes: "Notes à moi-même",
+    group: "Conversation de groupe",
+    toggle: "Afficher ou masquer {name}",
+  },
   list: {
     label: 'Conversations',
     emptyTitle: 'Rien à faire. Pouple fait la sieste.',

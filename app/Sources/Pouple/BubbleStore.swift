@@ -25,7 +25,8 @@ final class BubbleStore: ObservableObject {
     @Published private(set) var api: PoupleAPI?
 
     /// Brings the main window to the front ("Open Pouple" in a bubble).
-    var openApp: () -> Void = {}
+    /// Opens the main window, on the conversation of a request when one is named.
+    var openApp: (String?) -> Void = { _ in }
 
     private var knownIDs: Set<String> = []
     private var hovered: Set<String> = []
@@ -136,8 +137,8 @@ final class BubbleStore: ObservableObject {
         perform(request.id) { api in try await api.retry(requestId: request.id) }
     }
 
-    func openPouple() {
-        openApp()
+    func openPouple(_ request: AssistantRequest) {
+        openApp(request.id)
     }
 
     func copy(_ text: String) {

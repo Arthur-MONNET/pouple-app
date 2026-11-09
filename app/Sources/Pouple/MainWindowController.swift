@@ -15,6 +15,8 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     private var activeNavigation: WKNavigation?
     private var pageShown = false
     private var coreState: CoreState = .starting
+    /// A conversation to show as soon as the page is there (the window was closed or still loading).
+    private var pendingConversation: String?
 
     /// Called when the window closes, so the app can leave the Dock.
     var onClose: () -> Void = {}
@@ -91,10 +93,25 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
         window.title = L10n.text(.windowTitle)
     }
 
-    func show() {
+    func show(conversation: String? = nil) {
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if let conversation { openConversation(conversation) }
+    }
+
+    /// Shows one conversation: right away when the page is up, else once it has loaded. The page decides what the id
+    /// means, and refuses anything that is not a plain id; the id travels as an argument, never as script text.
+    private func openConversation(_ id: String) {
+        guard pageShown else {
+            pendingConversation = id
+            return
+        }
+        pendingConversation = nil
+        webView.callAsyncJavaScript(
+            "window.dispatchEvent(new CustomEvent('pouple:open-conversation', { detail: { id } }))",
+            arguments: ["id": id], in: nil, in: .page, completionHandler: nil
+        )
     }
 
     func reload() {
@@ -174,6 +191,7 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
         // A hidden hosting view can still win AppKit hit-testing over the web view.
         placeholderHost.removeFromSuperview()
         webView.isHidden = false
+        if let pendingConversation { openConversation(pendingConversation) }
     }
 
     private func retry() {

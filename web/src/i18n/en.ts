@@ -303,6 +303,11 @@ export const en: MessageTree = {
     usageTitle: 'Codex turns used today (no limit)',
     usageTitleLimit: 'Codex turns used today, out of the daily limit',
   },
+  groups: {
+    notes: "Notes to self",
+    group: "Group conversation",
+    toggle: "Show or hide {name}",
+  },
   list: {
     label: 'Conversations',
     emptyTitle: 'Nothing to do. Pouple is napping.',
