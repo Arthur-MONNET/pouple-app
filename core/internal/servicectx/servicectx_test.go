@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,14 +43,53 @@ type fakeGitLab struct {
 func (f fakeGitLab) Overview(context.Context) (gitlab.Overview, error) { return f.overview, f.err }
 
 type fakeSlite struct {
-	hits  []slite.Hit
-	err   error
-	query string
+	mu   sync.Mutex
+	hits []slite.Hit
+	// byQuery answers a given search when set; hits answers the others.
+	byQuery  map[string][]slite.Hit
+	err      error
+	query    string
+	searches []string
+
+	children map[string][]slite.Child
+	notes    map[string]slite.Note
+	answer   slite.Answer
+	askErr   error
+	asked    string
 }
 
 func (f *fakeSlite) Search(_ context.Context, query string, _ int) ([]slite.Hit, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.query = query
+	f.searches = append(f.searches, query)
+	if hits, ok := f.byQuery[query]; ok {
+		return hits, f.err
+	}
 	return f.hits, f.err
+}
+
+func (f *fakeSlite) Children(_ context.Context, id string, _ int) ([]slite.Child, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.children[id], len(f.children[id]), nil
+}
+
+func (f *fakeSlite) Read(_ context.Context, id string, _ int) (slite.Note, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	note, ok := f.notes[id]
+	if !ok {
+		return slite.Note{}, errors.New("no such note")
+	}
+	return note, nil
+}
+
+func (f *fakeSlite) Ask(_ context.Context, question string) (slite.Answer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = question
+	return f.answer, f.askErr
 }
 
 // stub is a connector that accepts anything: the registry is real, so what is connected is read like in the app.
@@ -146,7 +186,7 @@ func TestFormatsEveryServiceAsQuotedOneLineData(t *testing.T) {
 		`GitLab, merge requests waiting for the user's review (1):`,
 		`pipeline: none`,
 		`Slite, notes matching the message (search: check login bug sso; written by colleagues):`,
-		`- "Login flow" (in "Engineering", updated 2026-10-01): excerpt "SSO ‹em›flow‹/em›"`,
+		`- "Login flow" (id n1, in "Engineering", updated 2026-10-01): excerpt "SSO ‹em›flow‹/em›"`,
 	} {
 		if !strings.Contains(got.Text, want) {
 			t.Errorf("missing %q in:\n%s", want, got.Text)

@@ -40,7 +40,9 @@ type Turn struct {
 	// SchemaFile holds the JSON schema the final answer must follow; "" asks for free text.
 	SchemaFile string
 	Images     []string
-	OnEvent    func(Event)
+	// Web lets the turn search the web and read public pages; only analysis turns the user allowed it for.
+	Web     bool
+	OnEvent func(Event)
 }
 
 // TurnResult is what a turn produced.
@@ -141,7 +143,7 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 		"-c", "notify=[]",
 		// Nothing from the user's own config may widen what an automated turn reaches.
 		"-c", "mcp_servers={}",
-		"-c", `web_search="disabled"`,
+		"-c", fmt.Sprintf(`web_search="%s"`, webSearchMode(turn.Web)),
 		"-c", "sandbox_workspace_write.network_access=false",
 		"-c", `shell_environment_policy.inherit="core"`,
 	)
@@ -152,6 +154,15 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 		return append(append([]string{"exec", "resume"}, shared...), turn.ResumeThread, "-")
 	}
 	return append(append([]string{"exec", "--sandbox", string(turn.Sandbox)}, shared...), "-")
+}
+
+// webSearchMode is Codex's own web search tool: "live" searches and reads pages as they are now. It runs on OpenAI's
+// side, not in the sandbox, which keeps its network closed.
+func webSearchMode(allowed bool) string {
+	if allowed {
+		return "live"
+	}
+	return "disabled"
 }
 
 func firstNonEmpty(values ...string) string {

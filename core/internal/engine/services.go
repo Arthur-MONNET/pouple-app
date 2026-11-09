@@ -30,6 +30,14 @@ type ServiceContext struct {
 	Steps []ServiceStep
 }
 
+// Lookup is something the assistant asks a connected service for after reading the first context: a search with other
+// words, the content of a folder, a note, or a question put to the service's own assistant.
+type Lookup struct {
+	Service string `json:"service"`
+	Action  string `json:"action"`
+	Target  string `json:"target"`
+}
+
 // maxServiceChars bounds what the connected services add to a prompt.
 const maxServiceChars = 8000
 
@@ -52,18 +60,22 @@ func (s *Service) gatherServices(ctx context.Context, request Stored) string {
 	if s.deps.Services == nil {
 		return ""
 	}
-	result := s.deps.Services(ctx, ServiceQuery{Text: request.Text})
+	return s.recordServices(request.ID, s.deps.Services(ctx, ServiceQuery{Text: request.Text}))
+}
+
+// recordServices writes what the services were asked in the journal and returns the text to hand to the AI.
+func (s *Service) recordServices(id string, result ServiceContext) string {
 	if len(result.Steps) > 0 {
 		lang := s.deps.Language()
 		entries := make([]Entry, len(result.Steps))
 		for i, step := range result.Steps {
 			entries[i] = s.entry("assistant", "step", step.Message.Text(lang))
 		}
-		s.update(request.ID, func(r *Stored) { r.Entries = append(r.Entries, entries...) })
+		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, entries...) })
 	}
 	text := clipRunes(strings.TrimSpace(result.Text), maxServiceChars)
 	if text != "" {
-		s.update(request.ID, func(r *Stored) { r.ServicesUsed = true })
+		s.update(id, func(r *Stored) { r.ServicesUsed = true })
 	}
 	return text
 }

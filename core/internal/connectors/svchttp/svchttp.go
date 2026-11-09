@@ -94,6 +94,14 @@ func NewClient() *http.Client { return newClient(guard) }
 // NewPublicClient is the client for a fixed public API (Asana, Slite): same limits, no dial guard needed.
 func NewPublicClient() *http.Client { return newClient(nil) }
 
+// NewPublicClientWithTimeout is NewPublicClient for a call that legitimately takes long (an answer written on request).
+func NewPublicClientWithTimeout(timeout time.Duration) *http.Client {
+	client := newClient(nil)
+	client.Timeout = timeout
+	client.Transport.(*http.Transport).ResponseHeaderTimeout = timeout
+	return client
+}
+
 func newClient(control func(network, address string, c syscall.RawConn) error) *http.Client {
 	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: control}
 	return &http.Client{

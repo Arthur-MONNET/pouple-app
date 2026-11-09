@@ -11,6 +11,7 @@ const api = useApi();
 const info = ref<ProvidersInfo | null>(null);
 const provider = ref('');
 const model = ref('');
+const webAccess = ref(false);
 const loadError = ref<string | null>(null);
 const error = ref<string | null>(null);
 const saved = ref(false);
@@ -27,6 +28,7 @@ onMounted(async () => {
     info.value = await api.getProviders();
     provider.value = info.value.active;
     model.value = selected.value?.model ?? '';
+    webAccess.value = (await api.getSettings()).webAccess === true;
   } catch (cause) {
     loadError.value = errorMessage(cause);
   }
@@ -43,7 +45,7 @@ async function save(): Promise<void> {
   saved.value = false;
   saving.value = true;
   try {
-    await api.updateSettings({ provider: provider.value, models: { [provider.value]: model.value.trim() } });
+    await api.updateSettings({ provider: provider.value, models: { [provider.value]: model.value.trim() }, webAccess: webAccess.value });
     info.value = await api.getProviders();
     saved.value = true;
   } catch (cause) {
@@ -87,6 +89,13 @@ async function test(): Promise<void> {
         <p class="text-xs text-ink-muted">{{ $t('settings.ai.modelHelp') }}</p>
         <p v-if="selected?.note" class="text-xs text-ink-dim">{{ selected.note }}</p>
       </div>
+      <label class="flex items-start gap-2.5 text-sm text-ink" for="ai-web">
+        <input id="ai-web" v-model="webAccess" type="checkbox" class="mt-1 accent-[var(--color-accent)]" data-testid="ai-web-access" @change="saved = false" />
+        <span>
+          <span class="font-medium">{{ $t('settings.ai.web') }}</span>
+          <span class="mt-0.5 block text-xs text-ink-muted">{{ $t('settings.ai.webHelp') }}</span>
+        </span>
+      </label>
       <InlineError v-if="error">{{ error }}</InlineError>
       <p v-if="result" role="status" class="text-sm" :class="result.ok ? 'text-ok' : 'text-ink-muted'" data-testid="ai-test-result">
         {{ result.ok ? $t('settings.ai.testOk', { model: result.model, seconds: (result.latencyMs / 1000).toFixed(1) }) : result.message }}

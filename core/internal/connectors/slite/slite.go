@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/svchttp"
@@ -29,20 +30,29 @@ type Client struct {
 	key  string
 	base string
 	http *http.Client
+	// slow serves the one call that waits for an answer to be written (Ask).
+	slow *http.Client
 }
 
+// askTimeout is how long Slite may take to write an answer to a question.
+const askTimeout = 65 * time.Second
+
 func NewClient(key string) *Client {
-	return &Client{key: key, base: apiBase, http: svchttp.NewPublicClient()}
+	return &Client{key: key, base: apiBase, http: svchttp.NewPublicClient(), slow: svchttp.NewPublicClientWithTimeout(askTimeout)}
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, out any) error {
+	return c.getWith(ctx, c.http, path, query, out)
+}
+
+func (c *Client) getWith(ctx context.Context, client *http.Client, path string, query url.Values, out any) error {
 	address := c.base + path
 	if len(query) > 0 {
 		address += "?" + query.Encode()
 	}
 	// Slite documents x-slite-api-key and describes the same key as a bearer token: both name the same credential.
 	header := http.Header{"X-Slite-Api-Key": {c.key}, "Authorization": {"Bearer " + c.key}}
-	_, err := svchttp.GetJSON(ctx, c.http, service, address, header, out)
+	_, err := svchttp.GetJSON(ctx, client, service, address, header, out)
 	return err
 }
 
@@ -68,8 +78,10 @@ func (c *Client) Me(ctx context.Context) (Me, error) {
 
 // Hit is a note that matches a search. Every text field comes from Slite and from colleagues: it is data.
 type Hit struct {
-	ID        string
-	Title     string
+	ID    string
+	Title string
+	// Kind is Slite's kind of note: "collection" is a folder-like note that holds others.
+	Kind      string
 	Excerpt   string
 	Channel   string
 	UpdatedAt string
@@ -79,6 +91,7 @@ type searchPayload struct {
 	Hits []struct {
 		ID          string                   `json:"id"`
 		Title       string                   `json:"title"`
+		Type        string                   `json:"type"`
 		Highlight   string                   `json:"highlight"`
 		ArchivedAt  *string                  `json:"archivedAt"`
 		UpdatedAt   string                   `json:"updatedAt"`
@@ -99,7 +112,7 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Hit, er
 		if hit.ID == "" || hit.Title == "" || hit.ArchivedAt != nil {
 			continue
 		}
-		found := Hit{ID: hit.ID, Title: hit.Title, UpdatedAt: hit.UpdatedAt, Excerpt: strings.TrimSpace(markup.ReplaceAllString(hit.Highlight, ""))}
+		found := Hit{ID: hit.ID, Title: hit.Title, Kind: hit.Type, UpdatedAt: hit.UpdatedAt, Excerpt: strings.TrimSpace(markup.ReplaceAllString(hit.Highlight, ""))}
 		if len(hit.ParentNotes) > 0 {
 			found.Channel = hit.ParentNotes[0].Title
 		}
@@ -152,7 +165,7 @@ func (c *Connector) client(key string) *Client {
 		client.base = c.Base
 	}
 	if c.HTTP != nil {
-		client.http = c.HTTP
+		client.http, client.slow = c.HTTP, c.HTTP
 	}
 	return client
 }

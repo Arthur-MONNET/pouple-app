@@ -34,8 +34,9 @@ type ClaudeOptions struct {
 }
 
 // ClaudeRunner runs the Claude Code CLI in print mode. Unlike Codex it has no operating-system sandbox, so what a
-// turn may do is decided entirely by the arguments below: a fixed set of tools (never a shell, the web or an MCP
-// server), a permission mode that refuses everything not allowed, and no setting, hook or plugin from outside.
+// turn may do is decided entirely by the arguments below: a fixed set of tools (never a shell or an MCP
+// server; the web only when the user allowed it), a permission mode that refuses everything not allowed, and no
+// setting, hook or plugin from outside.
 type ClaudeRunner struct{ opts ClaudeOptions }
 
 func NewClaudeRunner(opts ClaudeOptions) *ClaudeRunner {
@@ -62,6 +63,10 @@ const (
 	// deniedTools is defence in depth: --tools already leaves these out, and a tool that is not offered cannot be
 	// called, but a deny rule survives a change in the CLI's defaults.
 	deniedTools = "Bash,BashOutput,KillShell,WebFetch,WebSearch,Task,Agent,NotebookEdit,Skill,SlashCommand"
+	// deniedWithWeb is deniedTools for a turn that may use the web: the same, without the two web tools.
+	deniedWithWeb = "Bash,BashOutput,KillShell,Task,Agent,NotebookEdit,Skill,SlashCommand"
+	// webTools are offered only to a read-only turn the user allowed to use the web: search, and read one public page.
+	webTools = "WebSearch,WebFetch"
 	// claudeScript appends the native installer's folder to the PATH, so a CLI installed there is found even when the
 	// login shell does not list it, then runs the CLI with the arguments passed as data.
 	claudeScript = `export PATH="$PATH:$HOME/.local/bin"; exec "$0" "$@"`
@@ -73,6 +78,8 @@ var sessionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$`)
 var secretReads = []string{
 	"Read(**/.env)", "Read(**/.env.*)", "Read(**/*.pem)", "Read(**/*.key)", "Read(**/id_rsa*)", "Read(**/id_ed25519*)",
 	"Read(**/.ssh/**)", "Read(**/.aws/**)", "Read(**/.netrc)", "Read(**/.npmrc)",
+	"Read(**/*.env)", "Read(**/.envrc)", "Read(**/.dev.vars)", "Read(**/credentials*)", "Read(**/.git-credentials)",
+	"Read(**/.git/config)", "Read(**/.docker/config.json)", "Read(**/*.p12)", "Read(**/*.pfx)", "Read(**/*.tfstate)",
 }
 
 // secretWrites are never changed by an approved change: environment files hold what only their owner may set.
@@ -92,6 +99,10 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 	case ReadOnly:
 		tools, mode = readTools, "dontAsk"
 		denied = []string{deniedTools, "Edit", "Write", "MultiEdit"}
+		if turn.Web {
+			tools += "," + webTools
+			denied[0] = deniedWithWeb
+		}
 	case WorkspaceWrite:
 		tools, mode = writeTools, "acceptEdits"
 		denied = []string{deniedTools}
@@ -118,7 +129,12 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 			rules = append(rules, "Read(/"+filepath.ToSlash(filepath.Clean(dir))+"/**)")
 		}
 	}
-	settings, err := json.Marshal(map[string]any{"permissions": map[string]any{"deny": rules}})
+	permissions := map[string]any{"deny": rules}
+	if turn.Web && turn.Sandbox == ReadOnly {
+		// dontAsk refuses what is not pre-approved: the two web tools are approved by name.
+		permissions["allow"] = strings.Split(webTools, ",")
+	}
+	settings, err := json.Marshal(map[string]any{"permissions": permissions})
 	if err != nil {
 		return nil, err
 	}

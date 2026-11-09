@@ -60,6 +60,11 @@ type Deps struct {
 	// Services gathers read-only data from the optional connected services (Asana, GitLab, Slite) for a request.
 	// It has its own time budget and never fails; nil when there is no such source.
 	Services func(ctx context.Context, query ServiceQuery) ServiceContext
+	// Lookups runs what the AI asks of a connected service after reading its first context (another search, a folder,
+	// a note). Like Services it has its own time limits and never fails; nil when there is no such source.
+	Lookups func(ctx context.Context, lookups []Lookup) ServiceContext
+	// WebAccess says whether the AI may search the web and read public pages; read at each turn.
+	WebAccess func() bool
 	// Persona says who the assistant works for; read at each prompt, so a change applies at once.
 	Persona func() Persona
 	// Language is the interface language, read when displaying current state or writing new journal entries.

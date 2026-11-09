@@ -264,6 +264,8 @@ export interface Settings {
   provider?: string;
   /** One model name per AI; empty is the CLI's own default. */
   models?: Record<string, string>;
+  /** Lets the AI search the web and read public pages while it investigates. Off by default. */
+  webAccess?: boolean;
 }
 
 export interface SuggestedModel {

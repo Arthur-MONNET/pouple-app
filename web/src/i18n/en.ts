@@ -261,6 +261,8 @@ export const en: MessageTree = {
       model: 'Model',
       modelPlaceholder: 'Default model of the CLI',
       modelHelp: 'Leave empty to use the default model of the AI. A name from the list or a full model id.',
+      web: 'Let the AI use the web',
+      webHelp: 'The AI can search the web and read public pages while it investigates, for every request. It still never changes anything by itself: a change waits for your approval, and one proposed after a web search is never applied automatically. The AI is told never to put your code, your messages or any credential in a search or an address. Off by default. Applies to the next analysis.',
       test: 'Test',
       testOk: 'It works with {model} ({seconds} s). The test counted as one turn.',
     },

@@ -62,3 +62,19 @@ func TestSettingsRefuseWhatWouldBeDangerousOrMeaningless(t *testing.T) {
 		t.Fatalf("a real folder must be accepted: %d %s", r.Code, r.Body)
 	}
 }
+
+func TestWebAccessIsOffByDefaultAndChangesOnlyWhenAsked(t *testing.T) {
+	s := settingsServer(t)
+	if got := call(s, "GET", "/api/settings", "", nil).Body.String(); !strings.Contains(got, `"webAccess":false`) {
+		t.Fatalf("the AI has no web by default: %s", got)
+	}
+	if r := put(s, `{"webAccess":true}`); r.Code != 200 || !strings.Contains(r.Body.String(), `"webAccess":true`) {
+		t.Fatalf("%d %s", r.Code, r.Body)
+	}
+	if r := put(s, `{"dailyTurnLimit":20}`); !strings.Contains(r.Body.String(), `"webAccess":true`) {
+		t.Fatalf("another change must not switch the web off: %s", r.Body)
+	}
+	if r := put(s, `{"webAccess":false}`); !strings.Contains(r.Body.String(), `"webAccess":false`) {
+		t.Fatalf("%s", r.Body)
+	}
+}

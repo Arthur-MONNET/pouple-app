@@ -75,11 +75,14 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 	projectsRoot := func() string { return load().ProjectsRoot }
 	language := func() i18n.Lang { return i18n.Parse(load().UILanguage) }
 
+	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
 		Store: store, Inbox: slack, Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
-		Services:     servicectx.New(registry).Gather,
+		Services:     gatherer.Gather,
+		Lookups:      gatherer.Lookup,
+		WebAccess:    func() bool { return load().WebAccess },
 		Persona:      func() engine.Persona { return personaOf(registry, load()) },
 		Language:     language,
 		ProjectsRoot: projectsRoot,
@@ -138,7 +141,7 @@ func inactiveReason(registry *connector.Registry, lang i18n.Lang) string {
 
 // personaOf calls the user by the first name of their Slack profile, in the language they chose or the system's.
 func personaOf(registry *connector.Registry, settings config.Settings) engine.Persona {
-	persona := engine.Persona{Language: settings.Language}
+	persona := engine.Persona{Language: settings.Language, Web: settings.WebAccess}
 	if status, err := registry.Status("slack"); err == nil && status.Profile != nil {
 		if fields := strings.Fields(status.Profile.Name); len(fields) > 0 {
 			persona.Name = fields[0]

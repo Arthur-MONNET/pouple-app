@@ -27,7 +27,7 @@ import (
 )
 
 // Budget is how long all the services together may take.
-const Budget = 3 * time.Second
+const Budget = 6 * time.Second
 
 const (
 	maxOpenTasks   = 20
@@ -61,6 +61,9 @@ type GitLab interface {
 // Slite is the part of the Slite client the gatherer uses.
 type Slite interface {
 	Search(ctx context.Context, query string, limit int) ([]slite.Hit, error)
+	Children(ctx context.Context, id string, limit int) ([]slite.Child, int, error)
+	Read(ctx context.Context, id string, maxRunes int) (slite.Note, error)
+	Ask(ctx context.Context, question string) (slite.Answer, error)
 }
 
 // Gatherer collects the context of a request from the connected services.
@@ -366,39 +369,4 @@ func mergeRequestLines(list []gitlab.MergeRequest) []string {
 		lines = append(lines, "- (none)")
 	}
 	return lines
-}
-
-func (g *Gatherer) slite(ctx context.Context, client Slite, words []string) section {
-	out := section{source: slite.ID}
-	query := strings.Join(words, " ")
-	hits, err := client.Search(ctx, query, maxNotes)
-	if err != nil {
-		out.lines = append(out.lines, fmt.Sprintf("Slite, notes matching the message: unavailable (%s).", svchttp.Reason(err).Text(i18n.EN)))
-		out.steps = append(out.steps, engine.ServiceStep{Source: slite.ID, Message: i18n.NewMessage("Slite: could not search (%s)", svchttp.Reason(err)), Failed: true})
-		return out
-	}
-	hits = hits[:min(len(hits), maxNotes)]
-	out.lines = append(out.lines, fmt.Sprintf("Slite, notes matching the message (search: %s; written by colleagues):", query))
-	for _, hit := range hits {
-		line := "- " + quote(hit.Title, maxTitle)
-		var where []string
-		if hit.Channel != "" {
-			where = append(where, "in "+quote(hit.Channel, maxNameOrLabel))
-		}
-		if updated := date(hit.UpdatedAt); updated != "" {
-			where = append(where, "updated "+updated)
-		}
-		if len(where) > 0 {
-			line += " (" + strings.Join(where, ", ") + ")"
-		}
-		if hit.Excerpt != "" {
-			line += ": excerpt " + quote(hit.Excerpt, maxExcerpt)
-		}
-		out.lines = append(out.lines, line)
-	}
-	if len(hits) == 0 {
-		out.lines = append(out.lines, "- (no note found)")
-	}
-	out.steps = append(out.steps, engine.ServiceStep{Source: slite.ID, Message: i18n.NewMessage("Slite: searched “%s” (%d notes)", query, len(hits))})
-	return out
 }

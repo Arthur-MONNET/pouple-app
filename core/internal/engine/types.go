@@ -106,6 +106,9 @@ type Stored struct {
 	// ServicesUsed is set when text from Asana, GitLab or Slite was given to the analysis: written by other people, it
 	// may have shaped the proposal, so an automatic approval must not apply it.
 	ServicesUsed bool `json:"servicesUsed,omitempty"`
+	// WebUsed is set when a turn ran with the web allowed: what the web returns is written by strangers, so, like
+	// ServicesUsed, it means an automatic approval must not apply a proposal.
+	WebUsed bool `json:"webUsed,omitempty"`
 	// ThreadProvider is the AI that owns ThreadID; empty for a thread kept before Claude existed, which is Codex's.
 	ThreadProvider providers.ID `json:"threadProvider,omitempty"`
 	// PendingFiles are Slack files not downloaded yet.

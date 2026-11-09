@@ -14,11 +14,24 @@ import (
 const OutcomeSchema = `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["outcome", "summary", "reply", "questions", "proposal", "sourcesUsed"],
+  "required": ["outcome", "summary", "reply", "questions", "proposal", "sourcesUsed", "lookups"],
   "properties": {
     "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
-    "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change"]},
+    "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup"]},
     "summary": {"type": "string"},
+    "lookups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["service", "action", "target"],
+        "properties": {
+          "service": {"type": "string", "enum": ["slite"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask"]},
+          "target": {"type": "string"}
+        }
+      }
+    },
     "reply": {"type": ["string", "null"]},
     "questions": {
       "type": "array",
@@ -55,6 +68,8 @@ const (
 	Answered       = "answered"
 	NeedsInput     = "needs_input"
 	ProposesChange = "proposes_change"
+	// LookupOutcome is not an answer: the AI wants more from a connected service first.
+	LookupOutcome = "lookup"
 )
 
 var contextSources = []string{"memory", "slack", "files", "docs", "asana", "gitlab", "slite"}
@@ -77,6 +92,7 @@ type Outcome struct {
 	Questions   []OutcomeQuestion `json:"questions"`
 	Proposal    *Proposal         `json:"proposal"`
 	SourcesUsed []string          `json:"sourcesUsed"`
+	Lookups     []Lookup          `json:"lookups"`
 }
 
 // ErrOutcome is returned for a final message that does not follow the schema: a model that drifts is reported,
@@ -86,7 +102,12 @@ var ErrOutcome = errors.New("unexpected answer from the AI")
 const (
 	maxQuestions = 4
 	maxOptions   = 6
+	// maxLookups is how many lookups one answer may ask for, and maxLookupTarget how long one request may be.
+	maxLookups      = 4
+	maxLookupTarget = 500
 )
+
+var lookupActions = []string{"search", "children", "read", "ask"}
 
 // ParseOutcome validates the final message of a turn.
 func ParseOutcome(text string) (Outcome, error) {
@@ -94,10 +115,10 @@ func ParseOutcome(text string) (Outcome, error) {
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI did not answer with the expected JSON")
 	}
-	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange}, raw.Outcome) {
+	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome}, raw.Outcome) {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI answered with an unexpected shape")
 	}
-	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}}
+	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}}
 	if raw.Reply != nil && strings.TrimSpace(*raw.Reply) != "" {
 		out.Reply = raw.Reply
 	}
@@ -116,7 +137,16 @@ func ParseOutcome(text string) (Outcome, error) {
 	if raw.Proposal != nil {
 		out.Proposal = raw.Proposal
 	}
+	for _, lookup := range raw.Lookups {
+		target := strings.TrimSpace(lookup.Target)
+		if len(out.Lookups) == maxLookups || lookup.Service != "slite" || !slices.Contains(lookupActions, lookup.Action) || target == "" {
+			continue
+		}
+		out.Lookups = append(out.Lookups, Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)})
+	}
 	switch {
+	case out.Outcome == LookupOutcome && len(out.Lookups) == 0:
+		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI asked for a lookup without saying what to look for")
 	case out.Outcome == NeedsInput && len(out.Questions) == 0:
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI asked for input without any question")
 	case out.Outcome == ProposesChange && out.Proposal == nil:
@@ -146,6 +176,10 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 				out.Questions[i].Options[j].Description = ptr(redact(*option.Description))
 			}
 		}
+	}
+	out.Lookups = make([]Lookup, len(o.Lookups))
+	for i, lookup := range o.Lookups {
+		out.Lookups[i] = Lookup{Service: lookup.Service, Action: lookup.Action, Target: redact(lookup.Target)}
 	}
 	if o.Proposal != nil {
 		out.Proposal = &Proposal{Title: redact(o.Proposal.Title), Description: redact(o.Proposal.Description), ProjectID: o.Proposal.ProjectID}

@@ -82,7 +82,7 @@ func TestClaudeArgsForAReadOnlyTurnAllowOnlyReadGlobGrep(t *testing.T) {
 		"--disallowedTools", "Bash,BashOutput,KillShell,WebFetch,WebSearch,Task,Agent,NotebookEdit,Skill,SlashCommand,Edit,Write,MultiEdit",
 		"--strict-mcp-config",
 		"--setting-sources", "",
-		"--settings", `{"permissions":{"deny":["Read(**/.env)","Read(**/.env.*)","Read(**/*.pem)","Read(**/*.key)","Read(**/id_rsa*)","Read(**/id_ed25519*)","Read(**/.ssh/**)","Read(**/.aws/**)","Read(**/.netrc)","Read(**/.npmrc)","Read(//data/Pouple/**)"]}}`,
+		"--settings", `{"permissions":{"deny":["Read(**/.env)","Read(**/.env.*)","Read(**/*.pem)","Read(**/*.key)","Read(**/id_rsa*)","Read(**/id_ed25519*)","Read(**/.ssh/**)","Read(**/.aws/**)","Read(**/.netrc)","Read(**/.npmrc)","Read(**/*.env)","Read(**/.envrc)","Read(**/.dev.vars)","Read(**/credentials*)","Read(**/.git-credentials)","Read(**/.git/config)","Read(**/.docker/config.json)","Read(**/*.p12)","Read(**/*.pfx)","Read(**/*.tfstate)","Read(//data/Pouple/**)"]}}`,
 		"--model", "sonnet",
 		"--json-schema", `{"type":"object"}`,
 	}
@@ -115,7 +115,7 @@ func TestClaudeArgsForAnApprovedChangeAddEditAndWriteInsideTheProjectOnly(t *tes
 		"--disallowedTools", "Bash,BashOutput,KillShell,WebFetch,WebSearch,Task,Agent,NotebookEdit,Skill,SlashCommand",
 		"--strict-mcp-config",
 		"--setting-sources", "",
-		"--settings", `{"permissions":{"deny":["Read(**/.env)","Read(**/.env.*)","Read(**/*.pem)","Read(**/*.key)","Read(**/id_rsa*)","Read(**/id_ed25519*)","Read(**/.ssh/**)","Read(**/.aws/**)","Read(**/.netrc)","Read(**/.npmrc)","Edit(**/.env)","Edit(**/.env.local)","Write(**/.env)","Write(**/.env.local)"]}}`,
+		"--settings", `{"permissions":{"deny":["Read(**/.env)","Read(**/.env.*)","Read(**/*.pem)","Read(**/*.key)","Read(**/id_rsa*)","Read(**/id_ed25519*)","Read(**/.ssh/**)","Read(**/.aws/**)","Read(**/.netrc)","Read(**/.npmrc)","Read(**/*.env)","Read(**/.envrc)","Read(**/.dev.vars)","Read(**/credentials*)","Read(**/.git-credentials)","Read(**/.git/config)","Read(**/.docker/config.json)","Read(**/*.p12)","Read(**/*.pfx)","Read(**/*.tfstate)","Edit(**/.env)","Edit(**/.env.local)","Write(**/.env)","Write(**/.env.local)"]}}`,
 		"--add-dir", "/projects/app",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -425,5 +425,35 @@ func TestClaudeImagesGoThroughAPrivateFolderTheTurnMayRead(t *testing.T) {
 	_ = os.WriteFile(notAnImage, []byte("plain text"), 0o600)
 	if _, err := r.Run(context.Background(), Turn{Dir: t.TempDir(), Sandbox: ReadOnly, Images: []string{notAnImage}}); err == nil {
 		t.Fatal("a file that is not an image must not be staged")
+	}
+}
+
+func TestClaudeGetsTheWebToolsOnlyForAnAllowedReadOnlyTurn(t *testing.T) {
+	r := NewClaudeRunner(ClaudeOptions{})
+	webTurn, err := r.BuildArgs(Turn{Sandbox: ReadOnly, Web: true}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := webTurn[indexOf(webTurn, "--tools")+1]
+	denied := webTurn[indexOf(webTurn, "--disallowedTools")+1]
+	settings := webTurn[indexOf(webTurn, "--settings")+1]
+	if tools != "Read,Glob,Grep,WebSearch,WebFetch" || strings.Contains(denied, "Web") || !strings.Contains(settings, `"allow":["WebSearch","WebFetch"]`) {
+		t.Fatalf("tools %q, denied %q, settings %s", tools, denied, settings)
+	}
+	for _, still := range []string{"Bash", "Edit", "Write", "Task"} {
+		if !strings.Contains(denied, still) {
+			t.Errorf("%s stays denied on a web turn: %s", still, denied)
+		}
+	}
+	write, err := r.BuildArgs(Turn{Sandbox: WorkspaceWrite, Web: true, Dir: "/projects/app"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(write[indexOf(write, "--tools")+1], "Web") || !strings.Contains(write[indexOf(write, "--disallowedTools")+1], "WebFetch") {
+		t.Errorf("an approved change never gets the web: %q", write)
+	}
+	off, _ := r.BuildArgs(Turn{Sandbox: ReadOnly}, "")
+	if strings.Contains(off[indexOf(off, "--tools")+1], "Web") || strings.Contains(off[indexOf(off, "--settings")+1], `"allow"`) {
+		t.Errorf("the web is off by default: %q", off)
 	}
 }

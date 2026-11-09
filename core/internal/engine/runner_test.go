@@ -163,3 +163,15 @@ func TestRunTimesOut(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestCodexSearchesTheWebOnlyWhenTheTurnMayAndNeverOpensTheSandboxNetwork(t *testing.T) {
+	r := NewRunner(RunnerOptions{})
+	off := strings.Join(r.BuildArgs(Turn{Sandbox: ReadOnly}), " ")
+	on := strings.Join(r.BuildArgs(Turn{Sandbox: ReadOnly, Web: true}), " ")
+	if !strings.Contains(off, `web_search="disabled"`) || !strings.Contains(on, `web_search="live"`) || strings.Contains(on, `web_search="disabled"`) {
+		t.Fatalf("off: %s\non: %s", off, on)
+	}
+	if !strings.Contains(on, "sandbox_workspace_write.network_access=false") || !strings.Contains(on, `sandbox_mode="read-only"`) || !strings.Contains(on, "mcp_servers={}") {
+		t.Errorf("the sandbox stays closed: %s", on)
+	}
+}

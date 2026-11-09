@@ -33,6 +33,9 @@ type Settings struct {
 	Provider string `json:"provider"`
 	// Models is the model chosen for each provider; empty (or missing) leaves the choice to the CLI.
 	Models map[string]string `json:"models"`
+	// WebAccess lets the AI search the web and read public pages while it investigates. Off by default: what comes
+	// back from the web is written by strangers, and a request from Slack is untrusted text.
+	WebAccess bool `json:"webAccess"`
 	// ProjectsRoot is the folder with one folder per project: where the AI looks, and where approved changes go.
 	ProjectsRoot string `json:"projectsRoot"`
 	// Language is the language of summaries and questions ("French"); empty uses the system language.

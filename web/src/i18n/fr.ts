@@ -265,6 +265,8 @@ export const fr: MessageTree = {
       model: 'Modèle',
       modelPlaceholder: "Modèle par défaut du CLI",
       modelHelp: "Laisse vide pour utiliser le modèle par défaut de l'IA. Un nom de la liste ou un identifiant complet.",
+      web: "Laisser l'IA utiliser le web",
+      webHelp: "L'IA peut chercher sur le web et lire des pages publiques pendant son enquête, pour toutes les demandes. Elle ne change toujours rien toute seule : un changement attend ton accord, et un changement proposé après une recherche web n'est jamais appliqué automatiquement. L'IA a pour consigne de ne jamais mettre ton code, tes messages ni un identifiant dans une recherche ou une adresse. Désactivé par défaut. S'applique à la prochaine analyse.",
       test: 'Tester',
       testOk: "Ça fonctionne avec {model} ({seconds} s). Le test a compté pour un tour.",
     },

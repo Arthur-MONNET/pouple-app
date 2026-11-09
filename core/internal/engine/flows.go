@@ -148,24 +148,83 @@ func (s *Service) describeFiles(refs []AttachmentRef) (string, []string) {
 	return strings.Join(lines, "\n"), images
 }
 
+// maxLookupRounds is how many times the AI may ask a connected service for more before it must answer.
+const maxLookupRounds = 3
+
+// runInvestigation runs the AI until it gives an answer. When it asks for lookups instead, they are run here (the
+// credentials never leave this process) and the results go back into the same conversation.
 func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume string, images []string) error {
-	s.update(id, func(r *Stored) { r.Status, r.Error = StatusAnalyzing, nil })
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images}, true)
-	if err != nil {
-		return err
+	asks := 0
+	for round := 0; ; round++ {
+		web := s.webAllowed()
+		s.update(id, func(r *Stored) {
+			r.Status, r.Error = StatusAnalyzing, nil
+			r.WebUsed = r.WebUsed || web
+		})
+		result, provider, err := s.runProvider(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images, Web: web}, true)
+		if err != nil {
+			return err
+		}
+		if result.FinalMessage == "" {
+			return i18n.NewError("%s finished without an answer", provider.Name())
+		}
+		outcome, err := ParseOutcome(result.FinalMessage)
+		if err != nil {
+			return err
+		}
+		outcome = outcome.Redact(s.deps.Redact())
+		if outcome.Outcome != LookupOutcome {
+			s.noteServiceSources(id, outcome)
+			s.applyOutcome(id, outcome)
+			return nil
+		}
+		if round == maxLookupRounds {
+			return i18n.Wrap(ErrOutcome, "The AI kept asking for lookups instead of answering")
+		}
+		thread := result.ThreadID
+		if thread == "" {
+			if current, ok := s.deps.Store.Get(id); ok {
+				thread = current.ThreadID
+			}
+		}
+		if thread == "" {
+			return i18n.NewError("%s finished without an answer", provider.Name())
+		}
+		results := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks))
+		prompt, resume, images = s.deps.Persona().LookupResultsPrompt(results, round == maxLookupRounds-1), thread, nil
 	}
-	if result.FinalMessage == "" {
-		return i18n.NewError("%s finished without an answer", provider.Name())
-	}
-	outcome, err := ParseOutcome(result.FinalMessage)
-	if err != nil {
-		return err
-	}
-	outcome = outcome.Redact(s.deps.Redact())
-	s.noteServiceSources(id, outcome)
-	s.applyOutcome(id, outcome)
-	return nil
 }
+
+// runLookups asks the connected service for what the AI wanted and journals it.
+func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup) string {
+	if s.deps.Lookups == nil {
+		return "Lookups are not available: answer with what you have."
+	}
+	return s.recordServices(id, s.deps.Lookups(ctx, lookups))
+}
+
+// maxAsks is how many questions to Slite's own assistant one request may put: each is slow and approximate.
+const maxAsks = 2
+
+// limitAsks drops the "ask" lookups beyond maxAsks for the whole request; asked counts those already made.
+func limitAsks(lookups []Lookup, asked *int) []Lookup {
+	kept := make([]Lookup, 0, len(lookups))
+	for _, lookup := range lookups {
+		if lookup.Action == "ask" {
+			if *asked == maxAsks {
+				continue
+			}
+			*asked++
+		}
+		kept = append(kept, lookup)
+	}
+	return kept
+}
+
+// webAllowed says whether this request's turns may use the web: whenever the user turned it on. Nothing the AI finds
+// can change anything by itself: a proposal waits for the user, and a proposal made after a web turn is never applied
+// automatically (WebUsed).
+func (s *Service) webAllowed() bool { return s.deps.WebAccess != nil && s.deps.WebAccess() }
 
 func (s *Service) applyOutcome(id string, outcome Outcome) {
 	summary := s.entry("assistant", "text", outcome.Summary)
@@ -221,7 +280,7 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 		})
 		if s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() {
 			// Never when other people's text (their tasks, notes, merge requests) went into the analysis: a person must read it.
-			if request, ok := s.deps.Store.Get(id); ok && request.Source.Origin == "note-to-self" && !request.ServicesUsed {
+			if request, ok := s.deps.Store.Get(id); ok && request.Source.Origin == "note-to-self" && !request.ServicesUsed && !request.WebUsed {
 				// They asked for it themselves, in writing: the approval step would only repeat their request.
 				_ = s.Decide(id, true)
 				return
@@ -337,14 +396,17 @@ func (s *Service) message(id, text string, attachmentIDs []string, allowConfirma
 		refs = append(refs, ref)
 	}
 	files, images := s.describeFiles(refs)
-	prompt := s.deps.Persona().FollowUpPrompt(text, files, "")
 	entry := s.entry("user", "text", text)
 	entry.Attachments = refs
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error, r.Questions, r.Proposal = StatusAnalyzing, nil, []Question{}, nil
 		r.Entries = append(r.Entries, entry)
 	})
-	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.continueWith(ctx, id, prompt, images) })
+	s.enqueue(id, Interactive, func(ctx context.Context) error {
+		// A follow-up often names what to look for (a folder, a title): the services are asked again for this message.
+		services := s.gatherServices(ctx, Stored{Request: Request{ID: id, Text: text}})
+		return s.continueWith(ctx, id, s.deps.Persona().FollowUpPrompt(text, files, "", services), images)
+	})
 	return nil
 }
 

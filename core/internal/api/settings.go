@@ -27,6 +27,8 @@ type Settings struct {
 	Provider string `json:"provider"`
 	// Models is the model chosen for each provider, always with both keys; "" is the CLI's own default.
 	Models map[string]string `json:"models"`
+	// WebAccess is whether the AI may search the web and read public pages.
+	WebAccess bool `json:"webAccess"`
 }
 
 func viewOf(s config.Settings) Settings {
@@ -37,7 +39,7 @@ func viewOf(s config.Settings) Settings {
 	return Settings{
 		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
 		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels,
-		Provider: string(s.ActiveProvider()), Models: models,
+		Provider: string(s.ActiveProvider()), Models: models, WebAccess: s.WebAccess,
 	}
 }
 
@@ -67,7 +69,8 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				// Provider is "codex", "claude", or "" to go back to the connected one.
 				Provider *string `json:"provider"`
 				// Models changes the model of the providers named in it only.
-				Models map[string]string `json:"models"`
+				Models    map[string]string `json:"models"`
+				WebAccess *bool             `json:"webAccess"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&patch); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(lang, "The request is not valid JSON")})
@@ -96,6 +99,9 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 				for id, model := range models {
 					s.Models[id] = model
+				}
+				if patch.WebAccess != nil {
+					s.WebAccess = *patch.WebAccess
 				}
 				if patch.PollSeconds != nil {
 					s.PollSeconds = *patch.PollSeconds
