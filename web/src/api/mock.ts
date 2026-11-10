@@ -3,7 +3,7 @@ import { lang as activeLang, type Lang } from '../i18n';
 import { codexConnector, codexProfile, createFixtures, slackConnector, slackProfile } from './mockFixtures';
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
-import { mockProviderTest, mockProviders } from './mockProviders';
+import { mockProviderModels, mockProviderTest, mockProviders } from './mockProviders';
 import { mockCheckResult, mockUpdateInfo, type UpdateScenario } from './mockUpdate';
 import type {
   ActionEvent,
@@ -60,7 +60,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] , provider: 'codex', models: { codex: '', claude: '' }, webAccess: false };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] , provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all' };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
 
@@ -221,6 +221,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     async getProviders() {
       await wait();
       return mockProviders(settings);
+    },
+    async getProviderModels(id) {
+      await wait();
+      return mockProviderModels(id);
     },
     async testProvider(id, model) {
       await wait();

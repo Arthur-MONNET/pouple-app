@@ -52,6 +52,10 @@ type Connections interface {
 type Asana interface {
 	OpenTasks(ctx context.Context) (asana.Open, error)
 	SearchTasks(ctx context.Context, words []string) ([]asana.Task, error)
+	Task(ctx context.Context, gid string) (asana.TaskDetails, error)
+	Comments(ctx context.Context, gid string, limit int) ([]asana.Comment, error)
+	// AddComment is the one write: the engine lets it through only for a request the user made themselves.
+	AddComment(ctx context.Context, gid, text string) (asana.PostedComment, error)
 }
 
 // GitLab is the part of the GitLab client the gatherer uses.
@@ -197,7 +201,7 @@ func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 		switch source {
 		case asana.ID:
 			jobs = append(jobs, job{source, name, func(ctx context.Context) section {
-				return g.asana(ctx, g.NewAsana(values["token"]), words)
+				return g.asanaWithTasks(ctx, g.NewAsana(values["token"]), words, query.Text)
 			}})
 		case gitlab.ID:
 			jobs = append(jobs, job{source, name, func(ctx context.Context) section {

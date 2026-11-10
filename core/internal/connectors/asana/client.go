@@ -1,5 +1,6 @@
 // Package asana connects Pouple to Asana with a personal access token. The connector shows whose account it is;
-// the client lets the assistant read the user's open tasks and search tasks as data. It never writes.
+// the client lets the assistant read the user's open tasks and search tasks as data. The one thing it writes is a
+// comment on a task, when the user asked for it (see taskwork.go).
 package asana
 
 import (
@@ -24,7 +25,7 @@ const (
 	taskFields    = "name,due_on,completed,permalink_url,assignee.name,memberships.section.name,memberships.project.name"
 )
 
-// Client reads Asana. The token is sent in the Authorization header, to Asana only.
+// Client reads Asana and posts comments. The token is sent in the Authorization header, to Asana only.
 type Client struct {
 	token string
 	base  string

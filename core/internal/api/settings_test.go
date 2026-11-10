@@ -51,6 +51,7 @@ func TestSettingsRefuseWhatWouldBeDangerousOrMeaningless(t *testing.T) {
 		"missing folder":  `{"projectsRoot":"/definitely/not/here"}`,
 		"the disk root":   `{"projectsRoot":"/"}`,
 		"the home folder": `{"projectsRoot":"` + home + `"}`,
+		"pipelines":       `{"gitlabPipelines":"sometimes"}`,
 		"not json":        `nope`,
 	} {
 		if code := put(s, body).Code; code != 422 && code != 400 {
@@ -63,18 +64,31 @@ func TestSettingsRefuseWhatWouldBeDangerousOrMeaningless(t *testing.T) {
 	}
 }
 
-func TestWebAccessIsOffByDefaultAndChangesOnlyWhenAsked(t *testing.T) {
+func TestWebAccessIsOnByDefaultAndChangesOnlyWhenAsked(t *testing.T) {
 	s := settingsServer(t)
-	if got := call(s, "GET", "/api/settings", "", nil).Body.String(); !strings.Contains(got, `"webAccess":false`) {
-		t.Fatalf("the AI has no web by default: %s", got)
+	if got := call(s, "GET", "/api/settings", "", nil).Body.String(); !strings.Contains(got, `"webAccess":true`) {
+		t.Fatalf("the AI has the web unless it is turned off: %s", got)
 	}
-	if r := put(s, `{"webAccess":true}`); r.Code != 200 || !strings.Contains(r.Body.String(), `"webAccess":true`) {
+	if r := put(s, `{"webAccess":false}`); r.Code != 200 || !strings.Contains(r.Body.String(), `"webAccess":false`) {
 		t.Fatalf("%d %s", r.Code, r.Body)
 	}
-	if r := put(s, `{"dailyTurnLimit":20}`); !strings.Contains(r.Body.String(), `"webAccess":true`) {
-		t.Fatalf("another change must not switch the web off: %s", r.Body)
+	if r := put(s, `{"dailyTurnLimit":20}`); !strings.Contains(r.Body.String(), `"webAccess":false`) {
+		t.Fatalf("another change must not switch the web back on: %s", r.Body)
 	}
-	if r := put(s, `{"webAccess":false}`); !strings.Contains(r.Body.String(), `"webAccess":false`) {
+	if r := put(s, `{"webAccess":true}`); !strings.Contains(r.Body.String(), `"webAccess":true`) {
 		t.Fatalf("%s", r.Body)
+	}
+}
+
+func TestGitLabPipelinesAreAllByDefaultAndChangeOnlyWhenAsked(t *testing.T) {
+	s := settingsServer(t)
+	if got := call(s, "GET", "/api/settings", "", nil).Body.String(); !strings.Contains(got, `"gitlabPipelines":"all"`) {
+		t.Fatalf("every finished pipeline by default: %s", got)
+	}
+	if r := put(s, `{"gitlabPipelines":"failures"}`); r.Code != 200 || !strings.Contains(r.Body.String(), `"gitlabPipelines":"failures"`) {
+		t.Fatalf("%d %s", r.Code, r.Body)
+	}
+	if r := put(s, `{"dailyTurnLimit":20}`); !strings.Contains(r.Body.String(), `"gitlabPipelines":"failures"`) {
+		t.Fatalf("another change must not reset it: %s", r.Body)
 	}
 }

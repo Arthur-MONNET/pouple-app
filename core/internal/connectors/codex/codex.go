@@ -33,6 +33,12 @@ type Exec func(ctx context.Context, env []string, script string, onLine func(str
 type Connector struct {
 	Home string
 	Exec Exec
+	// Capture reads the output of a script, for the model catalog; nil runs it in a login shell.
+	Capture Capture
+	// Now is the clock of the model cache; nil means time.Now.
+	Now func() time.Time
+
+	cache modelCache
 }
 
 func New(home string) *Connector { return &Connector{Home: home, Exec: loginShell} }

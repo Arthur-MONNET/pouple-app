@@ -54,8 +54,9 @@ var frProviders = map[string]string{
 	"Claude Sonnet 5.5": "Claude Sonnet 5.5",
 	"Claude Haiku 5.5":  "Claude Haiku 5.5",
 	"Claude Fable 5.1":  "Claude Fable 5.1",
-	"Leave empty to use Claude’s own default. Any model name your Claude CLI accepts can be typed.":                    "Laisse vide pour utiliser le modèle par défaut de Claude. Tu peux saisir n’importe quel nom de modèle accepté par ton CLI Claude.",
-	"Codex cannot list its models offline. Leave empty to use its default, or type any model your Codex CLI supports.": "Codex ne peut pas lister ses modèles hors ligne. Laisse vide pour son modèle par défaut, ou saisis n’importe quel modèle accepté par ton CLI Codex.",
+	"Leave empty to use Claude’s own default. Any model name your Claude CLI accepts can be typed.": "Laisse vide pour utiliser le modèle par défaut de Claude. Tu peux saisir n’importe quel nom de modèle accepté par ton CLI Claude.",
+	"The list of models could not be read": "La liste des modèles n’a pas pu être lue",
+	"Leave empty to use Codex’s own default. Any model name your Codex CLI accepts can be typed.": "Laisse vide pour utiliser le modèle par défaut de Codex. Tu peux saisir n’importe quel nom de modèle accepté par ton CLI Codex.",
 }
 
 func init() {

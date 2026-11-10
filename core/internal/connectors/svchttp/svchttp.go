@@ -4,6 +4,7 @@
 package svchttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -161,7 +162,25 @@ func timedOut(err error) bool {
 // GetJSON performs a GET and decodes the answer, at most MaxBody bytes of it. The headers carry the credentials.
 // It returns the response headers (pagination totals, granted scopes…).
 func GetJSON(ctx context.Context, client *http.Client, service, address string, header http.Header, out any) (http.Header, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	return doJSON(ctx, client, service, http.MethodGet, address, header, nil, out)
+}
+
+// PostJSON sends one JSON document and decodes the answer, with the same limits as GetJSON. It is for the few things
+// the user asks Pouple to write in a service; the body never appears in an error.
+func PostJSON(ctx context.Context, client *http.Client, service, address string, header http.Header, body, out any) (http.Header, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, i18n.Wrap(err, "%s could not be reached: %s", service, errors.New("invalid request"))
+	}
+	return doJSON(ctx, client, service, http.MethodPost, address, header, data, out)
+}
+
+func doJSON(ctx context.Context, client *http.Client, service, method, address string, header http.Header, body []byte, out any) (http.Header, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, address, reader)
 	if err != nil {
 		return nil, i18n.Wrap(err, "%s could not be reached: %s", service, errors.New("invalid address"))
 	}
@@ -169,6 +188,9 @@ func GetJSON(ctx context.Context, client *http.Client, service, address string, 
 		request.Header[key] = values
 	}
 	request.Header.Set("Accept", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		// url.Error repeats the address, which holds no credential (those are in headers) but may hold search words.

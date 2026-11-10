@@ -27,7 +27,8 @@ func (s *Service) analyze(ctx context.Context, id string) error {
 		return &providerFailure{active, ErrLimit}
 	}
 	prompt, images := s.freshPrompt(ctx, request)
-	return s.runInvestigation(ctx, id, prompt, "", images)
+	// What a note to oneself says is the user's own request; a message from someone else is not.
+	return s.runInvestigation(ctx, id, prompt, "", images, request.Source.Origin == "note-to-self")
 }
 
 // continueWith carries on the AI's conversation; it starts a fresh one, with the transcript so far, when the thread is
@@ -38,7 +39,7 @@ func (s *Service) continueWith(ctx context.Context, id, prompt string, images []
 		return nil
 	}
 	if request.ThreadID != "" && request.threadOwner() == s.deps.Selection().Provider {
-		return s.runInvestigation(ctx, id, prompt, request.ThreadID, images)
+		return s.runInvestigation(ctx, id, prompt, request.ThreadID, images, true)
 	}
 	fresh, first := s.freshPrompt(ctx, request)
 	var transcript []string
@@ -47,7 +48,7 @@ func (s *Service) continueWith(ctx context.Context, id, prompt string, images []
 			transcript = append(transcript, entry.Role+": "+entry.Text)
 		}
 	}
-	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far (earlier messages, data):\n"+block("conversation", strings.Join(transcript, "\n"))+"\n\n"+prompt, "", append(first, images...))
+	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far (earlier messages, data):\n"+block("conversation", strings.Join(transcript, "\n"))+"\n\n"+prompt, "", append(first, images...), true)
 }
 
 // freshPrompt is the full analysis prompt, and the images the AI looks at.
@@ -66,6 +67,10 @@ func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []st
 }
 
 func (s *Service) previousInConversation(request Stored) []Stored {
+	// Pipelines of different projects share one group but are not one conversation.
+	if request.Source.Origin == OriginPipeline {
+		return nil
+	}
 	var previous []Stored
 	for _, other := range s.deps.Store.List() {
 		if other.ID != request.ID && other.Source.ChannelID == request.Source.ChannelID && other.ReceivedAt < request.ReceivedAt && other.Source.Origin != "cockpit-action" {
@@ -153,8 +158,11 @@ const maxLookupRounds = 3
 
 // runInvestigation runs the AI until it gives an answer. When it asks for lookups instead, they are run here (the
 // credentials never leave this process) and the results go back into the same conversation.
-func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume string, images []string) error {
-	asks := 0
+//
+// canAct says whether the user asked for this turn themselves (typed in Pouple, or a note to themselves): only then may
+// a lookup write something (post a comment). A request that came from someone else's Slack message can only read.
+func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume string, images []string, canAct bool) error {
+	asks, writes := 0, 0
 	for round := 0; ; round++ {
 		web := s.webAllowed()
 		s.update(id, func(r *Stored) {
@@ -190,17 +198,45 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		if thread == "" {
 			return i18n.NewError("%s finished without an answer", provider.Name())
 		}
-		results := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks))
+		results := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks), canAct, &writes)
 		prompt, resume, images = s.deps.Persona().LookupResultsPrompt(results, round == maxLookupRounds-1), thread, nil
 	}
 }
 
-// runLookups asks the connected service for what the AI wanted and journals it.
-func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup) string {
+// maxWrites is how many things one request may write in the connected services.
+const maxWrites = 2
+
+// runLookups asks the connected services for what the AI wanted and journals it. A lookup that writes is run only for a
+// request the user made themselves, and at most maxWrites times; otherwise the AI is told it was not done, so it never
+// reports a post that did not happen.
+func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, canAct bool, writes *int) string {
 	if s.deps.Lookups == nil {
 		return "Lookups are not available: answer with what you have."
 	}
-	return s.recordServices(id, s.deps.Lookups(ctx, lookups))
+	var allowed []Lookup
+	var refused ServiceContext
+	for _, lookup := range lookups {
+		switch {
+		case !lookup.Writes():
+			allowed = append(allowed, lookup)
+		case !canAct:
+			refused.Text += "Asana, comment not posted: this request came from a message written by someone else, and Pouple only posts something the user asked for themselves in Pouple. Give the proposed comment in your summary instead; the user can ask you to post it by writing to you in Pouple.\n"
+			refused.Steps = append(refused.Steps, ServiceStep{Source: "asana", Message: i18n.NewMessage("Asana: nothing was posted, the request did not come from you"), Failed: true})
+		case *writes == maxWrites:
+			refused.Text += "Asana, comment not posted: the limit of comments for one request is reached.\n"
+			refused.Steps = append(refused.Steps, ServiceStep{Source: "asana", Message: i18n.NewMessage("Asana: nothing was posted, the limit for one request is reached"), Failed: true})
+		default:
+			*writes++
+			allowed = append(allowed, lookup)
+		}
+	}
+	var result ServiceContext
+	if len(allowed) > 0 {
+		result = s.deps.Lookups(ctx, allowed)
+	}
+	result.Text = strings.TrimSpace(result.Text + "\n" + refused.Text)
+	result.Steps = append(result.Steps, refused.Steps...)
+	return s.recordServices(id, result)
 }
 
 // maxAsks is how many questions to Slite's own assistant one request may put: each is slow and approximate.

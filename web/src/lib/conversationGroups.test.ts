@@ -45,6 +45,18 @@ describe('groupBySource', () => {
     expect(groupBySource([a, b])).toHaveLength(2);
   });
 
+  it('puts every pipeline in one group named after GitLab, whatever the project, titled by its headline', () => {
+    const first = request('a', 'pipeline', { channelId: 'gitlab-pipelines', channelName: 'GitLab', senderName: 'GitLab' });
+    const second = request('b', 'pipeline', { channelId: 'gitlab-pipelines', channelName: 'GitLab', senderName: 'GitLab' });
+    first.text = '❌ dating/vision · feat\nPipeline #1 failed';
+    const groups = groupBySource([first, second]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.kind).toBe('pipelines');
+    expect(groups[0]?.label).toMatch(/GitLab/);
+    expect(itemTitle(first)).toBe('❌ dating/vision · feat');
+    expect(showsMessageBelow(groups[0]!)).toBe(false);
+  });
+
   it('counts what waits for the user', () => {
     const [group] = groupBySource([request('a', 'mention', {}, 'awaiting-user'), request('b', 'mention', {}, 'failed'), request('c', 'mention')]);
     expect(group?.attention).toBe(2);

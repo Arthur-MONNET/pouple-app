@@ -41,6 +41,19 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(first.entries.first?.kind, .step)
     }
 
+    func testAPipelineRequestIsTitledByItsHeadline() throws {
+        let json = """
+        {
+          "id": "p", "source": { "origin": "pipeline", "channelId": "gitlab-pipelines", "channelName": "GitLab", "senderId": "gitlab", "senderName": "GitLab", "ts": "3.0", "permalink": null },
+          "text": "❌ dating/vision · feat\\nPipeline #9 failed", "context": "", "receivedAt": "2026-11-05T14:00:00Z", "updatedAt": "2026-11-05T14:00:00Z",
+          "status": "ready", "summary": null, "draftReply": null, "questions": [], "proposal": null, "entries": [], "error": null
+        }
+        """
+        let request = try SnapshotDecoder.make().decode(AssistantRequest.self, from: Data(json.utf8))
+        XCTAssertEqual(request.source.origin, .pipeline)
+        XCTAssertEqual(request.title, "❌ dating/vision · feat")
+    }
+
     func testDatesWithAndWithoutMillisecondsBothDecode() throws {
         let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(Self.snapshotJSON.utf8))
         let first = try XCTUnwrap(snapshot.requests.first)

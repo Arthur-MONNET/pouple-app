@@ -39,8 +39,8 @@ async function copy(command: string): Promise<void> {
 </script>
 
 <template>
-  <section id="updates" aria-labelledby="updates-title" class="flex scroll-mt-6 flex-col gap-4 rounded-xl border border-line bg-surface p-5" data-testid="update-section">
-    <div class="flex flex-wrap items-start justify-between gap-3">
+  <section aria-labelledby="updates-title" class="flex flex-col gap-4" data-testid="update-section">
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4">
       <div class="min-w-0">
         <h2 id="updates-title" class="text-base font-semibold text-ink">{{ $t('update.title') }}</h2>
         <p v-if="installed" class="text-xs text-ink-muted" data-testid="update-version">

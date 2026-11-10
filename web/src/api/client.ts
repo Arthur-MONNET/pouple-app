@@ -10,6 +10,7 @@ import type {
   Profile,
   ProposalDecision,
   QuestionAnswer,
+  ProviderModels,
   ProviderTestResult,
   ProvidersInfo,
   Settings,
@@ -47,6 +48,8 @@ export interface PoupleApi {
   updateSettings(patch: SettingsPatch): Promise<Settings>;
 
   getProviders(): Promise<ProvidersInfo>;
+  /** The models an AI offers; may take a few seconds the first time (the CLI renders its catalog). */
+  getProviderModels(id: string): Promise<ProviderModels>;
   /** Runs one minimal turn with the AI (and the model, when given): it counts as one turn of the daily limit. */
   testProvider(id: string, model?: string): Promise<ProviderTestResult>;
 
@@ -141,6 +144,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     updateSettings: (patch) => read<Settings>('/api/settings', { method: 'PUT' }, patch),
 
     getProviders: () => read<ProvidersInfo>('/api/providers'),
+    getProviderModels: (id) => read<ProviderModels>(`/api/providers/${enc(id)}/models`),
     testProvider: (id, model) => read<ProviderTestResult>(`/api/providers/${enc(id)}/test`, { method: 'POST' }, model === undefined ? {} : { model }),
 
     getUpdate: () => read<UpdateInfo>('/api/update'),

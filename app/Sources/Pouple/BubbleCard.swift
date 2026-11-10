@@ -208,6 +208,7 @@ struct BubbleCard: View {
     private var symbol: String {
         switch request.source.origin {
         case .poupleAction: return "bolt.fill"
+        case .pipeline: return "gearshape.2"
         case .noteToSelf: return "note.text"
         case .directMessage: return "envelope"
         case .groupMessage: return "person.2"

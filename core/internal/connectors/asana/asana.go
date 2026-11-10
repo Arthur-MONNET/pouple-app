@@ -40,7 +40,7 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Open the Asana developer console", Body: "Sign in to Asana, then open My apps.", Link: &connector.Link{Label: "Open Asana My apps", URL: "https://app.asana.com/0/my-apps"}},
-			{Title: "Create a personal access token", Body: "Under Personal access tokens, click Create new token, name it Pouple and accept the terms. Pouple only reads your tasks: it never changes anything in Asana."},
+			{Title: "Create a personal access token", Body: "Under Personal access tokens, click Create new token, name it Pouple and accept the terms. Pouple reads your tasks. It posts a comment on a task only when you ask for one yourself in Pouple, and never changes anything else in Asana."},
 			{Title: "Paste the token", Body: "Copy it right away (Asana shows it only once) and paste it here. Pouple shows whose account it is before saving."},
 		},
 	}

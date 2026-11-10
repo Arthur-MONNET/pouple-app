@@ -27,6 +27,9 @@ func (s Status) Pending() bool {
 	return s == StatusQueued || s == StatusAnalyzing || s == StatusApplying
 }
 
+// OriginPipeline is the origin of a request that no one wrote: a pipeline of the user's GitLab account finished.
+const OriginPipeline = "pipeline"
+
 // Source says where a request came from.
 type Source struct {
 	Origin      string  `json:"origin"`

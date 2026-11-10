@@ -27,6 +27,30 @@ type fakeAsana struct {
 	err   error
 	words []string
 	token string
+
+	task         asana.TaskDetails
+	taskComments []asana.Comment
+	postErr      error
+	mu           sync.Mutex
+	posted       []string
+}
+
+func (f *fakeAsana) Task(_ context.Context, gid string) (asana.TaskDetails, error) {
+	return f.task, nil
+}
+
+func (f *fakeAsana) Comments(context.Context, string, int) ([]asana.Comment, error) {
+	return f.taskComments, nil
+}
+
+func (f *fakeAsana) AddComment(_ context.Context, gid, text string) (asana.PostedComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.postErr != nil {
+		return asana.PostedComment{}, f.postErr
+	}
+	f.posted = append(f.posted, gid+"|"+text)
+	return asana.PostedComment{GID: "555666"}, nil
 }
 
 func (f *fakeAsana) OpenTasks(context.Context) (asana.Open, error) { return f.open, f.err }

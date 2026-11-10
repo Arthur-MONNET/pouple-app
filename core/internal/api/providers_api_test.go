@@ -45,7 +45,7 @@ func providerServer(t *testing.T, tester ProviderTester) (*Server, *config.File,
 		descriptorConnector{connector.Descriptor{ID: "codex", Name: "Codex", Choice: "ai", Order: 2}},
 		descriptorConnector{connector.Descriptor{ID: "claude", Name: "Claude", Choice: "ai", Order: 3}},
 	)
-	mountSettings, mountProviders := MountSettings(file), MountProviders(file, registry, tester)
+	mountSettings, mountProviders := MountSettings(file), MountProviders(file, registry, tester, fakeCatalog{})
 	server := New(Options{
 		Registry: registry, Token: "secret-token",
 		Language: func() string { s, _ := file.Load(); return s.UILanguage },
@@ -293,5 +293,29 @@ func TestAFailedTestSaysWhyAndSpendsNothingWhenItCannotRun(t *testing.T) {
 	tester.err = quota
 	if r := run("claude", ""); !strings.Contains(r.Message, "limite quotidienne de 5 tours") {
 		t.Fatalf("the quota message is localized: %q", r.Message)
+	}
+}
+
+type fakeCatalog struct{}
+
+func (fakeCatalog) Models(_ context.Context, id providers.ID) ([]providers.Suggestion, error) {
+	if id == providers.Codex {
+		return []providers.Suggestion{{ID: "gpt-6.1-sol", Label: "GPT-6.1-Sol"}}, nil
+	}
+	return nil, errors.New("no catalog")
+}
+
+func TestModelsEndpointListsTheCatalogAndSaysWhenItCannotBeRead(t *testing.T) {
+	s, _, _ := providerServer(t, &fakeTester{})
+	got := call(s, "GET", "/api/providers/codex/models", "", nil)
+	if got.Code != 200 || !strings.Contains(got.Body.String(), `"id":"gpt-6.1-sol"`) || !strings.Contains(got.Body.String(), `"message":""`) {
+		t.Fatalf("%d %s", got.Code, got.Body)
+	}
+	got = call(s, "GET", "/api/providers/claude/models", "", nil)
+	if got.Code != 200 || !strings.Contains(got.Body.String(), `"models":[]`) || strings.Contains(got.Body.String(), `"message":""`) {
+		t.Fatalf("an unreadable catalog is an empty list and a message: %d %s", got.Code, got.Body)
+	}
+	if got := call(s, "GET", "/api/providers/nobody/models", "", nil); got.Code != 404 {
+		t.Fatalf("%d", got.Code)
 	}
 }

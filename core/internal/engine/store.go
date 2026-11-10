@@ -16,8 +16,11 @@ type Cursor struct {
 }
 
 type state struct {
-	Cursor   *Cursor  `json:"cursor"`
-	Requests []Stored `json:"requests"`
+	Cursor *Cursor `json:"cursor"`
+	// PipelineCursor is what the pipeline source remembers between two polls; apart from Cursor so that neither
+	// source can lose the other's place.
+	PipelineCursor *Cursor  `json:"pipelineCursor,omitempty"`
+	Requests       []Stored `json:"requests"`
 }
 
 // Store keeps the conversations in memory and on disk. Writes are coalesced and happen in the background; Flush
@@ -146,6 +149,23 @@ func (s *Store) Cursor() *Cursor {
 func (s *Store) SetCursor(c Cursor) {
 	s.mu.Lock()
 	s.state.Cursor = &c
+	s.changed()
+}
+
+func (s *Store) PipelineCursor() *Cursor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.PipelineCursor == nil {
+		return nil
+	}
+	c := *s.state.PipelineCursor
+	c.Seen = append([]string(nil), c.Seen...)
+	return &c
+}
+
+func (s *Store) SetPipelineCursor(c Cursor) {
+	s.mu.Lock()
+	s.state.PipelineCursor = &c
 	s.changed()
 }
 

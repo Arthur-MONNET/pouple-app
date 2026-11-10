@@ -148,7 +148,7 @@ func run() error {
 	mountSettings := api.MountSettings(settings)
 	updateChecker := updates.New(updates.Options{DataDir: dir})
 	mountUpdates := api.MountUpdates(updateChecker)
-	mountProviders := api.MountProviders(settings, registry, service)
+	mountProviders := api.MountProviders(settings, registry, service, modelCatalog{registry: registry})
 	language := func() string {
 		current, err := settings.Load()
 		if err != nil || current.UILanguage == "" {

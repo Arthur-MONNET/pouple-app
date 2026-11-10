@@ -143,6 +143,9 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 		"-c", "notify=[]",
 		// Nothing from the user's own config may widen what an automated turn reaches.
 		"-c", "mcp_servers={}",
+		// Codex ships a built-in "apps" connector whose search tool reads any web page, whatever web_search says: found
+		// by testing with web_search="disabled". The web is opened only through web_search, and only when allowed.
+		"-c", "features.apps=false",
 		"-c", fmt.Sprintf(`web_search="%s"`, webSearchMode(turn.Web)),
 		"-c", "sandbox_workspace_write.network_access=false",
 		"-c", `shell_environment_policy.inherit="core"`,

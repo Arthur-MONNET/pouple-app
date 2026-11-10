@@ -164,6 +164,18 @@ func TestRunTimesOut(t *testing.T) {
 	}
 }
 
+func TestCodexNeverKeepsItsBuiltInAppsConnectorOpen(t *testing.T) {
+	r := NewRunner(RunnerOptions{})
+	for _, web := range []bool{false, true} {
+		if joined := strings.Join(r.BuildArgs(Turn{Sandbox: ReadOnly, Web: web}), " "); !strings.Contains(joined, "features.apps=false") {
+			t.Errorf("web=%v: the apps connector reaches the web whatever web_search says: %s", web, joined)
+		}
+	}
+	if joined := strings.Join(r.BuildArgs(Turn{Sandbox: WorkspaceWrite, ResumeThread: "abc"}), " "); !strings.Contains(joined, "features.apps=false") {
+		t.Errorf("a resumed write turn too: %s", joined)
+	}
+}
+
 func TestCodexSearchesTheWebOnlyWhenTheTurnMayAndNeverOpensTheSandboxNetwork(t *testing.T) {
 	r := NewRunner(RunnerOptions{})
 	off := strings.Join(r.BuildArgs(Turn{Sandbox: ReadOnly}), " ")

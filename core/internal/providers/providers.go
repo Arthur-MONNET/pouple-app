@@ -62,7 +62,7 @@ type Suggestion struct {
 }
 
 // Suggestions are the models worth proposing for a provider, from the CLI's help and Anthropic's model overview.
-// Codex cannot list its models without the network, so it proposes none: any model its CLI accepts can be typed.
+// Codex lists its own models (see the codex connector), so it proposes none here.
 func Suggestions(id ID) []Suggestion {
 	if id != Claude {
 		return nil
@@ -84,7 +84,7 @@ func ModelNote(id ID) string {
 	if id == Claude {
 		return "Leave empty to use Claude’s own default. Any model name your Claude CLI accepts can be typed."
 	}
-	return "Codex cannot list its models offline. Leave empty to use its default, or type any model your Codex CLI supports."
+	return "Leave empty to use Codex’s own default. Any model name your Codex CLI accepts can be typed."
 }
 
 // ChildEnv is the environment for an AI CLI: the given one without Pouple’s own variables (the API token) and without

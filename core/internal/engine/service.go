@@ -30,6 +30,17 @@ type Inbox interface {
 	Poll(ctx context.Context, cursor *Cursor) (PollResult, error)
 }
 
+// Pipelines finds the pipelines of the user's GitLab account that finished since the last poll.
+type Pipelines interface {
+	Poll(ctx context.Context, cursor *Cursor) (PipelinePoll, error)
+}
+
+// PipelinePoll is what one look at the pipelines found: one Incoming per finished pipeline, oldest first.
+type PipelinePoll struct {
+	Incoming []Incoming
+	Cursor   Cursor
+}
+
 // Incoming is a message the inbox found.
 type Incoming struct {
 	Source  Source
@@ -49,6 +60,8 @@ type PollResult struct {
 type Deps struct {
 	Store *Store
 	Inbox Inbox
+	// Pipelines reports the finished GitLab pipelines of the user; nil when there is no such source.
+	Pipelines Pipelines
 	// Providers are the AIs a turn can run on, each already metered when the usage limit must apply to it.
 	Providers map[providers.ID]Provider
 	// Selection says which provider and model run the next turn. It is read at each turn, so a change in the
@@ -107,9 +120,12 @@ type Service struct {
 	deps  Deps
 	queue *Queue
 
-	mu         sync.Mutex
-	notices    []i18n.Message
-	lastPollAt *string
+	mu      sync.Mutex
+	notices []i18n.Message
+	// pipelineNotice is why the pipelines could not be read; "" when they can. Kept apart from notices, which every
+	// Slack poll rewrites.
+	pipelineNotice *i18n.Message
+	lastPollAt     *string
 	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
 	pausedUntil  map[providers.ID]time.Time
 	loginProblem map[providers.ID]bool
@@ -231,6 +247,9 @@ func (s *Service) Snapshot() Snapshot {
 	for _, notice := range s.notices {
 		notices = append(notices, notice.Text(lang))
 	}
+	if s.pipelineNotice != nil {
+		notices = append(notices, s.pipelineNotice.Text(lang))
+	}
 	notices = append(notices, s.standingNoticesLocked(lang)...)
 	lastPoll := s.lastPollAt
 	s.mu.Unlock()
@@ -297,9 +316,19 @@ func (s *Service) Run(ctx context.Context, intervals func() (period, cooldown ti
 	}
 }
 
-// Poll reads Slack once and turns what is new into requests.
+// Poll reads Slack and the GitLab pipelines once and turns what is new into requests. A source that fails does not
+// stop the other.
 func (s *Service) Poll(ctx context.Context) {
-	if s.deps.Inactive() != "" || s.deps.Inbox == nil {
+	if s.deps.Inactive() != "" {
+		return
+	}
+	s.pollSlack(ctx)
+	s.pollPipelines(ctx)
+	s.expireStale()
+}
+
+func (s *Service) pollSlack(ctx context.Context) {
+	if s.deps.Inbox == nil {
 		return
 	}
 	result, err := s.deps.Inbox.Poll(ctx, s.deps.Store.Cursor())
@@ -318,7 +347,31 @@ func (s *Service) Poll(ctx context.Context) {
 	for _, incoming := range result.Incoming {
 		s.receive(incoming)
 	}
-	s.expireStale()
+}
+
+// pollPipelines turns the pipelines that finished since the last look into requests. The first look only records
+// the place, so starting Pouple never replays old pipelines.
+func (s *Service) pollPipelines(ctx context.Context) {
+	if s.deps.Pipelines == nil {
+		return
+	}
+	result, err := s.deps.Pipelines.Poll(ctx, s.deps.Store.PipelineCursor())
+	s.mu.Lock()
+	if err != nil {
+		notice := i18n.NewMessage("GitLab pipelines could not be read: %s", err)
+		s.pipelineNotice = &notice
+	} else {
+		s.pipelineNotice = nil
+	}
+	s.mu.Unlock()
+	if err != nil {
+		s.broadcast()
+		return
+	}
+	s.deps.Store.SetPipelineCursor(result.Cursor)
+	for _, incoming := range result.Incoming {
+		s.receive(incoming)
+	}
 }
 
 func (s *Service) receive(in Incoming) {
@@ -336,7 +389,7 @@ func (s *Service) receive(in Incoming) {
 		request.Entries = []Entry{s.entry("system", "text", s.text(reason))}
 		s.deps.Store.Add(request)
 	}
-	if !ownNote && len(in.Files) == 0 && IsSmallTalk(in.Text) {
+	if !ownNote && in.Source.Origin != OriginPipeline && len(in.Files) == 0 && IsSmallTalk(in.Text) {
 		skip("Skipped: nothing to answer.")
 		return
 	}
@@ -370,7 +423,8 @@ func (s *Service) receive(in Incoming) {
 
 // mergeIntoWaiting joins a message to the request of the same person, in the same place, that still waits.
 func (s *Service) mergeIntoWaiting(in Incoming) bool {
-	if in.Source.Origin == "note-to-self" {
+	// A pipeline is an event of its own: two of them are never one request.
+	if in.Source.Origin == "note-to-self" || in.Source.Origin == OriginPipeline {
 		return false
 	}
 	now := s.deps.Now()
@@ -562,6 +616,10 @@ func (s *Service) alert(id, message string) {
 	}
 	if request.Source.Origin == "note-to-self" {
 		title = i18n.T(lang, "Note to self")
+	}
+	if request.Source.Origin == OriginPipeline {
+		// The first line of a pipeline request is its headline: the outcome, the project and the branch.
+		title, _, _ = strings.Cut(request.Text, "\n")
 	}
 	message = strings.Join(strings.Fields(strings.ReplaceAll(message, "**", "")), " ")
 	if runes := []rune(message); len(runes) > 160 {

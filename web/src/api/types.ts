@@ -122,7 +122,9 @@ export type RequestOrigin =
   | 'broadcast'
   | 'keyword'
   | 'thread-reply'
-  | 'channel-message';
+  | 'channel-message'
+  /** A GitLab pipeline of the user finished: nobody wrote, the text is what GitLab reports. */
+  | 'pipeline';
 
 export interface RequestSource {
   origin: RequestOrigin;
@@ -246,6 +248,9 @@ export type UiLanguage = 'fr' | 'en';
 
 export type AutoApprove = 'off' | 'own-notes';
 
+/** Which finished GitLab pipelines of the user become conversations. */
+export type PipelineMode = 'all' | 'failures' | 'off';
+
 /** GET and PUT /api/settings. A PUT carries only the fields to change; a 422 answers `{message}`. */
 export interface Settings {
   pollSeconds: number;
@@ -264,8 +269,10 @@ export interface Settings {
   provider?: string;
   /** One model name per AI; empty is the CLI's own default. */
   models?: Record<string, string>;
-  /** Lets the AI search the web and read public pages while it investigates. Off by default. */
+  /** Lets the AI search the web and read public pages while it investigates. On unless turned off. */
   webAccess?: boolean;
+  /** Which finished GitLab pipelines become conversations; set on the GitLab connector's card. */
+  gitlabPipelines?: PipelineMode;
 }
 
 export interface SuggestedModel {
@@ -288,6 +295,12 @@ export interface ProviderInfo {
 export interface ProvidersInfo {
   active: string;
   providers: ProviderInfo[];
+}
+
+/** GET /api/providers/{id}/models: the models to pick from; empty, with a message, when the AI cannot list them. */
+export interface ProviderModels {
+  models: SuggestedModel[];
+  message: string;
 }
 
 /** POST /api/providers/{id}/test: a failed test is still an answer, with `ok: false` and a message. */

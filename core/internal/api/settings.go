@@ -27,8 +27,10 @@ type Settings struct {
 	Provider string `json:"provider"`
 	// Models is the model chosen for each provider, always with both keys; "" is the CLI's own default.
 	Models map[string]string `json:"models"`
-	// WebAccess is whether the AI may search the web and read public pages.
+	// WebAccess is whether the AI may search the web and read public pages: on unless the user turned it off.
 	WebAccess bool `json:"webAccess"`
+	// GitLabPipelines is which finished pipelines become requests: "all", "failures" or "off".
+	GitLabPipelines string `json:"gitlabPipelines"`
 }
 
 func viewOf(s config.Settings) Settings {
@@ -39,7 +41,7 @@ func viewOf(s config.Settings) Settings {
 	return Settings{
 		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
 		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels,
-		Provider: string(s.ActiveProvider()), Models: models, WebAccess: s.WebAccess,
+		Provider: string(s.ActiveProvider()), Models: models, WebAccess: !s.WebDisabled, GitLabPipelines: s.GitLabPipelines,
 	}
 }
 
@@ -71,9 +73,15 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				// Models changes the model of the providers named in it only.
 				Models    map[string]string `json:"models"`
 				WebAccess *bool             `json:"webAccess"`
+				// GitLabPipelines is "all", "failures" or "off".
+				GitLabPipelines *string `json:"gitlabPipelines"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&patch); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(lang, "The request is not valid JSON")})
+				return
+			}
+			if patch.GitLabPipelines != nil && !validPipelineMode(*patch.GitLabPipelines) {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": i18n.T(lang, `GitLab pipelines must be "all", "failures" or "off"`)})
 				return
 			}
 			if problem := validate(lang, patch.PollSeconds, patch.DailyTurnLimit, patch.ProjectsRoot, patch.AutoApprove, patch.UILanguage); problem != "" {
@@ -101,7 +109,10 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 					s.Models[id] = model
 				}
 				if patch.WebAccess != nil {
-					s.WebAccess = *patch.WebAccess
+					s.WebDisabled = !*patch.WebAccess
+				}
+				if patch.GitLabPipelines != nil {
+					s.GitLabPipelines = *patch.GitLabPipelines
 				}
 				if patch.PollSeconds != nil {
 					s.PollSeconds = *patch.PollSeconds
@@ -136,6 +147,8 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 		})
 	}
 }
+
+func validPipelineMode(mode string) bool { return mode == "all" || mode == "failures" || mode == "off" }
 
 func validate(lang i18n.Lang, poll, limit *int, root, autoApprove, uiLanguage *string) string {
 	switch {

@@ -1,9 +1,9 @@
 import type { AssistantRequest } from '../api/types';
 import { t } from '../i18n';
-import { needsAttention } from './assistantRequests';
+import { headlineOf, needsAttention } from './assistantRequests';
 
 /** What kind of place the requests of a group come from. */
-export type GroupKind = 'notes' | 'channel' | 'direct' | 'group';
+export type GroupKind = 'notes' | 'pipelines' | 'channel' | 'direct' | 'group';
 
 export interface ConversationGroup {
   /** Stable across refreshes: what keeps a collapsed group collapsed. */
@@ -16,12 +16,15 @@ export interface ConversationGroup {
   attention: number;
 }
 
-const NOTES_KEY = 'notes';
+/** Notes and pipelines each form one group, whatever the channel id they carry. */
+const SINGLE_GROUPS: Partial<Record<GroupKind, string>> = { notes: 'notes', pipelines: 'pipelines' };
 
 function kindOf(request: AssistantRequest): GroupKind {
   switch (request.source.origin) {
     case 'note-to-self':
       return 'notes';
+    case 'pipeline':
+      return 'pipelines';
     case 'direct-message':
       return 'direct';
     case 'group-message':
@@ -31,14 +34,15 @@ function kindOf(request: AssistantRequest): GroupKind {
   }
 }
 
-const keyOf = (request: AssistantRequest): string =>
-  kindOf(request) === 'notes' ? NOTES_KEY : `${kindOf(request)}:${request.source.channelId}`;
+const keyOf = (request: AssistantRequest): string => SINGLE_GROUPS[kindOf(request)] ?? `${kindOf(request)}:${request.source.channelId}`;
 
 function labelOf(request: AssistantRequest): string {
   const { source } = request;
   switch (kindOf(request)) {
     case 'notes':
       return t('groups.notes');
+    case 'pipelines':
+      return t('groups.pipelines');
     case 'direct':
       return source.senderName;
     case 'group':
@@ -74,9 +78,11 @@ const namesTheSender = (kind: GroupKind): boolean => kind === 'channel' || kind 
 
 /**
  * The line that names a request inside its group. The group already says where it comes from, and for a direct
- * conversation or a note who wrote it too: the title is then the message itself, and nothing repeats it below.
+ * conversation or a note who wrote it too: the title is then the message itself, and nothing repeats it below. A pipeline is titled by its headline: the outcome,
+ * the project and the branch.
  */
 export function itemTitle(request: AssistantRequest): string {
+  if (kindOf(request) === 'pipelines') return headlineOf(request.text);
   return namesTheSender(kindOf(request)) ? request.source.senderName : request.text;
 }
 

@@ -1,37 +1,33 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue';
 import { t } from '../i18n';
-import { errorMessage } from '../api/client';
+import { useAutoSave } from '../composables/useAutoSave';
 import { useSettings } from '../composables/useSettings';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AppSpinner from './AppSpinner.vue';
 import InlineError from './InlineError.vue';
 
-const props = withDefaults(defineProps<{ skippable?: boolean; saveLabel?: string }>(), { skippable: false, saveLabel: undefined });
+// With autosave (the Settings page) the folder is saved as soon as the field is left, and there is no button.
+const props = withDefaults(defineProps<{ skippable?: boolean; saveLabel?: string; autosave?: boolean }>(), { skippable: false, saveLabel: undefined, autosave: false });
 const saveText = computed(() => props.saveLabel ?? t('projects.saveFolder'));
 const emit = defineEmits<{ saved: []; skip: [] }>();
 
 const { settings, loadError, load, save } = useSettings();
 const id = useId();
 const path = ref('');
-const error = ref<string | null>(null);
-const saving = ref(false);
+const { saved, saving, error, run } = useAutoSave();
 
 void load();
 watch(settings, (value) => value && path.value === '' && (path.value = value.projectsRoot), { once: true });
 
 async function submit(): Promise<void> {
-  error.value = null;
-  saving.value = true;
-  try {
-    await save({ projectsRoot: path.value.trim() });
-    emit('saved');
-  } catch (cause) {
-    error.value = errorMessage(cause);
-  } finally {
-    saving.value = false;
-  }
+  if (saving.value) return;
+  if (await run(() => save({ projectsRoot: path.value.trim() }))) emit('saved');
+}
+
+function onChange(): void {
+  if (props.autosave && path.value.trim() !== '') void submit();
 }
 </script>
 
@@ -51,6 +47,7 @@ async function submit(): Promise<void> {
         :aria-describedby="`${id}-help`"
         class="h-10 rounded-lg border bg-surface px-3 font-mono text-sm text-ink outline-none focus:border-accent"
         :class="error ? 'border-fail/70' : 'border-line-strong'"
+        @change="onChange"
       />
       <p :id="`${id}-help`" class="text-xs leading-relaxed text-ink-dim">
         {{ $t('projects.help') }}
@@ -60,7 +57,8 @@ async function submit(): Promise<void> {
       </p>
       <InlineError v-if="loadError">{{ $t('projects.loadError', { error: loadError }) }}</InlineError>
     </div>
-    <div class="flex flex-wrap gap-2">
+    <p v-if="autosave && saved" role="status" class="text-xs text-ok">{{ $t('settings.saved') }}</p>
+    <div v-if="!autosave" class="flex flex-wrap gap-2">
       <AppButton type="submit" variant="primary" size="lg" :disabled="saving || path.trim() === ''" data-testid="save-projects">
         <AppSpinner v-if="saving" />
         {{ saveText }}

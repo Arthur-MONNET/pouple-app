@@ -36,7 +36,13 @@ type Lookup struct {
 	Service string `json:"service"`
 	Action  string `json:"action"`
 	Target  string `json:"target"`
+	// Text is what a lookup that writes carries (the comment to post); "" for the others.
+	Text string `json:"text"`
 }
+
+// Writes reports whether the lookup changes something in a service instead of reading it. It is the one place that
+// says so: the engine lets such a lookup through only for a request the user made themselves.
+func (l Lookup) Writes() bool { return l.Service == "asana" && l.Action == "comment" }
 
 // maxServiceChars bounds what the connected services add to a prompt: enough for a merge request with its code.
 const maxServiceChars = 40000

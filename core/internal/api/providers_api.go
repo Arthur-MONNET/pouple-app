@@ -20,6 +20,12 @@ type ProviderTester interface {
 	TestProvider(ctx context.Context, id providers.ID, model string) (engine.ProviderTest, error)
 }
 
+// ModelCatalog lists the models a provider offers when it can say. Its call may take seconds, so the interface asks
+// for it apart from the providers.
+type ModelCatalog interface {
+	Models(ctx context.Context, id providers.ID) ([]providers.Suggestion, error)
+}
+
 type suggestedModel struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
@@ -40,7 +46,7 @@ type providerView struct {
 
 // MountProviders adds GET /api/providers (the AIs, which one runs, their models) and
 // POST /api/providers/{id}/test (one minimal read-only turn with the chosen model).
-func MountProviders(file *config.File, registry *connector.Registry, tester ProviderTester) func(mux *http.ServeMux) {
+func MountProviders(file *config.File, registry *connector.Registry, tester ProviderTester, catalog ModelCatalog) func(mux *http.ServeMux) {
 	return func(mux *http.ServeMux) {
 		mux.HandleFunc("GET /api/providers", func(w http.ResponseWriter, r *http.Request) {
 			lang := i18n.FromContext(r.Context())
@@ -62,6 +68,27 @@ func MountProviders(file *config.File, registry *connector.Registry, tester Prov
 				})
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"active": string(active), "providers": views})
+		})
+
+		// The models the provider offers, for the interface to pick from. When the list cannot be read (the CLI is
+		// missing or signed out), it is empty and message says why: the interface then lets the name be typed.
+		mux.HandleFunc("GET /api/providers/{id}/models", func(w http.ResponseWriter, r *http.Request) {
+			lang := i18n.FromContext(r.Context())
+			id, ok := providers.Parse(r.PathValue("id"))
+			if !ok {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.T(lang, "The provider is unknown")})
+				return
+			}
+			models := []suggestedModel{}
+			found, err := catalog.Models(r.Context(), id)
+			for _, model := range found {
+				models = append(models, suggestedModel{ID: model.ID, Label: i18n.T(lang, model.Label)})
+			}
+			message := ""
+			if err != nil {
+				message = i18n.T(lang, "The list of models could not be read")
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"models": models, "message": message})
 		})
 
 		mux.HandleFunc("POST /api/providers/{id}/test", func(w http.ResponseWriter, r *http.Request) {

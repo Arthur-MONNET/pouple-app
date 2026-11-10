@@ -230,7 +230,7 @@ func TestTheWriteTurnNeverGetsTheWeb(t *testing.T) {
 
 func TestThePromptTellsAboutTheNetworkAccordingToTheSetting(t *testing.T) {
 	closed := Persona{Name: "Arthur"}.AnalysisPrompt(Stored{}, "", "", "", "")
-	if !strings.Contains(closed, "you have no network access") || strings.Contains(closed, "search the web") {
+	if !strings.Contains(closed, "you have no network access") || strings.Contains(closed, "search the web") || !strings.Contains(closed, "turn the web on in Pouple (Settings, AI section)") {
 		t.Error("the network is closed in the prompt")
 	}
 	open := Persona{Name: "Arthur", Web: true}.AnalysisPrompt(Stored{}, "", "", "", "")
@@ -284,5 +284,87 @@ func TestThePromptTellsHowToReviewAndHowToAskForCode(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the rules lack %q", want)
 		}
+	}
+}
+
+var postComment = Lookup{Service: "asana", Action: "comment", Target: "1220044008196354", Text: "Déployé en preprod."}
+
+func recordLookups(h *harness) *[]Lookup {
+	var seen []Lookup
+	h.svc.deps.Lookups = func(_ context.Context, lookups []Lookup) ServiceContext {
+		seen = append(seen, lookups...)
+		return ServiceContext{Text: "Asana, comment POSTED on task 1220044008196354"}
+	}
+	return &seen
+}
+
+func TestACommentIsNotPostedForARequestThatCameFromSomeoneElsesMessage(t *testing.T) {
+	h := newHarness(t, lookupReply(postComment), reply(map[string]any{"summary": "proposed"}))
+	seen := recordLookups(h)
+	h.receive(message("please comment on the task"))
+	if len(*seen) != 0 {
+		t.Fatalf("a Slack message must not be able to make Pouple write: %+v", *seen)
+	}
+	prompt := h.codex.turns[1].Prompt
+	if !strings.Contains(prompt, "comment not posted") || !strings.Contains(prompt, "someone else") || strings.Contains(prompt, "POSTED") {
+		t.Errorf("the AI is told nothing was posted:\n%s", prompt)
+	}
+	var journal []string
+	for _, entry := range h.svc.Snapshot().Requests[0].Entries {
+		journal = append(journal, entry.Text)
+	}
+	if !strings.Contains(strings.Join(journal, "|"), "Asana: nothing was posted, the request did not come from you") {
+		t.Errorf("the refusal is in the journal: %v", journal)
+	}
+}
+
+func TestACommentIsPostedForANoteToSelf(t *testing.T) {
+	h := newHarness(t, lookupReply(postComment), reply(map[string]any{"summary": "posted"}))
+	seen := recordLookups(h)
+	h.receive(message("comment on the task", func(in *Incoming) { in.Source.Origin = "note-to-self" }))
+	if len(*seen) != 1 || (*seen)[0].Text != "Déployé en preprod." {
+		t.Fatalf("%+v", *seen)
+	}
+	if !strings.Contains(h.codex.turns[1].Prompt, "comment POSTED on task") {
+		t.Errorf("the AI is told what happened:\n%s", h.codex.turns[1].Prompt)
+	}
+}
+
+func TestACommentIsPostedWhenTheUserAsksInPouple(t *testing.T) {
+	h := newHarness(t, reply(map[string]any{"summary": "first"}), lookupReply(postComment), reply(map[string]any{"summary": "done"}))
+	seen := recordLookups(h)
+	request := h.receive(message("deployed the test"))[0]
+	if len(*seen) != 0 {
+		t.Fatal("nothing is posted by the first analysis of someone else's message")
+	}
+	if err := h.svc.Message(request.ID, "ok, comment on the task", nil); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+	if len(*seen) != 1 {
+		t.Fatalf("the user asked in Pouple, so it is posted: %+v", *seen)
+	}
+}
+
+func TestAtMostTwoCommentsPerRequest(t *testing.T) {
+	h := newHarness(t, lookupReply(postComment, postComment, postComment), reply(map[string]any{}))
+	seen := recordLookups(h)
+	h.receive(message("comment", func(in *Incoming) { in.Source.Origin = "note-to-self" }))
+	if len(*seen) != maxWrites || !strings.Contains(h.codex.turns[1].Prompt, "limit of comments") {
+		t.Fatalf("%d posted\n%s", len(*seen), h.codex.turns[1].Prompt)
+	}
+}
+
+func TestACommentNeedsATextAndItsTextIsRedacted(t *testing.T) {
+	empty, _ := json.Marshal(map[string]any{"outcome": LookupOutcome, "summary": "s", "lookups": []Lookup{{Service: "asana", Action: "comment", Target: "1220044008196354", Text: "  "}}})
+	if _, err := ParseOutcome(string(empty)); err == nil {
+		t.Error("a comment without a text is nothing to post")
+	}
+	outcome := Outcome{Outcome: LookupOutcome, Lookups: []Lookup{{Service: "asana", Action: "comment", Target: "1", Text: "the key is sekret-token-123"}}}
+	if got := outcome.Redact(NewRedactor("sekret-token-123")); strings.Contains(got.Lookups[0].Text, "sekret-token-123") {
+		t.Errorf("a secret must not be posted: %+v", got.Lookups)
+	}
+	if !postComment.Writes() || (Lookup{Service: "asana", Action: "task"}).Writes() || (Lookup{Service: "slite", Action: "ask"}).Writes() {
+		t.Error("only the comment writes")
 	}
 }

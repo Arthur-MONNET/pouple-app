@@ -33,9 +33,11 @@ type Settings struct {
 	Provider string `json:"provider"`
 	// Models is the model chosen for each provider; empty (or missing) leaves the choice to the CLI.
 	Models map[string]string `json:"models"`
-	// WebAccess lets the AI search the web and read public pages while it investigates. Off by default: what comes
-	// back from the web is written by strangers, and a request from Slack is untrusted text.
-	WebAccess bool `json:"webAccess"`
+	// WebDisabled stops the AI from searching the web and reading public pages while it investigates. The web is on
+	// unless the user turns it off, so the zero value is the default; what comes back from it is untrusted text, which
+	// is why a proposal made after a web search is never applied automatically. It replaces the earlier "webAccess"
+	// key, whose stored false could not tell a choice from a default.
+	WebDisabled bool `json:"webDisabled"`
 	// ProjectsRoot is the folder with one folder per project: where the AI looks, and where approved changes go.
 	ProjectsRoot string `json:"projectsRoot"`
 	// Language is the language of summaries and questions ("French"); empty uses the system language.
@@ -48,10 +50,13 @@ type Settings struct {
 	Keywords []string `json:"keywords"`
 	// IgnoreChannels are channel ids whose messages are never requests.
 	IgnoreChannels []string `json:"ignoreChannels"`
+	// GitLabPipelines is which finished GitLab pipelines of the user become requests: "all" (the default),
+	// "failures" or "off". It belongs to the GitLab connector and is set on its card.
+	GitLabPipelines string `json:"gitlabPipelines"`
 }
 
 func Defaults() Settings {
-	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, Models: map[string]string{}, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}}
+	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, Models: map[string]string{}, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}, GitLabPipelines: "all"}
 }
 
 // Connected reports whether a connector is set up.

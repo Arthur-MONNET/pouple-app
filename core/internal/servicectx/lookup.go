@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
@@ -44,6 +45,9 @@ func (g *Gatherer) runnerFor(service string) (lookupRunner, section) {
 	case slite.ID:
 		client := g.NewSlite(values["token"])
 		return func(ctx context.Context, lookup engine.Lookup) section { return g.sliteLookup(ctx, client, lookup) }, section{}
+	case asana.ID:
+		client := g.NewAsana(values["token"])
+		return func(ctx context.Context, lookup engine.Lookup) section { return g.asanaLookup(ctx, client, lookup) }, section{}
 	case gitlab.ID:
 		client, err := g.NewGitLab(values["url"], values["token"])
 		if err != nil {
@@ -60,6 +64,8 @@ func serviceName(service string) string {
 		return "Slite"
 	case gitlab.ID:
 		return "GitLab"
+	case asana.ID:
+		return "Asana"
 	}
 	return service
 }

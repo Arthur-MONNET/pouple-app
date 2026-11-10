@@ -14,6 +14,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/pipelinewatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 	"github.com/Arthur-MONNET/pouple/core/internal/servicectx"
 	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
@@ -78,12 +79,12 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 
 	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
-		Store: store, Inbox: slack, Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
+		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }), Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
 		Services:     gatherer.Gather,
 		Lookups:      gatherer.Lookup,
-		WebAccess:    func() bool { return load().WebAccess },
+		WebAccess:    func() bool { return !load().WebDisabled },
 		Persona:      func() engine.Persona { return personaOf(registry, load()) },
 		Language:     language,
 		ProjectsRoot: projectsRoot,
@@ -142,7 +143,7 @@ func inactiveReason(registry *connector.Registry, lang i18n.Lang) string {
 
 // personaOf calls the user by the first name of their Slack profile, in the language they chose or the system's.
 func personaOf(registry *connector.Registry, settings config.Settings) engine.Persona {
-	persona := engine.Persona{Language: settings.Language, Web: settings.WebAccess}
+	persona := engine.Persona{Language: settings.Language, Web: !settings.WebDisabled}
 	if status, err := registry.Status("slack"); err == nil && status.Profile != nil {
 		if fields := strings.Fields(status.Profile.Name); len(fields) > 0 {
 			persona.Name = fields[0]

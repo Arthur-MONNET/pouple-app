@@ -5,6 +5,7 @@ import type { ConnectorStatus } from '../api/types';
 import InlineError from '../components/InlineError.vue';
 import ConnectorCard from '../components/ConnectorCard.vue';
 import ConnectorStep from '../components/ConnectorStep.vue';
+import GitLabPipelinesSetting from '../components/GitLabPipelinesSetting.vue';
 import SideSheet from '../components/SideSheet.vue';
 import { optionalConnectors } from '../lib/optionalConnectors';
 import { useApi } from '../composables/useApi';
@@ -71,7 +72,9 @@ async function saved(): Promise<void> {
         </div>
         <ul class="grid gap-3 min-[700px]:grid-cols-2">
           <li v-for="connector in extras" :key="connector.descriptor.id" class="flex">
-            <ConnectorCard class="w-full" :connector="connector" :busy="busy" @reconnect="reconnectingId = connector.descriptor.id" @disconnect="disconnect(connector)" />
+            <ConnectorCard class="w-full" :connector="connector" :busy="busy" @reconnect="reconnectingId = connector.descriptor.id" @disconnect="disconnect(connector)">
+              <GitLabPipelinesSetting v-if="connector.connected && connector.descriptor.id === 'gitlab'" />
+            </ConnectorCard>
           </li>
         </ul>
       </section>

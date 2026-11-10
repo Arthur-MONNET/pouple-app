@@ -24,11 +24,12 @@ const OutcomeSchema = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["service", "action", "target"],
+        "required": ["service", "action", "target", "text"],
         "properties": {
-          "service": {"type": "string", "enum": ["slite", "gitlab"]},
-          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff"]},
-          "target": {"type": "string"}
+          "service": {"type": "string", "enum": ["slite", "gitlab", "asana"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment"]},
+          "target": {"type": "string"},
+          "text": {"type": "string"}
         }
       }
     },
@@ -105,12 +106,15 @@ const (
 	// maxLookups is how many lookups one answer may ask for, and maxLookupTarget how long one request may be.
 	maxLookups      = 4
 	maxLookupTarget = 500
+	// maxCommentText bounds the comment a lookup posts.
+	maxCommentText = 4000
 )
 
 // lookupActions are the lookups each service understands.
 var lookupActions = map[string][]string{
 	"slite":  {"search", "children", "read", "ask"},
 	"gitlab": {"mr", "diff"},
+	"asana":  {"task", "comment"},
 }
 
 // ParseOutcome validates the final message of a turn.
@@ -146,7 +150,14 @@ func ParseOutcome(text string) (Outcome, error) {
 		if len(out.Lookups) == maxLookups || !slices.Contains(lookupActions[lookup.Service], lookup.Action) || target == "" {
 			continue
 		}
-		out.Lookups = append(out.Lookups, Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)})
+		kept := Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)}
+		if kept.Writes() {
+			if kept.Text = strings.TrimSpace(lookup.Text); kept.Text == "" {
+				continue
+			}
+			kept.Text = clipRunes(kept.Text, maxCommentText)
+		}
+		out.Lookups = append(out.Lookups, kept)
 	}
 	switch {
 	case out.Outcome == LookupOutcome && len(out.Lookups) == 0:
@@ -183,7 +194,7 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 	}
 	out.Lookups = make([]Lookup, len(o.Lookups))
 	for i, lookup := range o.Lookups {
-		out.Lookups[i] = Lookup{Service: lookup.Service, Action: lookup.Action, Target: redact(lookup.Target)}
+		out.Lookups[i] = Lookup{Service: lookup.Service, Action: lookup.Action, Target: redact(lookup.Target), Text: redact(lookup.Text)}
 	}
 	if o.Proposal != nil {
 		out.Proposal = &Proposal{Title: redact(o.Proposal.Title), Description: redact(o.Proposal.Description), ProjectID: o.Proposal.ProjectID}

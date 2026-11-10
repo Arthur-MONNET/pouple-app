@@ -48,6 +48,8 @@ const confirming = ref(false);
       <p v-if="connector.connectedAt" class="mt-2 text-2xs text-ink-dim">{{ $t('connectors.card.connectedAt', { time: relativeTime(connector.connectedAt, new Date(), lang) }) }}</p>
     </div>
 
+    <slot />
+
     <div class="mt-auto flex flex-wrap items-center gap-2">
       <template v-if="!confirming">
         <AppButton variant="outline" size="sm" :disabled="busy" @click="$emit('reconnect')">{{ connector.connected ? $t('connectors.card.reconnectBtn') : $t('connectors.card.connectBtn') }}</AppButton>
