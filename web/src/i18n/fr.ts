@@ -189,6 +189,7 @@ export const fr: MessageTree = {
       yes: 'Oui, déconnecter',
       warnings: '{n} avertissement : {titles} | {n} avertissements : {titles}',
       connectedAt: 'Connecté {time}',
+      settings: 'Réglages',
     },
     gitlabPipelines: {
       label: 'Pipelines terminés',
@@ -281,7 +282,7 @@ export const fr: MessageTree = {
     title: 'Réglages',
     intro: 'Comment Pouple travaille avec tes projets, et ce qu\'il peut faire seul.',
     loadError: 'Les réglages n\'ont pas pu être lus : {error}',
-    nav: { label: 'Catégories de réglages', general: 'Général', projects: 'Projets', ai: 'IA', assistant: 'Assistant', updates: 'Mises à jour' },
+    nav: { label: 'Catégories de réglages', general: 'Général', projects: 'Projets', ai: 'IA', assistant: 'Assistant', updates: 'Mises à jour', connectors: 'Connecteurs' },
     general: 'Général',
     projects: 'Projets',
     assistant: 'Assistant',

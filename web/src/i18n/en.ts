@@ -185,6 +185,7 @@ export const en: MessageTree = {
       yes: 'Yes, disconnect',
       warnings: '{n} warning: {titles} | {n} warnings: {titles}',
       connectedAt: 'Connected {time}',
+      settings: 'Settings',
     },
     gitlabPipelines: {
       label: 'Finished pipelines',
@@ -277,7 +278,7 @@ export const en: MessageTree = {
     title: 'Settings',
     intro: 'How Pouple works with your projects and how much it may do on its own.',
     loadError: 'The settings could not be read: {error}',
-    nav: { label: 'Settings categories', general: 'General', projects: 'Projects', ai: 'AI', assistant: 'Assistant', updates: 'Updates' },
+    nav: { label: 'Settings categories', general: 'General', projects: 'Projects', ai: 'AI', assistant: 'Assistant', updates: 'Updates', connectors: 'Connectors' },
     general: 'General',
     projects: 'Projects',
     assistant: 'Assistant',

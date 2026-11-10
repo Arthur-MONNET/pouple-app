@@ -3,12 +3,13 @@ import { ref } from 'vue';
 import { lang } from '../i18n';
 import type { ConnectorStatus } from '../api/types';
 import { relativeTime } from '../lib/format';
+import { hasSettings } from '../lib/connectorSettings';
 import { benefitKey } from '../lib/optionalConnectors';
 import AppButton from './AppButton.vue';
 import ProfileAvatar from './ProfileAvatar.vue';
 
 defineProps<{ connector: ConnectorStatus; busy: boolean }>();
-defineEmits<{ reconnect: []; disconnect: [] }>();
+defineEmits<{ reconnect: []; disconnect: []; settings: [] }>();
 
 const confirming = ref(false);
 </script>
@@ -48,11 +49,10 @@ const confirming = ref(false);
       <p v-if="connector.connectedAt" class="mt-2 text-2xs text-ink-dim">{{ $t('connectors.card.connectedAt', { time: relativeTime(connector.connectedAt, new Date(), lang) }) }}</p>
     </div>
 
-    <slot />
-
     <div class="mt-auto flex flex-wrap items-center gap-2">
       <template v-if="!confirming">
         <AppButton variant="outline" size="sm" :disabled="busy" @click="$emit('reconnect')">{{ connector.connected ? $t('connectors.card.reconnectBtn') : $t('connectors.card.connectBtn') }}</AppButton>
+        <AppButton v-if="connector.connected && hasSettings(connector.descriptor.id)" variant="outline" size="sm" :disabled="busy" data-testid="connector-settings" @click="$emit('settings')">{{ $t('connectors.card.settings') }}</AppButton>
         <AppButton v-if="connector.connected" variant="ghost" size="sm" :disabled="busy" @click="confirming = true">{{ $t('connectors.card.disconnect') }}</AppButton>
       </template>
       <template v-else>

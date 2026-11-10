@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { errorMessage } from '../api/client';
 import type { ConnectorStatus } from '../api/types';
 import InlineError from '../components/InlineError.vue';
 import ConnectorCard from '../components/ConnectorCard.vue';
 import ConnectorStep from '../components/ConnectorStep.vue';
-import GitLabPipelinesSetting from '../components/GitLabPipelinesSetting.vue';
 import SideSheet from '../components/SideSheet.vue';
+import { connectorSettingsLocation } from '../lib/connectorSettings';
 import { optionalConnectors } from '../lib/optionalConnectors';
 import { useApi } from '../composables/useApi';
 import { useConnectorsStore } from '../composables/useConnectorsStore';
 
 const api = useApi();
+const router = useRouter();
 const store = useConnectorsStore();
 
 const busy = ref(false);
@@ -60,7 +62,7 @@ async function saved(): Promise<void> {
         <h2 id="connected-title" class="text-xs font-medium uppercase tracking-wider text-ink-dim">{{ $t('connectors.yours') }}</h2>
         <ul class="grid gap-3 min-[700px]:grid-cols-2">
           <li v-for="connector in required" :key="connector.descriptor.id" class="flex">
-            <ConnectorCard class="w-full" :connector="connector" :busy="busy" @reconnect="reconnectingId = connector.descriptor.id" @disconnect="disconnect(connector)" />
+            <ConnectorCard class="w-full" :connector="connector" :busy="busy" @reconnect="reconnectingId = connector.descriptor.id" @disconnect="disconnect(connector)" @settings="router.push(connectorSettingsLocation(connector.descriptor.id))" />
           </li>
         </ul>
       </section>
@@ -72,9 +74,7 @@ async function saved(): Promise<void> {
         </div>
         <ul class="grid gap-3 min-[700px]:grid-cols-2">
           <li v-for="connector in extras" :key="connector.descriptor.id" class="flex">
-            <ConnectorCard class="w-full" :connector="connector" :busy="busy" @reconnect="reconnectingId = connector.descriptor.id" @disconnect="disconnect(connector)">
-              <GitLabPipelinesSetting v-if="connector.connected && connector.descriptor.id === 'gitlab'" />
-            </ConnectorCard>
+            <ConnectorCard class="w-full" :connector="connector" :busy="busy" @reconnect="reconnectingId = connector.descriptor.id" @disconnect="disconnect(connector)" @settings="router.push(connectorSettingsLocation(connector.descriptor.id))" />
           </li>
         </ul>
       </section>

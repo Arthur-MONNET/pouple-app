@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue';
+import { computed, onMounted, reactive, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { AutoApprove, SettingsPatch } from '../api/types';
 import AiSection from '../components/AiSection.vue';
+import GitLabSettings from '../components/GitLabSettings.vue';
 import InlineError from '../components/InlineError.vue';
 import SettingsRow from '../components/SettingsRow.vue';
 import SettingsSection from '../components/SettingsSection.vue';
@@ -11,18 +12,28 @@ import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
 import UpdateSection from '../components/UpdateSection.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { useAutoSave } from '../composables/useAutoSave';
+import { useConnectorsStore } from '../composables/useConnectorsStore';
 import { useLanguage } from '../composables/useLanguage';
 import { useSettings } from '../composables/useSettings';
+import { hasSettings } from '../lib/connectorSettings';
 import { LANGS, type Lang } from '../i18n';
 
 const { settings, loadError, load, save } = useSettings();
 const language = useLanguage();
 const route = useRoute();
 
-/** The categories of the menu, in order. The one shown is the address's hash, so the badge of the top bar can open Updates. */
+/** The categories of the menu, in order, then those of the connected connectors that have settings. */
 const CATEGORIES = ['general', 'projects', 'ai', 'assistant', 'updates'] as const;
-type Category = (typeof CATEGORIES)[number];
-const category = computed<Category>(() => CATEGORIES.find((item) => `#${item}` === route.hash) ?? 'general');
+const connectors = useConnectorsStore();
+onMounted(() => void connectors.refresh());
+const connectorCategories = computed(() => connectors.connectors.value.filter((item) => item.connected && hasSettings(item.descriptor.id)));
+const gitlab = computed(() => connectorCategories.value.find((item) => item.descriptor.id === 'gitlab'));
+/** The category shown is the address's hash, so the badge of the top bar and a connector's card can open theirs. */
+const category = computed<string>(() => {
+  const wanted = route.hash.slice(1);
+  const known = (CATEGORIES as readonly string[]).includes(wanted) || connectorCategories.value.some((item) => item.descriptor.id === wanted);
+  return known ? wanted : 'general';
+});
 
 const form = reactive({ language: '', dailyTurnLimit: 0, autoApprove: 'off' as AutoApprove, keywords: '' });
 const autosave = useAutoSave();
@@ -74,6 +85,21 @@ function onInterfaceLanguage(event: Event): void {
       >
         {{ $t(`settings.nav.${item}`) }}
       </RouterLink>
+      <template v-if="connectorCategories.length > 0">
+        <p class="mt-4 hidden px-3 text-2xs font-medium uppercase tracking-wider text-ink-dim min-[760px]:block">{{ $t('settings.nav.connectors') }}</p>
+        <RouterLink
+          v-for="item in connectorCategories"
+          :key="item.descriptor.id"
+          :to="{ path: '/settings', hash: `#${item.descriptor.id}` }"
+          replace
+          class="whitespace-nowrap rounded-lg px-3 py-2 text-sm transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
+          :class="{ 'bg-selected font-medium text-ink': category === item.descriptor.id, 'text-ink-muted': category !== item.descriptor.id }"
+          :aria-current="category === item.descriptor.id ? 'page' : undefined"
+          :data-testid="`settings-nav-${item.descriptor.id}`"
+        >
+          {{ item.descriptor.name }}
+        </RouterLink>
+      </template>
     </nav>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
@@ -129,6 +155,8 @@ function onInterfaceLanguage(event: Event): void {
         </SettingsSection>
 
         <div v-show="category === 'updates'"><UpdateSection /></div>
+
+        <div v-if="gitlab" v-show="category === 'gitlab'"><GitLabSettings :name="gitlab.descriptor.name" /></div>
       </div>
     </div>
   </main>
