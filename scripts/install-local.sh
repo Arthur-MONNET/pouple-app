@@ -6,7 +6,7 @@ usage() {
 Usage: scripts/install-local.sh [--applications-dir <path>] [--no-launch]
 
 Build Pouple from this checkout, install it in ~/Applications, and open it.
-Requires macOS 14+, Xcode Command Line Tools, Node.js 22.12+, pnpm 10, and Go
+Requires macOS 14+, Xcode Command Line Tools, Node.js 22.12+ (nvm install reads .nvmrc), pnpm 10, and Go
 (see core/go.mod for the required toolchain).
 USAGE
 }
@@ -87,7 +87,7 @@ if ! xcode-select -p >/dev/null 2>&1 || ! xcrun --find swift >/dev/null 2>&1; th
 fi
 command -v go >/dev/null || die "Install Go $required_go or later and make sure go is on PATH."
 (cd "$root/core" && go version) || die "Go could not load the toolchain required by core/go.mod ($required_go)."
-command -v node >/dev/null || die "Install Node.js 22.12 or later. If you use NVM, run nvm install from the Pouple checkout, then retry."
+command -v node >/dev/null || die "Install Node.js 22.12 or later. With nvm (recommended), run nvm install from the Pouple checkout, then retry."
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)' \
   || die "Node.js 22.12 or later is required (found $(node --version))."
 pnpm_version="$(pnpm --version 2>/dev/null || true)"

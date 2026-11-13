@@ -67,17 +67,21 @@
       /* Keep the example and mascot in separate rows at every viewport width. */
       .stage { min-width: 0; display: grid; justify-items: center; gap: 12px; padding: 18px; border-radius: 24px; background: var(--lav); }
       .stage .mascot { display: block; width: min(100%, 246px); height: auto; }
+      /* The bubble uses the app's own background and no outline: the state is a dot and a word. */
       .bubble {
-        width: min(100%, 300px); padding: 12px 15px; border-radius: 16px;
-        background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 24px rgb(0 0 0 / 0.18);
+        width: min(100%, 300px); padding: 14px 16px; border-radius: 20px;
+        background: var(--canvas); box-shadow: 0 14px 30px rgb(0 0 0 / 0.28), inset 0 0 0 1px rgb(127 127 127 / 0.14);
       }
       .bubble small { color: var(--muted); display: block; font-size: 12px; }
       .bubble strong { display: block; margin: 2px 0 6px; font-size: 14px; }
       .bubble p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink); }
       .bubble .row { display: flex; flex-wrap: wrap; gap: 8px; }
-      .pill { font-size: 12px; padding: 5px 11px; white-space: nowrap; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-      .pill.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
-      .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
+      .pill { font-size: 12px; padding: 6px 12px; white-space: nowrap; border-radius: 999px; background: var(--raised); color: var(--ink); }
+      .pill.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+      .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 6px; }
+
+      .step h4 { margin: 22px 0 6px; font-size: 15px; }
+      .step h4 + p { margin-top: 0; }
 
       section { padding: 44px 0; }
       h2 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 24px; }
@@ -281,14 +285,31 @@
                   <pre><code id="check-command">printf '%s\n' \
   "$(xcode-select -p >/dev/null 2>&amp;1 &amp;&amp; echo '✓ Xcode CLT' || echo '✗ Xcode CLT')" \
   "$(command -v go >/dev/null &amp;&amp; echo "✓ Go $(go env GOVERSION)" || echo '✗ Go')" \
+  "$(command -v nvm >/dev/null &amp;&amp; echo "✓ nvm $(nvm --version)" || echo '✗ nvm')" \
   "$(command -v node >/dev/null &amp;&amp; echo "✓ Node $(node -v)" || echo '✗ Node')" \
   "$(command -v pnpm >/dev/null &amp;&amp; echo "✓ pnpm $(pnpm -v)" || echo '✗ pnpm')"</code></pre>
                   <pre class="out" aria-label="Exemple de résultat"><span class="ok">✓ Xcode CLT</span>
 <span class="ok">✓ Go go1.27.3</span>
+<span class="ok">✓ nvm 0.40.3</span>
 <span class="ok">✓ Node v24.1.0</span>
 <span class="ko">✗ pnpm</span>   <span data-i18n="outHint">← celui-ci est à installer</span></pre>
                 </div>
-                <p data-i18n="s1need">Il faut : les outils de ligne de commande Xcode, Go 1.27.3+, Node.js 22.12+ et pnpm 10. Tout est ✓ ? Passe à l’étape suivante.</p>
+                <p data-i18n="s1need">Il faut : les outils de ligne de commande Xcode, Go 1.27.3+, Node.js 22.12+ (avec nvm) et pnpm 10. Tout est ✓ ? Passe à l’étape suivante.</p>
+
+                <h4 data-i18n="nvmT">Node.js, avec nvm (recommandé)</h4>
+                <p data-i18n="nvmP1">nvm installe Node dans ton dossier personnel et te laisse changer de version sans toucher à ton système. Pouple demande Node 24 (fichier <code>.nvmrc</code>), 22.12 au minimum. Installe nvm :</p>
+                <div class="cmd">
+                  <div class="bar"><span>Terminal</span><button class="copy-button" type="button" data-copy="nvm-install-command" data-i18n="copy">Copier</button></div>
+                  <pre><code id="nvm-install-command">curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash</code></pre>
+                </div>
+                <p data-i18n="nvmP2">Ferme puis rouvre le Terminal pour que nvm se charge, puis installe Node et pnpm :</p>
+                <div class="cmd">
+                  <div class="bar"><span>Terminal</span><button class="copy-button" type="button" data-copy="node-command" data-i18n="copy">Copier</button></div>
+                  <pre><code id="node-command">nvm install 24
+npm install --global pnpm@10</code></pre>
+                </div>
+
+                <h4 data-i18n="goT">Go</h4>
 
                 <div class="tabs" id="tools-tabs">
                   <div role="tablist" aria-label="Méthode d’installation des outils">
@@ -297,9 +318,8 @@
                   </div>
                   <div role="tabpanel" id="panel-brew" aria-labelledby="tab-brew">
                     <div class="cmd">
-                      <div class="bar"><span data-i18n="installMissing">Installer ce qui manque</span><button class="copy-button" type="button" data-copy="tools-command" data-i18n="copy">Copier</button></div>
-                      <pre><code id="tools-command">brew install go node pnpm@10
-export PATH="$(brew --prefix pnpm@10)/bin:$PATH"</code></pre>
+                      <div class="bar"><span data-i18n="installMissing">Installer Go</span><button class="copy-button" type="button" data-copy="tools-command" data-i18n="copy">Copier</button></div>
+                      <pre><code id="tools-command">brew install go</code></pre>
                     </div>
                   </div>
                   <div role="tabpanel" id="panel-nobrew" aria-labelledby="tab-nobrew" hidden>
@@ -330,13 +350,6 @@ export PATH="$(brew --prefix pnpm@10)/bin:$PATH"</code></pre>
                 </div>
                 <p data-i18n="s2wait">Laisse la fenêtre ouverte jusqu’à ce que Pouple se lance tout seul. Si tu avais déjà une copie ouverte, quitte-la d’abord.</p>
                 <details class="more">
-                  <summary data-i18n="nvmQ">Tu utilises NVM ?</summary>
-                  <div class="body"><p data-i18n="nvmA">Après le <code>git clone</code>, place-toi dans le dossier et laisse NVM choisir la bonne version de Node avant de lancer le script.</p>
-                    <div class="cmd"><div class="bar"><span>Terminal</span><button class="copy-button" type="button" data-copy="nvm-command" data-i18n="copy">Copier</button></div><pre><code id="nvm-command">git clone https://github.com/Arthur-MONNET/pouple-app.git &amp;&amp; cd pouple-app
-nvm install &amp;&amp; npm install --global pnpm@10
-bash scripts/install-local.sh</code></pre></div></div>
-                </details>
-                <details class="more">
                   <summary data-i18n="whyQ">Pourquoi compiler sur mon Mac ?</summary>
                   <div class="body"><p data-i18n="whyA">Il n’existe pas encore de version signée par Apple. Compiler toi-même évite l’avertissement de sécurité de macOS et te garantit que l’app correspond au code publié. Une version prête à télécharger arrivera plus tard.</p></div>
                 </details>
@@ -345,7 +358,7 @@ bash scripts/install-local.sh</code></pre></div></div>
                   <div class="body">
                     <p data-i18n="errA">Le script dit précisément ce qui manque. Les plus fréquents :</p>
                     <p><b data-i18n="err1t">« Install the Xcode Command Line Tools »</b> — <span data-i18n="err1">lance <code>xcode-select --install</code>, puis recommence.</span></p>
-                    <p><b data-i18n="err2t">« Node.js 22.12 or later is required »</b> — <span data-i18n="err2">installe Node avec <code>brew install node</code> (ou <code>nvm install</code>).</span></p>
+                    <p><b data-i18n="err2t">« Node.js 22.12 or later is required »</b> — <span data-i18n="err2">lance <code>nvm install 24</code> (ou <code>nvm use</code> depuis le dossier <code>pouple-app</code>), puis recommence.</span></p>
                     <p><b data-i18n="err3t">« pnpm 10 is required »</b> — <span data-i18n="err3">lance <code>npm install --global pnpm@10</code>.</span></p>
                     <p><b data-i18n="err4t">« Quit Pouple from its menu »</b> — <span data-i18n="err4">quitte Pouple (icône dans la barre de menus, puis Quitter) et relance la commande.</span></p>
                   </div>
@@ -417,19 +430,22 @@ bash scripts/install-local.sh</code></pre></div></div>
         k1: 'Step 1', h1s: 'Check what is missing', time1: '2 min',
         s1p: 'Paste this command: it lists the tools you need and tells you which ones are already there (<b>✓</b>) or still to install (<b>✗</b>).',
         outHint: '← this one needs installing',
-        s1need: 'You need: the Xcode command line tools, Go 1.27.3+, Node.js 22.12+ and pnpm 10. All ✓? Go to the next step.',
-        tabBrew: 'I have Homebrew', tabNoBrew: 'I don’t have Homebrew', installMissing: 'Install what is missing',
+        s1need: 'You need: the Xcode command line tools, Go 1.27.3+, Node.js 22.12+ (with nvm) and pnpm 10. All ✓? Go to the next step.',
+        nvmT: 'Node.js, with nvm (recommended)',
+        nvmP1: 'nvm installs Node in your home folder and lets you switch versions without touching your system. Pouple asks for Node 24 (the <code>.nvmrc</code> file), 22.12 at least. Install nvm:',
+        nvmP2: 'Close and reopen Terminal so nvm loads, then install Node and pnpm:',
+        goT: 'Go',
+        tabBrew: 'I have Homebrew', tabNoBrew: 'I don’t have Homebrew', installMissing: 'Install Go',
         brewFirst: 'Install Homebrew first (the standard package manager on Mac), then come back to the previous tab.',
         xcodeQ: 'Missing the Xcode tools?', xcodeA: 'This command opens a macOS installer window (a few minutes, no Apple account needed). Then run the check again.',
         doneBtn: 'Step done',
         k2: 'Step 2', h2s: 'Install Pouple', time2: 'a few minutes to build',
         s2lead: 'One command: it downloads the code, builds it, installs the app in <b>~/Applications</b> and launches it.',
         s2wait: 'Keep the window open until Pouple launches by itself. If another copy is already open, quit it first.',
-        nvmQ: 'Do you use NVM?', nvmA: 'After the <code>git clone</code>, move into the folder and let NVM pick the right Node version before running the script.',
         whyQ: 'Why build on my Mac?', whyA: 'There is no Apple-signed version yet. Building it yourself avoids the macOS security warning and guarantees the app matches the published code. A ready-to-download version will come later.',
         errQ: 'An error shows up?', errA: 'The script says exactly what is missing. The most common ones:',
         err1t: '“Install the Xcode Command Line Tools”', err1: 'run <code>xcode-select --install</code>, then try again.',
-        err2t: '“Node.js 22.12 or later is required”', err2: 'install Node with <code>brew install node</code> (or <code>nvm install</code>).',
+        err2t: '“Node.js 22.12 or later is required”', err2: 'run <code>nvm install 24</code> (or <code>nvm use</code> from the <code>pouple-app</code> folder), then try again.',
         err3t: '“pnpm 10 is required”', err3: 'run <code>npm install --global pnpm@10</code>.',
         err4t: '“Quit Pouple from its menu”', err4: 'quit Pouple (menu bar icon, then Quit) and run the command again.',
         k3: 'Step 3', h3s: 'Connect Slack and Codex', time3: '3 min',
