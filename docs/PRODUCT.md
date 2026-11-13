@@ -47,6 +47,8 @@ At any time, **Ignore** closes the request in one click from the bubble, on a qu
 - It shows up at first contact and stays as long as a question waits for you.
 - After you answer, it stays while Pouple works, and you watch the work unfold in it.
 - It goes away when the conversation is over, when you ignored the request, and it is not shown during silent thinking.
+- A ready answer with nothing left to decide stays until you press **Done**. A change made is confirmed for a few
+  seconds, then the bubble goes away.
 - Ignoring only closes this request. A new message in the same thread opens a new request.
 - The window gives the full conversation and the history, and can be used at any time.
 
@@ -115,10 +117,6 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 | Writing in services | Read-only. A comment is possible only on a request you made yourself. | Writes in Asana, Slite and GitLab inside the approved scope. |
 | Sources | Slack and finished GitLab pipelines. | Plus Asana (assigned or mentioned) and feedback on your merge requests. |
 | Reading | A fixed number of lookup rounds. | No limit. |
-| Bubble | None while Pouple works; a ready answer fades after about 25 seconds. | Hidden during silent thinking, then persistent until the conversation ends or is ignored, with the work visible in it. |
-| Ignore | No one-click ignore on a question. | One click in the bubble, this request only. |
-| Questions | A series of multiple-choice questions, one choice each. | Also multiple choice when Pouple offers it, and suggested actions that can be ticked. |
-| End of a request | Nothing ends it. | It ends when no question is waiting for you. |
 | Usage | A daily count of turns. | Tokens, and the share of the 5-hour window and of the week. |
 | Replies | A neutral, short suggested text. | Written in your learned style. |
 | Thread updates | Not followed. | Taken into account silently. |

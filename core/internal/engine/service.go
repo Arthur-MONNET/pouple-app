@@ -217,11 +217,28 @@ func (s *Service) entry(role, kind, text string) Entry {
 	return Entry{ID: newID(), At: s.now(), Role: role, Kind: kind, Text: text}
 }
 
-func (s *Service) update(id string, change func(*Stored)) {
+// update changes a request. A status it enters that reaches the user engages it and opens its bubble again.
+func (s *Service) update(id string, change func(*Stored)) { s.write(id, change, true) }
+
+// quietUpdate changes a request without reaching the user: the status it enters neither engages it nor opens its bubble.
+func (s *Service) quietUpdate(id string, change func(*Stored)) { s.write(id, change, false) }
+
+func (s *Service) write(id string, change func(*Stored), reachUser bool) {
 	s.deps.Store.Update(id, func(r *Stored) {
+		before := r.Status
 		change(r)
 		r.UpdatedAt = s.now()
+		if reachUser && r.Status != before && r.Status.reachesUser() {
+			r.Engaged, r.Closed = true, false
+		}
 	})
+}
+
+// sameInstant compares two update times to the millisecond, the precision the interfaces keep.
+func sameInstant(a, b string) bool {
+	first, errA := time.Parse(time.RFC3339Nano, a)
+	second, errB := time.Parse(time.RFC3339Nano, b)
+	return errA == nil && errB == nil && first.Sub(second).Abs() < time.Millisecond
 }
 
 func (s *Service) require(id string) (Stored, error) {
@@ -592,8 +609,10 @@ func (s *Service) settleStopped(id string) {
 	if request.Status == StatusApplying {
 		text = "Stopped. Some files may be half changed: check the project with git status."
 	}
-	s.update(id, func(r *Stored) {
+	// The user stopped it themselves: there is nothing new to show them in a bubble.
+	s.quietUpdate(id, func(r *Stored) {
 		r.Status, r.Error, r.Questions, r.Proposal = StatusReady, nil, []Question{}, nil
+		r.Closed = true
 		r.Entries = append(r.Entries, s.entry("system", "text", s.text(text)))
 	})
 }

@@ -160,6 +160,8 @@ export interface AssistantQuestion {
   id: string;
   text: string;
   options: AssistantOption[];
+  /** Several options can be picked together (several actions to take, for example); otherwise one. */
+  multiple?: boolean;
 }
 
 /** A change the assistant wants to make; nothing is written before the user approves it. */
@@ -235,6 +237,8 @@ export interface QuestionAnswer {
   questionId: string;
   /** Id of a proposed option; omit when answering with free text. */
   optionId?: string;
+  /** Ids of the options picked on a question that allows several. */
+  optionIds?: string[];
   text?: string;
 }
 

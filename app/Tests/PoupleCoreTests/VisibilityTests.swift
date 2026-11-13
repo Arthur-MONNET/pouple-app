@@ -8,7 +8,9 @@ final class VisibilityTests: XCTestCase {
         _ id: String,
         _ status: RequestStatus,
         received: TimeInterval = 0,
-        updatedAgo: TimeInterval = 0
+        updatedAgo: TimeInterval = 0,
+        engaged: Bool? = nil,
+        closed: Bool? = nil
     ) -> AssistantRequest {
         let json = """
         {"id":"\(id)","source":{"origin":"mention","channelId":"C1","channelName":"front","senderId":"U","senderName":"Morgan","ts":"1","permalink":null},
@@ -19,7 +21,8 @@ final class VisibilityTests: XCTestCase {
         return AssistantRequest(
             id: id, source: decoded.source, text: decoded.text,
             receivedAt: now.addingTimeInterval(received), updatedAt: now.addingTimeInterval(-updatedAgo),
-            status: status, summary: nil, draftReply: nil, questions: [], proposal: nil, entries: [], error: nil
+            status: status, summary: nil, draftReply: nil, questions: [], proposal: nil, entries: [], error: nil,
+            engaged: engaged, closed: closed
         )
     }
 
@@ -27,7 +30,7 @@ final class VisibilityTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: layout.items.map { ($0.id, $0.kind) })
     }
 
-    func testDecisionsAndFailuresStayUntilHandledAndWorkInProgressHasNoBubble() {
+    func testDecisionsAndFailuresStayUntilHandledAndSilentWorkHasNoBubble() {
         let layout = BubbleVisibility.layout(
             requests: [
                 request("q", .queued), request("a", .analyzing), request("p", .applying),
@@ -38,6 +41,14 @@ final class VisibilityTests: XCTestCase {
         XCTAssertEqual(kinds(layout), ["d": .decision, "f": .failed])
     }
 
+    func testOnceTheUserIsInTheConversationTheWorkShowsInTheBubble() {
+        let layout = BubbleVisibility.layout(
+            requests: [request("a", .analyzing, engaged: true), request("p", .applying, engaged: true), request("q", .queued, engaged: true)],
+            now: now, dismissed: [:]
+        )
+        XCTAssertEqual(kinds(layout), ["a": .working, "p": .working, "q": .working])
+    }
+
     func testOnlyQueuedAnalyzingAndApplyingCountAsWorkInProgress() {
         let working: Set<RequestStatus> = [.queued, .analyzing, .applying]
         for status in [RequestStatus.queued, .analyzing, .awaitingUser, .ready, .applying, .done, .ignored, .failed, .unknown] {
@@ -45,16 +56,32 @@ final class VisibilityTests: XCTestCase {
         }
     }
 
-    func testAnAnswerFadesAfterItsLifetime() {
-        let fresh = request("fresh", .ready, updatedAgo: 5)
-        let old = request("old", .ready, updatedAgo: BubbleVisibility.resultLifetime + 1)
-        let layout = BubbleVisibility.layout(requests: [fresh, old], now: now, dismissed: [:])
-        XCTAssertEqual(kinds(layout), ["fresh": .result])
+    func testAnAnswerStaysUntilTheUserSaysItIsDone() {
+        let old = request("old", .ready, updatedAgo: 86_400, engaged: true)
+        XCTAssertEqual(kinds(BubbleVisibility.layout(requests: [old], now: now, dismissed: [:])), ["old": .result])
+
+        let closed = request("old", .ready, updatedAgo: 86_400, engaged: true, closed: true)
+        XCTAssertTrue(BubbleVisibility.layout(requests: [closed], now: now, dismissed: [:]).items.isEmpty)
     }
 
-    func testAnAnswerUnderThePointerDoesNotFade() {
-        let old = request("old", .done, updatedAgo: 600)
+    func testAnswersFromBeforeTheCoreTrackedThemNeverComeBack() {
+        // A core that does not send "engaged" yet: its finished answers must not all pop up at once.
+        XCTAssertTrue(BubbleVisibility.layout(requests: [request("legacy", .ready, updatedAgo: 5)], now: now, dismissed: [:]).items.isEmpty)
+    }
+
+    func testAChangeMadeIsConfirmedBrieflyUnlessThePointerIsOnIt() {
+        let fresh = request("fresh", .done, updatedAgo: 3, engaged: true)
+        let old = request("old", .done, updatedAgo: BubbleVisibility.confirmationLifetime + 1, engaged: true)
+        XCTAssertEqual(kinds(BubbleVisibility.layout(requests: [fresh, old], now: now, dismissed: [:])), ["fresh": .done])
         XCTAssertEqual(BubbleVisibility.layout(requests: [old], now: now, dismissed: [:], lingering: ["old"]).items.count, 1)
+    }
+
+    func testAClosedBubbleStaysClosedWhateverItsState() {
+        let requests = [
+            request("d", .awaitingUser, closed: true), request("w", .analyzing, engaged: true, closed: true),
+            request("f", .failed, closed: true), request("r", .ready, engaged: true, closed: true),
+        ]
+        XCTAssertTrue(BubbleVisibility.layout(requests: requests, now: now, dismissed: [:]).items.isEmpty)
     }
 
     func testIgnoredAndUnknownRequestsNeverInterrupt() {

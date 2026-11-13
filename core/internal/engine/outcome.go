@@ -39,9 +39,10 @@ const OutcomeSchema = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text", "options"],
+        "required": ["text", "multiple", "options"],
         "properties": {
           "text": {"type": "string"},
+          "multiple": {"type": "boolean"},
           "options": {
             "type": "array",
             "items": {
@@ -81,8 +82,9 @@ type OutcomeOption struct {
 }
 
 type OutcomeQuestion struct {
-	Text    string          `json:"text"`
-	Options []OutcomeOption `json:"options"`
+	Text     string          `json:"text"`
+	Multiple bool            `json:"multiple"`
+	Options  []OutcomeOption `json:"options"`
 }
 
 // Outcome is the validated final answer of an analysis turn.
@@ -134,7 +136,7 @@ func ParseOutcome(text string) (Outcome, error) {
 		if len(out.Questions) == maxQuestions {
 			break
 		}
-		kept := OutcomeQuestion{Text: question.Text, Options: []OutcomeOption{}}
+		kept := OutcomeQuestion{Text: question.Text, Multiple: question.Multiple, Options: []OutcomeOption{}}
 		for _, option := range question.Options {
 			if len(kept.Options) < maxOptions && strings.TrimSpace(option.Label) != "" {
 				kept.Options = append(kept.Options, option)
@@ -184,7 +186,7 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 	}
 	out.Questions = make([]OutcomeQuestion, len(o.Questions))
 	for i, question := range o.Questions {
-		out.Questions[i] = OutcomeQuestion{Text: redact(question.Text), Options: make([]OutcomeOption, len(question.Options))}
+		out.Questions[i] = OutcomeQuestion{Text: redact(question.Text), Multiple: question.Multiple, Options: make([]OutcomeOption, len(question.Options))}
 		for j, option := range question.Options {
 			out.Questions[i].Options[j] = OutcomeOption{Label: redact(option.Label)}
 			if option.Description != nil {

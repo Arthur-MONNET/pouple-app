@@ -105,8 +105,32 @@ final class BubbleStore: ObservableObject {
 
     // MARK: - Actions
 
+    /// Closes the bubble (Done, or the close button): at once here, and in the core, so it stays closed after a restart and
+    /// comes back only when the request needs the user again.
     func dismiss(_ request: AssistantRequest) {
+        hide(request) { api in
+            do {
+                try await api.close(requestId: request.id, seen: request.updatedAt)
+            } catch let PoupleAPIError.http(status, _) where status == 409 {
+                // The request changed since the user looked at it: the new state stays open, and that is not an error.
+            }
+        }
+    }
+
+    /// Ignores the request: the conversation is over. Only possible while the assistant is not working on it.
+    func ignore(_ request: AssistantRequest) {
+        hide(request) { api in try await api.ignore(requestId: request.id) }
+    }
+
+    /// Hides the bubble at once, and shows it again, with the error, if the core refuses.
+    private func hide(_ request: AssistantRequest, _ work: @escaping (PoupleAPI) async throws -> Void) {
+        guard !busy.contains(request.id), api != nil else { return }
         dismissed[request.id] = request.updatedAt
+        perform(request.id, work, onFailure: { [weak self] in self?.dismissed[request.id] = nil })
+    }
+
+    func stop(_ request: AssistantRequest) {
+        perform(request.id) { api in try await api.stop(requestId: request.id) }
     }
 
     func expand(_ id: String) {
@@ -148,12 +172,17 @@ final class BubbleStore: ObservableObject {
 
     // MARK: - Server
 
-    private func perform(_ id: String, _ work: @escaping (PoupleAPI) async throws -> Void) {
+    private func perform(_ id: String, _ work: @escaping (PoupleAPI) async throws -> Void, onFailure: (() -> Void)? = nil) {
         guard !busy.contains(id), let api else { return }
         busy.insert(id)
         errors[id] = nil
         Task {
-            do { try await work(api) } catch { errors[id] = error.localizedDescription }
+            do {
+                try await work(api)
+            } catch {
+                errors[id] = error.localizedDescription
+                onFailure?()
+            }
             busy.remove(id)
         }
     }

@@ -356,6 +356,8 @@ export const en: MessageTree = {
     next: 'Next',
     send: 'Send',
     confirm: 'Confirm',
+    ignore: 'Ignore',
+    severalHint: 'Pick one or more',
   },
   composer: {
     about: 'About: {title}',

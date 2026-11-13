@@ -66,8 +66,11 @@ struct BubbleCard: View {
             header
             quote
             content
-            if !steps.isEmpty { ActivityLog(steps: steps) }
-            ReplyField(busy: busy) { store.send(request, $0) }
+            // While the assistant works, the steps are the content, and there is nothing to write to it yet.
+            if item.kind != .working {
+                if !steps.isEmpty { ActivityLog(steps: steps) }
+                ReplyField(busy: busy) { store.send(request, $0) }
+            }
             if let error = store.errors[request.id] {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Theme.fail).fixedSize(horizontal: false, vertical: true)
             }
@@ -118,6 +121,8 @@ struct BubbleCard: View {
         case .decision:
             if let summary = request.summary { MarkdownView(source: summary) }
             decision
+        case .working:
+            work
         case .failed:
             Label(request.error ?? L10n.text(.bubbleSomethingWrong), systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
@@ -133,6 +138,31 @@ struct BubbleCard: View {
             HStack {
                 Button(L10n.text(.bubbleDone)) { store.dismiss(request) }.buttonStyle(PillButtonStyle(role: .primary))
                 openButton
+            }
+        case .done:
+            if let summary = request.summary { MarkdownView(source: summary) }
+            openButton
+        }
+    }
+
+    /// The assistant at work on what the user answered: its latest steps, and a way to stop it.
+    private var work: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !steps.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(steps.suffix(3)) { step in
+                        Text(step.text)
+                            .font(.system(size: 11, design: step.text.hasPrefix("$ ") ? .monospaced : .default))
+                            .foregroundStyle(Theme.dim)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                Circle().fill(Theme.working).frame(width: 6, height: 6)
+                Text(L10n.text(.bubbleWorking)).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Spacer()
+                Button(L10n.text(.bubbleStop)) { store.stop(request) }.buttonStyle(PillButtonStyle(role: .destructive)).disabled(busy)
             }
         }
     }
@@ -151,7 +181,7 @@ struct BubbleCard: View {
                 }
             }
         } else if !request.questions.isEmpty {
-            QuestionWizard(questions: request.questions, busy: busy) { store.answer(request, $0) }
+            QuestionWizard(questions: request.questions, busy: busy, onIgnore: { store.ignore(request) }) { store.answer(request, $0) }
                 .id(request.questions.map(\.id).joined(separator: ","))
         }
     }
@@ -183,16 +213,19 @@ struct BubbleCard: View {
     private var badge: String {
         switch item.kind {
         case .decision: return request.proposal != nil ? L10n.text(.badgeApprove) : L10n.text(.badgeNeedsAnswer)
+        case .working: return L10n.text(.badgeWorking)
         case .failed: return L10n.text(.badgeFailed)
-        case .result: return request.status == .done ? L10n.text(.badgeApplied) : L10n.text(.badgeAnswerReady)
+        case .result: return L10n.text(.badgeAnswerReady)
+        case .done: return L10n.text(.badgeApplied)
         }
     }
 
     private var badgeColor: Color {
         switch item.kind {
         case .decision: return Theme.accent
+        case .working: return Theme.working
         case .failed: return Theme.fail
-        case .result: return Theme.ok
+        case .result, .done: return Theme.ok
         }
     }
 

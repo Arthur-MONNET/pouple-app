@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
@@ -284,7 +285,7 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 			for j, option := range question.Options {
 				options[j] = Option{ID: optionIDs[j], Label: option.Label, Description: option.Description}
 			}
-			questions[i] = Question{ID: fmt.Sprintf("q%d", i+1), Text: question.Text, Options: options}
+			questions[i] = Question{ID: fmt.Sprintf("q%d", i+1), Text: question.Text, Options: options, Multiple: question.Multiple}
 		}
 		s.update(id, func(r *Stored) {
 			r.Status, r.Summary, r.Proposal, r.Questions = StatusAwaitingUser, ptr(outcome.Summary), nil, questions
@@ -309,18 +310,24 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 			s.alert(id, outcome.Summary)
 			return
 		}
-		s.update(id, func(r *Stored) {
+		// They asked for it themselves, in writing: the approval step would only repeat their request. Never when other
+		// people's text (their tasks, notes, merge requests) or the web went into the analysis: a person must read it.
+		request, _ := s.deps.Store.Get(id)
+		auto := s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() &&
+			request.Source.Origin == "note-to-self" && !request.ServicesUsed && !request.WebUsed
+		write := s.update
+		if auto {
+			// No question is put to the user, so the work stays silent until the change is made.
+			write = s.quietUpdate
+		}
+		write(id, func(r *Stored) {
 			r.Status, r.Summary, r.DraftReply = StatusAwaitingUser, ptr(outcome.Summary), outcome.Reply
 			r.Questions, r.Proposal = []Question{}, outcome.Proposal
 			r.Entries = append(r.Entries, summary)
 		})
-		if s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() {
-			// Never when other people's text (their tasks, notes, merge requests) went into the analysis: a person must read it.
-			if request, ok := s.deps.Store.Get(id); ok && request.Source.Origin == "note-to-self" && !request.ServicesUsed && !request.WebUsed {
-				// They asked for it themselves, in writing: the approval step would only repeat their request.
-				_ = s.Decide(id, true)
-				return
-			}
+		if auto {
+			_ = s.decide(id, true, "", false)
+			return
 		}
 		s.alert(id, s.text("Proposed change: %s", outcome.Proposal.Title))
 	}
@@ -344,11 +351,7 @@ func (s *Service) Answer(id string, answers []Answer) error {
 			if answer.QuestionID != question.ID {
 				continue
 			}
-			valid := strings.TrimSpace(answer.Text) != ""
-			for _, option := range question.Options {
-				valid = valid || option.ID == answer.OptionID
-			}
-			if !valid || len(answer.Text) > maxMessageChars {
+			if !validAnswer(question, answer) {
 				return i18n.Wrap(ErrInput, "answer to %s is not valid", question.ID)
 			}
 			found = true
@@ -359,27 +362,51 @@ func (s *Service) Answer(id string, answers []Answer) error {
 	}
 	prompt := s.deps.Persona().AnswersPrompt(request.Questions, answers)
 	s.update(id, func(r *Stored) {
-		r.Status, r.Questions = StatusAnalyzing, []Question{}
+		// Answering is being in the conversation, even for a question asked before Pouple kept track of it.
+		r.Status, r.Questions, r.Engaged = StatusAnalyzing, []Question{}, true
 		r.Entries = append(r.Entries, s.entry("user", "text", answersText(request.Questions, answers)))
 	})
 	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.continueWith(ctx, id, prompt, nil) })
 	return nil
 }
 
+// validAnswer says whether an answer fits its question: options that exist, each once, several only when the question
+// allows it, and at least an option or a typed text.
+func validAnswer(question Question, answer Answer) bool {
+	chosen := answer.chosen()
+	if len(answer.Text) > maxMessageChars || (!question.Multiple && len(chosen) > 1) {
+		return false
+	}
+	for i, id := range chosen {
+		exists := slices.ContainsFunc(question.Options, func(option Option) bool { return option.ID == id })
+		if !exists || slices.Contains(chosen[:i], id) {
+			return false
+		}
+	}
+	return len(chosen) > 0 || strings.TrimSpace(answer.Text) != ""
+}
+
+// answerText is an answer as the user would say it: the options they picked, then what they typed.
+func answerText(question Question, answer Answer) string {
+	var parts []string
+	for _, option := range question.Options {
+		if slices.Contains(answer.chosen(), option.ID) {
+			parts = append(parts, option.Label)
+		}
+	}
+	if text := strings.TrimSpace(answer.Text); text != "" {
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, ", ")
+}
+
 func answersText(questions []Question, answers []Answer) string {
 	var parts []string
 	for _, question := range questions {
 		for _, answer := range answers {
-			if answer.QuestionID != question.ID {
-				continue
+			if answer.QuestionID == question.ID {
+				parts = append(parts, answerText(question, answer))
 			}
-			text := strings.TrimSpace(answer.Text)
-			for _, option := range question.Options {
-				if option.ID == answer.OptionID {
-					text = option.Label
-				}
-			}
-			parts = append(parts, text)
 		}
 	}
 	return strings.Join(parts, " · ")
@@ -458,6 +485,12 @@ func (s *Service) Decide(id string, approve bool) error { return s.DecideProposa
 
 // DecideProposal is Decide for a given proposal: when wanted is not empty, it must match the proposal waiting now.
 func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
+	return s.decide(id, approve, wanted, true)
+}
+
+// decide approves or declines the waiting proposal. byUser is false for an approval Pouple gives on its own (a note to
+// self), which must not show the work in a bubble the user never saw.
+func (s *Service) decide(id string, approve bool, wanted string, byUser bool) error {
 	if approve {
 		if err := s.requireActive(); err != nil {
 			return err
@@ -482,6 +515,9 @@ func (s *Service) DecideProposal(id string, approve bool, wanted string) error {
 			return false
 		}
 		r.Status, r.Proposal = status, nil
+		// Declining ends the conversation: there is nothing left to show in a bubble. Approving is being in it.
+		r.Closed = !approve
+		r.Engaged = r.Engaged || (approve && byUser)
 		r.Entries = append(r.Entries, s.entry("user", "text", s.text(label, proposal.Title)))
 		r.UpdatedAt = s.now()
 		return true
@@ -549,6 +585,27 @@ func (s *Service) Ignore(id string) error {
 		return i18n.Wrap(ErrState, "the assistant is still working on this request")
 	}
 	s.update(id, func(r *Stored) { r.Status, r.Questions, r.Proposal = StatusIgnored, []Question{}, nil })
+	return nil
+}
+
+// Close hides the request's bubble until the request needs the user again. The conversation itself is kept, and closing
+// it is not activity: the time it was last updated stays. seen is the update time of the request the user closed; when
+// the request changed since (a new question came in meanwhile), it stays open, since what changed may need them.
+func (s *Service) Close(id, seen string) error {
+	stale := false
+	found := s.deps.Store.Update(id, func(r *Stored) {
+		if seen != "" && !sameInstant(seen, r.UpdatedAt) {
+			stale = true
+			return
+		}
+		r.Closed = true
+	})
+	if !found {
+		return ErrNotFound
+	}
+	if stale {
+		return i18n.Wrap(ErrState, "the request changed since you saw it")
+	}
 	return nil
 }
 

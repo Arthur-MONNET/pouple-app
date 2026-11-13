@@ -360,6 +360,8 @@ export const fr: MessageTree = {
     next: 'Suivant',
     send: 'Envoyer',
     confirm: 'Confirmer',
+    ignore: 'Ignorer',
+    severalHint: 'Un ou plusieurs choix',
   },
   composer: {
     about: 'À propos de : {title}',

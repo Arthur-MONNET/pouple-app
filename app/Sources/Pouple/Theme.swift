@@ -22,6 +22,8 @@ enum Theme {
     static let onAccent = Color(hex: 0x0E0F12)
     static let warn = Color(hex: 0xFFC857)
     static let ok = Color(hex: 0x4CC38A)
+    /// Work in progress: the brand lavender.
+    static let working = Color(hex: 0xC9C6FF)
     /// Errors only, always next to a word or an icon. Red-orange, far from the coral accent.
     static let fail = Color(hex: 0xFF5A36)
     static let muted = Color(hex: 0xA4A9B3)

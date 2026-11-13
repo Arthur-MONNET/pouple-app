@@ -52,6 +52,8 @@ type Question struct {
 	ID      string   `json:"id"`
 	Text    string   `json:"text"`
 	Options []Option `json:"options"`
+	// Multiple lets the user pick several options together (several actions to take, for example); otherwise one.
+	Multiple bool `json:"multiple,omitempty"`
 }
 
 // Proposal is a change the assistant wants to make; nothing is written before the user approves it.
@@ -104,6 +106,11 @@ type Request struct {
 	Error   *string `json:"error"`
 	// Continuable is set when listed: the AI has a conversation a follow-up can continue.
 	Continuable bool `json:"continuable,omitempty"`
+	// Engaged is set once the request has reached the user (a question, an answer, a failure, an applied change).
+	// From then on its bubble stays while the assistant works on it; before, the work is silent.
+	Engaged bool `json:"engaged,omitempty"`
+	// Closed is set when the user closed its bubble. The bubble comes back the next time the request needs them.
+	Closed bool `json:"closed,omitempty"`
 }
 
 // Stored is a request as kept on disk: the visible part plus what stays on the server.
@@ -177,5 +184,21 @@ func ptr[T any](v T) *T { return &v }
 type Answer struct {
 	QuestionID string `json:"questionId"`
 	OptionID   string `json:"optionId,omitempty"`
-	Text       string `json:"text,omitempty"`
+	// OptionIDs are the options picked for a question that allows several.
+	OptionIDs []string `json:"optionIds,omitempty"`
+	Text      string   `json:"text,omitempty"`
+}
+
+// chosen are the options an answer picked: one for a single choice, possibly several for a multiple one.
+func (a Answer) chosen() []string {
+	if a.OptionID == "" {
+		return a.OptionIDs
+	}
+	return append([]string{a.OptionID}, a.OptionIDs...)
+}
+
+// reachesUser says whether a request in this status needs the user or tells them something: entering it engages the
+// request and opens its bubble again.
+func (s Status) reachesUser() bool {
+	return s == StatusAwaitingUser || s == StatusReady || s == StatusFailed || s == StatusDone
 }

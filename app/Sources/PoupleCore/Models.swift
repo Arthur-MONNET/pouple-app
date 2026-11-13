@@ -74,12 +74,18 @@ public struct AssistantQuestion: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let text: String
     public let options: [AssistantOption]
+    /// Absent from older cores; read it through `allowsSeveral`.
+    public let multiple: Bool?
 
-    public init(id: String, text: String, options: [AssistantOption]) {
+    public init(id: String, text: String, options: [AssistantOption], multiple: Bool? = nil) {
         self.id = id
         self.text = text
         self.options = options
+        self.multiple = multiple
     }
+
+    /// Several options can be picked together (several actions to take, for example); otherwise one.
+    public var allowsSeveral: Bool { multiple == true }
 }
 
 public struct AssistantProposal: Codable, Equatable, Sendable {
@@ -111,6 +117,16 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public let proposal: AssistantProposal?
     public let entries: [ChatEntry]
     public let error: String?
+    /// Set by the core once the request has reached the user; absent from older cores. Read `isEngaged`.
+    public var engaged: Bool? = nil
+    /// Set by the core when the user closed the bubble; absent from older cores. Read `isClosed`.
+    public var closed: Bool? = nil
+
+    /// The request has reached the user (a question, an answer, a failure, a change made): from then on the work on it
+    /// shows in its bubble. Before, the work is silent.
+    public var isEngaged: Bool { engaged == true }
+    /// The user closed the bubble; it comes back the next time the request needs them.
+    public var isClosed: Bool { closed == true }
 
     /// "Request from Morgan in #front", "Note to self"... as in the web app.
     public var title: String { title(language: nil) }
@@ -153,11 +169,14 @@ public struct AssistantSnapshot: Codable, Equatable, Sendable {
 public struct QuestionAnswer: Codable, Equatable, Sendable {
     public let questionId: String
     public let optionId: String?
+    /// The options picked for a question that allows several.
+    public let optionIds: [String]?
     public let text: String?
 
-    public init(questionId: String, optionId: String? = nil, text: String? = nil) {
+    public init(questionId: String, optionId: String? = nil, optionIds: [String]? = nil, text: String? = nil) {
         self.questionId = questionId
         self.optionId = optionId
+        self.optionIds = optionIds
         self.text = text
     }
 }

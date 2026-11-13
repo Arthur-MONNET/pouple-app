@@ -32,10 +32,11 @@ public enum L10n {
         // Bubbles
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
-        case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady
+        case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
+        case bubbleIgnore, bubbleStop, bubbleWorking
         case activityOne, activityOther
         case handleName, handleWorking, handleOverflow, handleDrag, handleOffline
-        case replyPlaceholder, replySend, wizardOther, wizardBack, wizardNext, wizardSend
+        case replyPlaceholder, replySend, wizardOther, wizardBack, wizardNext, wizardSend, wizardSeveral
         // Titles of requests
         case titleNoteToSelf, titleDirect, titleGroup, titleBroadcast, titleKeyword, titleThread, titleChannel, titleAction
         // Relative time
@@ -190,6 +191,10 @@ public enum L10n {
         .badgeFailed: "Échec",
         .badgeApplied: "Modification faite",
         .badgeAnswerReady: "Réponse prête",
+        .badgeWorking: "Travail en cours",
+        .bubbleIgnore: "Ignorer",
+        .bubbleStop: "Arrêter",
+        .bubbleWorking: "Huit bras sur le coup.",
         .activityOne: "Activité · %d étape",
         .activityOther: "Activité · %d étapes",
         .handleName: "Pouple",
@@ -202,6 +207,7 @@ public enum L10n {
         .wizardBack: "Retour",
         .wizardNext: "Suivant",
         .wizardSend: "Envoyer",
+        .wizardSeveral: "Un ou plusieurs choix",
         .titleNoteToSelf: "Note à toi-même",
         .titleDirect: "%@ · message direct",
         .titleGroup: "%@ · discussion de groupe",
@@ -314,6 +320,10 @@ public enum L10n {
         .badgeFailed: "Failed",
         .badgeApplied: "Change applied",
         .badgeAnswerReady: "Answer ready",
+        .badgeWorking: "Working",
+        .bubbleIgnore: "Ignore",
+        .bubbleStop: "Stop",
+        .bubbleWorking: "Eight arms on it.",
         .activityOne: "Activity · %d step",
         .activityOther: "Activity · %d steps",
         .handleName: "Pouple",
@@ -326,6 +336,7 @@ public enum L10n {
         .wizardBack: "Back",
         .wizardNext: "Next",
         .wizardSend: "Send",
+        .wizardSeveral: "Pick one or more",
         .titleNoteToSelf: "Note to self",
         .titleDirect: "%@ · direct message",
         .titleGroup: "%@ · group chat",

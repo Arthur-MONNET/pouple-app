@@ -103,6 +103,14 @@ public struct PoupleAPI: Sendable {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/ignore")
     }
 
+    /// Hides the request's bubble until it needs the user again; the conversation is kept. `seen` is the update time of
+    /// the request the user closed: the core refuses with 409 when the request changed since, so a newer state stays open.
+    public func close(requestId: String, seen: Date) async throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        _ = try await send("POST", "/api/assistant/requests/\(requestId)/close", body: ["updatedAt": formatter.string(from: seen)])
+    }
+
     public func retry(requestId: String) async throws {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/retry")
     }
@@ -125,9 +133,10 @@ public struct PoupleAPI: Sendable {
         return request
     }
 
-    private static func dictionary(_ answer: QuestionAnswer) -> [String: String] {
-        var result = ["questionId": answer.questionId]
+    private static func dictionary(_ answer: QuestionAnswer) -> [String: Any] {
+        var result: [String: Any] = ["questionId": answer.questionId]
         if let optionId = answer.optionId { result["optionId"] = optionId }
+        if let optionIds = answer.optionIds { result["optionIds"] = optionIds }
         if let text = answer.text { result["text"] = text }
         return result
     }

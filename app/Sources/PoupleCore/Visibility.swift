@@ -4,9 +4,13 @@ import Foundation
 public enum BubbleKind: Equatable, Sendable {
     /// The user must decide (a question or a proposed change). Stays until answered.
     case decision
+    /// The assistant works on a request that already reached the user: the bubble shows the work.
+    case working
     case failed
-    /// An answer is ready; it fades away by itself.
+    /// An answer is ready. It stays until the user says it is done.
     case result
+    /// A change was made: a short confirmation that fades by itself.
+    case done
 }
 
 public struct BubbleItem: Equatable, Identifiable, Sendable {
@@ -30,7 +34,8 @@ public struct BubbleLayout: Equatable, Sendable {
 }
 
 public enum BubbleVisibility {
-    public static let resultLifetime: TimeInterval = 25
+    /// How long the confirmation of a change made stays, unless the pointer is on it.
+    public static let confirmationLifetime: TimeInterval = 10
     public static let maxBubbles = 5
 
     /// - Parameters:
@@ -54,14 +59,18 @@ public enum BubbleVisibility {
     }
 
     private static func kind(of request: AssistantRequest, now: Date, lingering: Set<String>) -> BubbleKind? {
+        if request.isClosed { return nil }
         switch request.status {
-        // Work in progress has no bubble: the menu bar icon shows it, so the corner only asks for something to do.
-        case .queued, .analyzing, .applying: return nil
+        // Before the request first reaches the user, the work is silent: only the menu bar icon shows it. Once the user
+        // has been in the conversation, they watch the work in the bubble.
+        case .queued, .analyzing, .applying: return request.isEngaged ? .working : nil
         case .awaitingUser: return .decision
         case .failed: return .failed
-        case .ready, .done:
-            let fresh = now.timeIntervalSince(request.updatedAt) < resultLifetime
-            return fresh || lingering.contains(request.id) ? .result : nil
+        // An answer stays until the user says it is done. One from before the core said so never comes back.
+        case .ready: return request.isEngaged ? .result : nil
+        case .done:
+            let fresh = now.timeIntervalSince(request.updatedAt) < confirmationLifetime
+            return fresh || lingering.contains(request.id) ? .done : nil
         // Ignored requests (thanks, chit-chat) never interrupt; unknown statuses stay quiet until the overlay learns them.
         case .ignored, .unknown: return nil
         }

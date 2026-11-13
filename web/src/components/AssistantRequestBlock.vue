@@ -157,7 +157,15 @@ watch(
       <p class="whitespace-pre-wrap break-words text-ink">{{ request.draftReply }}</p>
     </section>
 
-    <AssistantQuestionCard v-if="request.questions.length > 0" :title="title" :questions="request.questions" :busy="busy" @submit="submitAnswers" />
+    <AssistantQuestionCard
+      v-if="request.questions.length > 0"
+      :title="title"
+      :questions="request.questions"
+      :busy="busy"
+      ignorable
+      @submit="submitAnswers"
+      @ignore="guard(() => store.ignore(request.id))"
+    />
     <AssistantQuestionCard
       v-if="request.proposal"
       :title="title"

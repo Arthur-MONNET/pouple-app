@@ -54,6 +54,31 @@ final class PoupleAPITests: XCTestCase {
         XCTAssertEqual(answers, [["questionId": "q1", "optionId": "A"], ["questionId": "q2", "text": "Lyon"]])
     }
 
+    func testSeveralPickedOptionsAndATypedAnswerAreSentTogether() async throws {
+        var body: [String: Any] = [:]
+        StubProtocol.handler = { request in
+            body = (try? JSONSerialization.jsonObject(with: request.bodyData)) as? [String: Any] ?? [:]
+            return (202, Data())
+        }
+        try await api().answer(requestId: "r1", answers: [QuestionAnswer(questionId: "q1", optionIds: ["A", "C"], text: "and tell Florian")])
+        let answer = (body["answers"] as? [[String: Any]])?.first
+        XCTAssertEqual(answer?["optionIds"] as? [String], ["A", "C"])
+        XCTAssertEqual(answer?["text"] as? String, "and tell Florian")
+        XCTAssertNil(answer?["optionId"])
+    }
+
+    func testClosingABubbleTellsTheCoreWhichStateWasClosed() async throws {
+        var seen: (String?, String?, [String: Any])?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, (try? JSONSerialization.jsonObject(with: request.bodyData)) as? [String: Any] ?? [:])
+            return (204, Data())
+        }
+        try await api().close(requestId: "r1", seen: Date(timeIntervalSince1970: 1_794_571_200.25))
+        XCTAssertEqual(seen?.0, "POST")
+        XCTAssertEqual(seen?.1, "/api/assistant/requests/r1/close")
+        XCTAssertEqual(seen?.2["updatedAt"] as? String, "2026-11-13T12:00:00.250Z")
+    }
+
     func testTheProposalDecisionAndEmptyAnswersWork() async throws {
         var body: [String: Any] = [:]
         StubProtocol.handler = { request in

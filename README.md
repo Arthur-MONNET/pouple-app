@@ -30,9 +30,12 @@ flowchart LR
     W -->|you decide| C
 ```
 
-- **Bubbles** appear when something needs you. A question to answer or a change to approve stays until you handle it.
-  A failure stays too. A ready answer fades by itself after a while. At most five bubbles are shown, and only one is
-  open at a time; the others are a single line. No bubble appears while Pouple is working: the menu bar icon blinks a dot.
+- **Bubbles** appear when something needs you. While Pouple first looks into a message, nothing shows but a dot
+  blinking on the menu bar icon. Then a question to answer or a change to approve stays until you handle it, and
+  **Ignore** drops the request in one click. Once you answered, the bubble stays and shows the work, with a Stop
+  button. A ready answer stays until you press **Done**; a change made is confirmed for a few seconds. A failure stays
+  too. At most five bubbles are shown, and only one is open at a time; the others are a single line.
+- **Questions** may let you pick several options together, for example several actions to take.
 - **The mascot** sits on the open bubble and changes pose with what it asks of you: looking for a decision,
   celebrating for a ready answer or an applied change, worried for a failure. It is also the grip to drag the
   panel: on release it snaps to the nearest corner of the screen.

@@ -2,6 +2,8 @@
 public enum BubblePose: Equatable, Sendable, CaseIterable {
     /// Waiting for a decision: looking, magnifier up.
     case waiting
+    /// Working on what the user answered: juggling.
+    case working
     /// An answer is ready or a change was made.
     case done
     /// Something went wrong.
@@ -10,7 +12,8 @@ public enum BubblePose: Equatable, Sendable, CaseIterable {
     public init(kind: BubbleKind) {
         switch kind {
         case .decision: self = .waiting
-        case .result: self = .done
+        case .working: self = .working
+        case .result, .done: self = .done
         case .failed: self = .failed
         }
     }
@@ -19,6 +22,7 @@ public enum BubblePose: Equatable, Sendable, CaseIterable {
     public var resource: String {
         switch self {
         case .waiting: return "investigate"
+        case .working: return "multitask"
         case .done: return "done"
         case .failed: return "oops"
         }

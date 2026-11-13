@@ -227,6 +227,7 @@ var fr = map[string]string{
 	"unknown attachment":                                                   "pièce jointe inconnue",
 	"no change is waiting for a decision":                                  "aucun changement n’attend de décision",
 	"the proposal changed since you read it":                               "la proposition a changé depuis que tu l’as lue",
+	"the request changed since you saw it":                                 "la demande a changé depuis que tu l’as vue",
 	"the assistant is still working on this request":                       "l’assistant travaille encore sur cette demande",
 	"only a failed, ignored or finished request can be investigated again": "seule une demande échouée, ignorée ou terminée peut être réexaminée",
 	"project “%s” no longer exists":                                        "le projet « %s » n’existe plus",

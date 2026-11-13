@@ -216,7 +216,12 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 - Slack inbox: what would notify you (mentions, DMs, notes to self, group chats, thread replies, keywords).
   Thread replies come from the threads you wrote in, the threads that mention you, and, with live events, any thread
   Slack says you follow (`subscribed` on the first message), the same rule as Slack's Activity view.
-- Request state machine: queued, analyzing, awaiting-user, ready, applying, done, ignored, failed.
+- Request state machine: queued, analyzing, awaiting-user, ready, applying, done, ignored, failed. A request is
+  `engaged` once its status first changes into one that reaches the user (awaiting-user, ready, failed, done), in
+  `Service.update`; the bubbles show the work of an engaged request only, so the first investigation is silent.
+  `closed` hides the bubble (Done, the close button, a declined change) and is cleared the next time the request
+  reaches the user. Questions may allow several options (`multiple`), answered with `optionIds`. The bubble rules
+  themselves are in `app/Sources/PoupleCore/Visibility.swift`.
 - AI runner (Codex or Claude, see above): read-only by default, structured outcome (JSON schema), untrusted text
   always wrapped as data, writes only after approval and only in the chosen project, stop at any time, daily limit,
   pause on the limit of the AI that reported it.

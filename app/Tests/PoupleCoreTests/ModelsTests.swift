@@ -41,6 +41,22 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(first.entries.first?.kind, .step)
     }
 
+    func testTheEngagementTheClosingAndSeveralOptionsAreReadAndDefaultToOff() throws {
+        let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(Self.snapshotJSON.utf8))
+        let first = try XCTUnwrap(snapshot.requests.first)
+        XCTAssertFalse(first.isEngaged)
+        XCTAssertFalse(first.isClosed)
+        XCTAssertEqual(first.questions.first?.allowsSeveral, false)
+
+        let json = Self.snapshotJSON
+            .replacingOccurrences(of: #""proposal": { "title": "Fix login""#, with: #""engaged": true, "closed": true, "proposal": { "title": "Fix login""#)
+            .replacingOccurrences(of: #""text": "Which flow?","#, with: #""text": "Which flow?", "multiple": true,"#)
+        let flagged = try XCTUnwrap(SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(json.utf8)).requests.first)
+        XCTAssertTrue(flagged.isEngaged)
+        XCTAssertTrue(flagged.isClosed)
+        XCTAssertEqual(flagged.questions.first?.allowsSeveral, true)
+    }
+
     func testAPipelineRequestIsTitledByItsHeadline() throws {
         let json = """
         {

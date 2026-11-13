@@ -260,7 +260,13 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
         at: nowIso(),
         role: 'user',
         kind: 'text',
-        text: answers.map((a) => a.text ?? request.questions.find((q) => q.id === a.questionId)?.options.find((o) => o.id === a.optionId)?.label ?? '').join(' / '),
+        text: answers
+          .map((a) => {
+            const options = request.questions.find((q) => q.id === a.questionId)?.options ?? [];
+            const picked = [a.optionId, ...(a.optionIds ?? [])].filter(Boolean).map((id) => options.find((o) => o.id === id)?.label ?? '');
+            return [...picked, a.text ?? ''].filter(Boolean).join(', ');
+          })
+          .join(' / '),
       });
       work(request, text().replies.answered);
     },

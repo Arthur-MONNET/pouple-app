@@ -21,6 +21,8 @@ type Assistant interface {
 	Message(id, text string, attachmentIDs []string) error
 	DecideProposal(id string, approve bool, proposalID string) error
 	Ignore(id string) error
+	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
+	Close(id, seen string) error
 	Retry(id string) error
 	Remove(id string) error
 	Stop(id string) error
@@ -109,6 +111,16 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 		})
 		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
 			return noContent(w, assistant.Ignore(r.PathValue("id")))
+		})
+		handle("POST /api/assistant/requests/{id}/close", func(w http.ResponseWriter, r *http.Request) error {
+			// The body is optional: {"updatedAt": "…"} names the state the user closed, so a newer one stays open.
+			var body struct {
+				UpdatedAt string `json:"updatedAt"`
+			}
+			if err := decodeBody(r, &body); err != nil && !errors.Is(err, io.EOF) {
+				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
+			}
+			return noContent(w, assistant.Close(r.PathValue("id"), body.UpdatedAt))
 		})
 		handle("POST /api/assistant/requests/{id}/retry", func(w http.ResponseWriter, r *http.Request) error {
 			return accepted(w, assistant.Retry(r.PathValue("id")))

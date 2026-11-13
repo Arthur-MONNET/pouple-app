@@ -46,10 +46,11 @@ func (f *fakeAssistant) MessageFromLocalAPI(id, text string, ids []string) error
 func (f *fakeAssistant) DecideProposal(id string, ok bool, proposal string) error {
 	return f.record("decide", id, ok, proposal)
 }
-func (f *fakeAssistant) Ignore(id string) error { return f.record("ignore", id) }
-func (f *fakeAssistant) Retry(id string) error  { return f.record("retry", id) }
-func (f *fakeAssistant) Remove(id string) error { return f.record("remove", id) }
-func (f *fakeAssistant) Stop(id string) error   { return f.record("stop", id) }
+func (f *fakeAssistant) Ignore(id string) error      { return f.record("ignore", id) }
+func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", id+seen) }
+func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }
+func (f *fakeAssistant) Remove(id string) error      { return f.record("remove", id) }
+func (f *fakeAssistant) Stop(id string) error        { return f.record("stop", id) }
 
 func assistantServer(t *testing.T) (*Server, *fakeAssistant) {
 	t.Helper()
@@ -70,6 +71,9 @@ func TestAssistantRoutesCallTheEngineAndMapItsErrors(t *testing.T) {
 		{"POST", "/api/assistant/requests/r1/stop", "", 202, "stop r1"},
 		{"POST", "/api/assistant/requests/r1/retry", "", 202, "retry r1"},
 		{"POST", "/api/assistant/requests/r1/ignore", "", 204, "ignore r1"},
+		{"POST", "/api/assistant/requests/r1/close", "", 204, "close r1"},
+		{"POST", "/api/assistant/requests/r1/close", `{"updatedAt":"2026-11-13T10:00:00.000Z"}`, 204, "close r12026-11-13T10:00:00.000Z"},
+		{"POST", "/api/assistant/requests/r1/close", `{`, 400, ""},
 		{"DELETE", "/api/assistant/requests/r1", "", 204, "remove r1"},
 		{"POST", "/api/assistant/requests/r1/proposal", `{"decision":"approve"}`, 202, "decide r1 true "},
 		{"POST", "/api/assistant/requests/r1/messages", `{"text":"hi","attachmentIds":["a"]}`, 202, "message r1 hi 1"},
