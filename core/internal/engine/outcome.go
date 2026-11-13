@@ -26,8 +26,8 @@ const OutcomeSchema = `{
         "additionalProperties": false,
         "required": ["service", "action", "target", "text"],
         "properties": {
-          "service": {"type": "string", "enum": ["slite", "gitlab", "asana"]},
-          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment"]},
+          "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "screenshot"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "capture", "serve"]},
           "target": {"type": "string"},
           "text": {"type": "string"}
         }
