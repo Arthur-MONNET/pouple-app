@@ -38,6 +38,7 @@ export const fr: MessageTree = {
   },
   files: {
     tooMany: "{max} fichiers au maximum par message",
+    notNow: "Tu pourras ajouter des fichiers quand l'assistant aura fini, ou une fois sa question répondue",
     tooLarge: '{name} dépasse 8 Mo',
     unsupported: "{name} : seuls les images et les fichiers texte sont acceptés",
     thisFile: 'Ce fichier',
@@ -384,6 +385,7 @@ export const fr: MessageTree = {
     message: "Message à l'assistant",
     working: 'Travail en cours…',
     followUp: 'Une question de suite ?',
+    dropHint: 'Dépose pour ajouter à cette conversation',
     answerAbove: 'Réponds à la question ci-dessus pour continuer',
     stopAria: "Arrêter l'assistant",
     stop: 'Arrêter',

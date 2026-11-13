@@ -41,7 +41,11 @@ export function useComposerFiles(requestId: Ref<string | null>) {
 
   async function add(list: Iterable<File>): Promise<void> {
     const id = requestId.value;
-    if (!id) return;
+    if (!id) {
+      // Not silently: the user dropped something and should know why nothing happened.
+      error.value = t('files.notNow');
+      return;
+    }
     error.value = null;
     uploading.value = true;
     try {

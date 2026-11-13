@@ -34,6 +34,7 @@ export const en: MessageTree = {
   },
   files: {
     tooMany: 'At most {max} files per message',
+    notNow: 'Files can be added once the assistant has finished, or once you have answered its question',
     tooLarge: '{name} is larger than 8 MB',
     unsupported: '{name}: only images and text files can be added',
     thisFile: 'This file',
@@ -380,6 +381,7 @@ export const en: MessageTree = {
     message: 'Message to the assistant',
     working: 'Working…',
     followUp: 'Ask a follow-up…',
+    dropHint: 'Drop to add to this conversation',
     answerAbove: 'Answer the question above to continue',
     stopAria: 'Stop the assistant',
     stop: 'Stop',

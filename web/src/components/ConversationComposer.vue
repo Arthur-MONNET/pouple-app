@@ -57,6 +57,9 @@ async function stop(): Promise<void> {
   }
 }
 
+/** Files dropped on the conversation come here: the composer owns what is added to the next message. */
+defineExpose({ addFiles: (list: Iterable<File>): Promise<void> => files.add(list) });
+
 async function onFilesChosen(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   await files.add(input.files ?? []);
