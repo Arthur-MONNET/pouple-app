@@ -35,10 +35,12 @@ struct BubbleCard: View {
             if expanded { full(withMascot: withMascot) } else { collapsed }
         }
         .frame(width: Theme.cardWidth, alignment: .leading)
+        // Anywhere on the card that is not a control moves the panel: the drag area sits under the content.
+        .background { if !store.previewing { WindowDragArea() } }
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.card))
         // A hairline only, so the card still lifts off a dark wallpaper.
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
-        .shadow(color: .black.opacity(0.5), radius: 22, y: 10)
+        .shadow(color: .black.opacity(0.45), radius: Theme.shadowRadius, y: Theme.shadowOffset)
     }
 
     // MARK: - Collapsed
@@ -101,7 +103,6 @@ struct BubbleCard: View {
                 .accessibilityLabel(L10n.text(.bubbleClose))
         }
         .buttonStyle(IconButtonStyle())
-        .background(WindowDragArea())
     }
 
     private var quote: some View {

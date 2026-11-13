@@ -68,13 +68,16 @@ private extension NSScreen {
 /// Dragging is free, but on release the panel snaps to the nearest corner of the screen it is on.
 @MainActor
 final class PanelController {
-    /// Distance to the screen edge; the panel's own padding comes on top.
-    private static let margin: CGFloat = 6
+    /// Distance to the screen edge; the panel's own padding comes on top, so a card sits `panelPadding` from the edge.
+    private static let margin: CGFloat = 0
 
     private let store: BubbleStore
     private let panel = FloatingPanel()
     private let host: NSHostingView<BubblesRootView>
     private var placement = SavedPlacement.load()
+    /// The user is moving the panel: the bubbles may change size meanwhile, and the panel must not jump back to its
+    /// corner under their pointer. It is placed again when they let go.
+    private var dragging = false
     private var size = NSSize(width: Theme.cardWidth + 2 * Theme.panelPadding, height: 80)
     private var subscriptions: Set<AnyCancellable> = []
 
@@ -95,8 +98,14 @@ final class PanelController {
             // objectWillChange fires before the value changes: look again once it has.
             .sink { [weak self] in DispatchQueue.main.async { self?.refreshVisibility() } }
             .store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: .bubbleDragBegan, object: panel)
+            .sink { [weak self] _ in self?.dragging = true }
+            .store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .bubbleDragEnded, object: panel)
-            .sink { [weak self] _ in self?.snapToNearestCorner() }
+            .sink { [weak self] _ in
+                self?.dragging = false
+                self?.snapToNearestCorner()
+            }
             .store(in: &subscriptions)
         // A screen that is plugged in or out must not leave the bubbles off-screen.
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
@@ -125,6 +134,8 @@ final class PanelController {
     private func fit(to newSize: NSSize) {
         guard newSize.width > 0, newSize.height > 0 else { return }
         size = newSize
+        // While dragging, the new size is only remembered: moving the panel here would fight the pointer.
+        guard !dragging else { return }
         place(animated: false)
     }
 

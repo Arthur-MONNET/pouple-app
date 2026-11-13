@@ -222,8 +222,12 @@ final class BubbleStore: ObservableObject {
         }
     }
 
+    /// A development render (`--render`) draws the bubbles into an image: native drag areas cannot be drawn there.
+    private(set) var previewing = false
+
     /// Development aid (`--render`): shows the given snapshot as if a core had sent it.
     func preview(_ snapshot: AssistantSnapshot) {
+        previewing = true
         setupComplete = true
         api = api ?? PoupleAPI(connection: CoreConnection(port: 1, token: "preview"))
         apply(snapshot)

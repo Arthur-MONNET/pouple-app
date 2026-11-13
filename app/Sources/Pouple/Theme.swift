@@ -3,8 +3,11 @@ import SwiftUI
 /// Colors and sizes shared by the views; the palette follows the Pouple web app.
 enum Theme {
     static let cardWidth: CGFloat = 392
-    /// Room around the cards so shadows are not clipped by the panel edge.
-    static let panelPadding: CGFloat = 14
+    /// Room around the cards: more than their shadow reaches, so the panel edge never cuts it.
+    static let panelPadding: CGFloat = 24
+    /// The shadow of a card: tight and soft, well inside `panelPadding`.
+    static let shadowRadius: CGFloat = 12
+    static let shadowOffset: CGFloat = 4
 
     /// The mascot sits on the top edge of an expanded bubble: its size, and how far it rises above the card.
     static let mascotSize: CGFloat = 68

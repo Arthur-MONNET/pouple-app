@@ -49,7 +49,7 @@ struct BubblesRootView: View {
         .frame(height: 22)
         .background(WindowDragArea())
         .background(Capsule().fill(Theme.card))
-        .shadow(color: .black.opacity(0.4), radius: 10, y: 4)
+        .shadow(color: .black.opacity(0.35), radius: Theme.shadowRadius * 0.6, y: Theme.shadowOffset * 0.5)
         .help(L10n.text(.handleDrag))
         .accessibilityLabel(L10n.text(.handleDrag))
     }
