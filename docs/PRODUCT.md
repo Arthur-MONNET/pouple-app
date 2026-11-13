@@ -117,6 +117,25 @@ you wrote to yourself, or apply every proposed change at once. The last one is a
 whoever asked for the change, it is made by a turn that sees only the proposal, in the project folder, without network, and
 nothing is committed, pushed or published.
 
+## Screenshots
+
+The AI cannot run a browser or a local server from its sandbox. It names a page (a lookup `screenshot` / `capture`, with a
+screen size, desktop or mobile), and Pouple opens it in a Chromium-based browser found on the Mac (Chrome, Chromium, Edge
+or Brave; nothing is downloaded) and takes the picture. The picture appears in the conversation and goes back to the AI,
+which can look at it: before a visual change, and after it was applied.
+
+- **What may be opened.** Only `localhost` (a dev server the user already runs) and the sites the user lists in Settings,
+  never Pouple's own port. The AI chooses the address and the screen size, never a command.
+- **The browser.** It starts empty and is thrown away afterwards: no account, no cookie, no extension, no download and no
+  keychain access. Pouple talks to it over a private pipe, so it listens on no port. Every request the page makes, redirects
+  and frames included, is checked against the same rule: pages, frames and calls to a service must go to localhost or a
+  listed site, while images, styles, fonts and scripts may come from anywhere (and then count as the web). A page behind a
+  login shows its login.
+- **Live view.** While the browser works, the conversation shows a collapsible "Chromium" block with what it draws and what
+  it is doing. The picture is asked for several times a second only while the block is open.
+- **Trust.** A picture of a site other than localhost counts like the web: a change proposed after it is never applied
+  without the user.
+
 ## Privacy
 
 Everything that notifies you is sent to the AI you chose, direct messages included. There is no exclusion list.
@@ -148,5 +167,9 @@ These are not decided or not verified. None of them changes the decisions above,
   example: deleting files, rewriting history, changing CI, changing dependencies).
 - **Learning your style.** Which past messages are read, how many, where the result is stored, and how you reset it.
 - **Silent update of a thread.** What counts as "changes what it proposes", and how Pouple tells you when it does.
+- **Screenshots of localhost.** Opening a page on localhost runs that page's scripts and makes GET requests to your own
+  dev servers, which a few tools answer with an action (opening a file in the editor, for example). The AI picks the
+  address, so a message from someone else could try one. To decide: ask before a screenshot of a request that came from
+  someone else, or list the ports that may be opened.
 - **No exclusion list.** Everything is sent to the AI you chose. This is a conscious choice and is worth stating in the first
   launch screen.

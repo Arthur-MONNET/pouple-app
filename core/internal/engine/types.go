@@ -129,6 +129,8 @@ type Request struct {
 	// SwitchTo is set when listed: the request stopped on an AI's usage limit, and this other AI, connected and not at
 	// its own limit, can take over.
 	SwitchTo providers.ID `json:"switchTo,omitempty"`
+	// Browser is set when listed and only while the browser is at work for this conversation (a screenshot being taken).
+	Browser *BrowserView `json:"browser,omitempty"`
 }
 
 // Stored is a request as kept on disk: the visible part plus what stays on the server.

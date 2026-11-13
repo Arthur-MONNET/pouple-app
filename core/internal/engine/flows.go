@@ -200,8 +200,9 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		if thread == "" {
 			return i18n.NewError("%s finished without an answer", provider.Name())
 		}
-		results := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks), canAct, &writes)
-		prompt, resume, images = s.deps.Persona().LookupResultsPrompt(results, round == maxLookupRounds-1), thread, nil
+		results, shots := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks), canAct, &writes)
+		// The pictures taken go back to the AI, which looks at them in its next turn.
+		prompt, resume, images = s.deps.Persona().LookupResultsPrompt(results, round == maxLookupRounds-1), thread, shots
 	}
 }
 
@@ -211,10 +212,28 @@ const maxWrites = 2
 // runLookups asks the connected services for what the AI wanted and journals it. A lookup that writes is run only for a
 // request the user made themselves, and at most maxWrites times; otherwise the AI is told it was not done, so it never
 // reports a post that did not happen.
-func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, canAct bool, writes *int) string {
-	if s.deps.Lookups == nil {
-		return "Lookups are not available: answer with what you have."
+func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, canAct bool, writes *int) (string, []string) {
+	var pictures []Lookup
+	var rest []Lookup
+	for _, lookup := range lookups {
+		if lookup.IsScreenshot() {
+			pictures = append(pictures, lookup)
+		} else {
+			rest = append(rest, lookup)
+		}
 	}
+	var shotText string
+	var shots []string
+	if len(pictures) > 0 {
+		shotText, shots = s.runScreenshots(ctx, id, pictures)
+	}
+	if len(rest) == 0 {
+		return shotText, shots
+	}
+	if s.deps.Lookups == nil {
+		return strings.TrimSpace(shotText + "\nLookups are not available: answer with what you have."), shots
+	}
+	lookups = rest
 	var allowed []Lookup
 	var refused ServiceContext
 	for _, lookup := range lookups {
@@ -238,7 +257,7 @@ func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, c
 	}
 	result.Text = strings.TrimSpace(result.Text + "\n" + refused.Text)
 	result.Steps = append(result.Steps, refused.Steps...)
-	return s.recordServices(id, result)
+	return strings.TrimSpace(shotText + "\n" + s.recordServices(id, result)), shots
 }
 
 // maxAsks is how many questions to Slite's own assistant one request may put: each is slow and approximate.

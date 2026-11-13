@@ -17,12 +17,14 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/pipelinewatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
+	"github.com/Arthur-MONNET/pouple/core/internal/screenshot"
 	"github.com/Arthur-MONNET/pouple/core/internal/servicectx"
 	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 )
 
 // newAssistant builds the engine on top of the connectors and the settings.
-func newAssistant(dir string, registry *connector.Registry, settings *config.File, hints *slackinbox.ThreadHints, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
+// ownPort is the port Pouple itself listens on: the browser it starts for a picture never opens it.
+func newAssistant(dir string, ownPort int, registry *connector.Registry, settings *config.File, hints *slackinbox.ThreadHints, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
 	store, err := engine.OpenStore(filepath.Join(dir, "requests.json"), func(err error) { logf("conversations not saved: %v", err) })
 	if err != nil {
 		return nil, nil, err
@@ -61,6 +63,13 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		}
 	}()
 	claudeHome := filepath.Join(dir, "claude")
+	claudeRunner := engine.NewClaudeRunner(engine.ClaudeOptions{
+		Shell: os.Getenv("SHELL"),
+		Home:  claudeHome,
+		// Pouple's data folder holds the logins and the conversations: the model never reads it, even when
+		// the projects folder happens to contain it.
+		ProtectedDirs: []string{dir},
+	})
 	aiProviders := map[providers.ID]engine.Provider{
 		providers.Codex: &engine.Metered{
 			Inner: engine.NewRunner(engine.RunnerOptions{
@@ -71,13 +80,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 			Provider: providers.Codex, Meter: meter, Limit: limit,
 		},
 		providers.Claude: &engine.Metered{
-			Inner: engine.NewClaudeRunner(engine.ClaudeOptions{
-				Shell: os.Getenv("SHELL"),
-				Home:  claudeHome,
-				// Pouple's data folder holds the logins and the conversations: the model never reads it, even when
-				// the projects folder happens to contain it.
-				ProtectedDirs: []string{dir},
-			}),
+			Inner:    claudeRunner,
 			Provider: providers.Claude, Meter: meter, Limit: limit,
 		},
 	}
@@ -87,7 +90,19 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
 		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
-		Events:    []engine.EventSource{asanawatch.New(registry)},
+		Events: []engine.EventSource{asanawatch.New(registry)},
+		// The AI cannot run a browser from its sandbox: it names a page, and Pouple opens it on localhost or on a site
+		// the user listed, with an empty profile, and takes the picture.
+		Screenshots: browserShots{taker: &screenshot.Taker{
+			Hosts:     func() []string { return load().ScreenshotHosts },
+			Forbidden: func() []int { return []int{ownPort} },
+		}},
+		// Claude reports its windows only during a turn: its own /usage command gives the real ones, at any time.
+		Background: []func(context.Context){(&engine.ClaudeUsageWatcher{
+			Runner: claudeRunner, Meter: meter, Every: time.Minute,
+			Connected: func() bool { return load().Connected(string(providers.Claude)) },
+			OnError:   func(err error) { logf("%v", err) },
+		}).Run},
 		Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
@@ -241,4 +256,11 @@ func claudeSecrets(path string) []string {
 		return nil
 	}
 	return []string{credentials.OAuth.Access, credentials.OAuth.Refresh}
+}
+
+// browserShots lets the engine take pictures without knowing about the browser.
+type browserShots struct{ taker *screenshot.Taker }
+
+func (b browserShots) Take(ctx context.Context, address, viewport string, watch engine.BrowserWatch) ([]byte, error) {
+	return b.taker.Take(ctx, address, viewport, &screenshot.Observer{Step: watch.Step, Frame: watch.Frame, Foreign: watch.Foreign})
 }

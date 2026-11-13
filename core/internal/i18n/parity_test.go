@@ -76,6 +76,7 @@ func TestEveryProviderTextHasAFrenchTranslation(t *testing.T) {
 		"../engine/outcome.go",
 		"../engine/plan.go",
 		"../engine/usage.go",
+		"../engine/claude_usage.go",
 		"../api/providers_api.go",
 		"../api/settings.go",
 		"../providers/providers.go",

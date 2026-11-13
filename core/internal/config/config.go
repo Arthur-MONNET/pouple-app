@@ -49,6 +49,9 @@ type Settings struct {
 	AutoApprove string `json:"autoApprove"`
 	// Keywords are words that make a Slack message a request wherever it is posted.
 	Keywords []string `json:"keywords"`
+	// ScreenshotHosts are the sites, besides this computer, whose pages the assistant may ask Pouple to open in a browser
+	// to take a picture (for example a preproduction site). Only host names, never a path.
+	ScreenshotHosts []string `json:"screenshotHosts"`
 	// IgnoreChannels are channel ids whose messages are never requests.
 	IgnoreChannels []string `json:"ignoreChannels"`
 	// GitLabPipelines is which finished GitLab pipelines of the user become requests: "all" (the default),
@@ -57,7 +60,7 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, Models: map[string]string{}, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, IgnoreChannels: []string{}, GitLabPipelines: "all"}
+	return Settings{Connectors: map[string]ConnectorState{}, PollSeconds: 60, DailyTurnLimit: 150, Models: map[string]string{}, UILanguage: "fr", AutoApprove: "off", Keywords: []string{}, ScreenshotHosts: []string{}, IgnoreChannels: []string{}, GitLabPipelines: "all"}
 }
 
 // Connected reports whether a connector is set up.

@@ -60,7 +60,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [] , provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all' };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all' };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
 
@@ -323,6 +323,11 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       await sleep(latency + slow(300));
       uploads += 1;
       return { id: `att-${uploads}`, name: file.name || 'file', mime: file.type, size: file.size, kind: file.type.startsWith('image/') ? 'image' : 'text' };
+    },
+    async getBrowserFrame() {
+      await wait();
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="#262a31"/><text x="160" y="105" fill="#a4a9b3" font-size="16" text-anchor="middle">mock browser</text></svg>';
+      return new Blob([svg], { type: 'image/svg+xml' });
     },
     async getAttachment() {
       await wait();

@@ -302,6 +302,9 @@ export const en: MessageTree = {
     keywords: 'Watched words',
     keywordsPlaceholder: 'deploy, incident, invoice',
     keywordsHelp: 'Separate words with commas. A message containing one becomes a request wherever it is posted.',
+    screenshotHosts: 'Sites for screenshots',
+    screenshotHostsPlaceholder: 'preprod.example.com',
+    screenshotHostsHelp: 'Besides this computer (localhost), the sites the assistant may ask Pouple to open in a browser to take a screenshot. Only the host name, separated by commas. The browser starts empty: no account, no cookie.',
     saved: 'Saved',
   },
   home: {
@@ -349,6 +352,12 @@ export const en: MessageTree = {
     openInSlack: 'Open in Slack',
     didLabel: 'What the assistant did',
     working: 'Eight arms on it.',
+    browser: {
+      title: 'Chromium',
+      collapse: 'Hide what the browser is doing',
+      expand: 'Show what the browser is doing',
+      alt: 'What the browser shows of {site}',
+    },
     stopAria: 'Stop the assistant on this request',
     stop: 'Stop',
     suggestedReply: 'Suggested reply',

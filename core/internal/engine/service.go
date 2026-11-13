@@ -117,6 +117,10 @@ type Deps struct {
 	// the analysis. It is the user's own choice to trust the assistant with their projects; the change is still made
 	// by a turn that sees only the proposal, in the project folder, without network.
 	AutoApproveAll func() bool
+	// Screenshots takes the pictures of pages the AI asks for; nil when there is no browser to do it.
+	Screenshots Screenshotter
+	// Background are long-running tasks (reading the usage of an AI, for one) that live as long as Run does.
+	Background []func(ctx context.Context)
 	// Connected says whether an AI is set up. With UseProvider, it lets a request stopped by one AI's usage limit go
 	// on with the other; nil leaves that out.
 	Connected func(providers.ID) bool
@@ -151,7 +155,9 @@ type Service struct {
 	pipelineNotice *i18n.Message
 	// eventNotices are why each event source could not be read, by source name.
 	eventNotices map[string]i18n.Message
-	lastPollAt   *string
+	// browsers are the browsers at work, by request id.
+	browsers   map[string]*liveBrowser
+	lastPollAt *string
 	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
 	pausedUntil  map[providers.ID]time.Time
 	loginProblem map[providers.ID]bool
@@ -313,8 +319,15 @@ func (s *Service) Snapshot() Snapshot {
 	}
 	stored := s.deps.Store.List()
 	requests := make([]Request, len(stored))
+	s.mu.Lock()
+	browsers := make(map[string]*BrowserView, len(s.browsers))
+	for id := range s.browsers {
+		browsers[id] = s.browserViewLocked(id, lang)
+	}
+	s.mu.Unlock()
 	for i, request := range stored {
 		view := request.Request
+		view.Browser = browsers[request.ID]
 		view.Continuable = request.ThreadID != ""
 		view.SwitchTo = s.switchTo(request)
 		if view.Proposal != nil {
@@ -346,6 +359,9 @@ func (s *Service) standingNoticesLocked(lang i18n.Lang) []string {
 // Run polls Slack periodically and lets a pending live event bring the next poll forward.
 // The cooldown keeps a burst of events from issuing a search for every message.
 func (s *Service) Run(ctx context.Context, intervals func() (period, cooldown time.Duration), wake <-chan struct{}) {
+	for _, task := range s.deps.Background {
+		go task(ctx)
+	}
 	for ctx.Err() == nil {
 		s.Poll(ctx)
 		period, cooldown := intervals()

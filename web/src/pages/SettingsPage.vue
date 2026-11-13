@@ -34,7 +34,7 @@ const category = computed<string>(() => {
   return known ? wanted : 'general';
 });
 
-const form = reactive({ language: '', dailyTurnLimit: 0, autoApprove: 'off' as AutoApprove, keywords: '' });
+const form = reactive({ language: '', dailyTurnLimit: 0, autoApprove: 'off' as AutoApprove, keywords: '', screenshotHosts: '' });
 const autosave = useAutoSave();
 /** Names written to Codex as they are: it understands them in any language. */
 const ANSWER_LANGUAGES = ['Français', 'English', 'Español', 'Deutsch', 'Italiano', 'Português'];
@@ -46,9 +46,11 @@ watch(settings, (value) => {
   form.dailyTurnLimit = value.dailyTurnLimit;
   form.autoApprove = value.autoApprove;
   form.keywords = value.keywords.join(', ');
+  form.screenshotHosts = value.screenshotHosts.join(', ');
 }, { once: true });
 
 const keywordList = computed(() => form.keywords.split(/[,\n]/).map((word) => word.trim()).filter(Boolean));
+const screenshotHostList = computed(() => form.screenshotHosts.split(/[,\s]+/).map((host) => host.trim()).filter(Boolean));
 
 /** Every change applies at once: the field that changed is the only one sent. */
 const apply = (patch: SettingsPatch): Promise<boolean> => autosave.run(() => save(patch));
@@ -157,6 +159,10 @@ function onInterfaceLanguage(event: Event): void {
 
           <SettingsRow :label="$t('settings.keywords')" :description="$t('settings.keywordsHelp')" label-for="keywords" stacked>
             <input id="keywords" v-model="form.keywords" type="text" :placeholder="$t('settings.keywordsPlaceholder')" autocomplete="off" spellcheck="false" class="h-10 w-full rounded-lg border border-line-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-accent" @change="apply({ keywords: keywordList })" />
+          </SettingsRow>
+
+          <SettingsRow :label="$t('settings.screenshotHosts')" :description="$t('settings.screenshotHostsHelp')" label-for="screenshot-hosts" stacked>
+            <input id="screenshot-hosts" v-model="form.screenshotHosts" type="text" :placeholder="$t('settings.screenshotHostsPlaceholder')" autocomplete="off" spellcheck="false" class="h-10 w-full rounded-lg border border-line-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-accent" data-testid="screenshot-hosts" @change="apply({ screenshotHosts: screenshotHostList })" />
           </SettingsRow>
 
           <template #footer><SaveStatus :saved="autosave.saved.value" :error="autosave.error.value" /></template>

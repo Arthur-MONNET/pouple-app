@@ -196,8 +196,16 @@ export interface ChatEntry {
   attachments?: AttachmentRef[];
 }
 
+/** The browser at work for a conversation (a screenshot being taken): what it opens and what it is doing. */
+export interface BrowserState {
+  url: string;
+  step: string;
+}
+
 export interface AssistantRequest {
   id: string;
+  /** Set only while the browser is at work for this conversation. */
+  browser?: BrowserState;
   source: RequestSource;
   /** The Slack message, as received. Untrusted content. */
   text: string;
@@ -311,6 +319,8 @@ export interface Settings {
   autoApprove: AutoApprove;
   keywords: string[];
   ignoreChannels: string[];
+  /** Sites, besides this computer, whose pages the assistant may ask Pouple to open to take a picture. */
+  screenshotHosts: string[];
   /** The AI that runs the analyses (`codex` or `claude`); the effective one on read. */
   provider?: string;
   /** One model name per AI; empty is the CLI's own default. */

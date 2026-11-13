@@ -73,6 +73,8 @@ export interface PoupleApi {
   uploadAttachment(requestId: string, file: File): Promise<AttachmentRef>;
   /** The bytes of an attachment (the endpoint needs the bearer token, so an <img src> cannot load it directly). */
   getAttachment(requestId: string, attachmentId: string): Promise<Blob>;
+  /** The last picture (JPEG) the browser drew for a conversation; rejects when no browser is open. */
+  getBrowserFrame(requestId: string): Promise<Blob>;
 }
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -184,5 +186,6 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     },
     getAttachment: async (requestId, attachmentId) =>
       (await send(assistant(requestId, `/attachments/${enc(attachmentId)}`))).blob(),
+    getBrowserFrame: async (requestId) => (await send(assistant(requestId, '/browser'))).blob(),
   };
 }

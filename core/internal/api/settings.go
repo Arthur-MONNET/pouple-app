@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
@@ -23,6 +24,8 @@ type Settings struct {
 	AutoApprove    string   `json:"autoApprove"`
 	Keywords       []string `json:"keywords"`
 	IgnoreChannels []string `json:"ignoreChannels"`
+	// ScreenshotHosts are the sites, besides localhost, the assistant may ask Pouple to open for a picture.
+	ScreenshotHosts []string `json:"screenshotHosts"`
 	// Provider is the AI that runs the turns now ("codex" or "claude"): the user's choice, or the connected one.
 	Provider string `json:"provider"`
 	// Models is the model chosen for each provider, always with both keys; "" is the CLI's own default.
@@ -40,7 +43,7 @@ func viewOf(s config.Settings) Settings {
 	}
 	return Settings{
 		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
-		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels,
+		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels, ScreenshotHosts: nonNil(s.ScreenshotHosts),
 		Provider: string(s.ActiveProvider()), Models: models, WebAccess: !s.WebDisabled, GitLabPipelines: s.GitLabPipelines,
 	}
 }
@@ -68,6 +71,8 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				AutoApprove    *string   `json:"autoApprove"`
 				Keywords       *[]string `json:"keywords"`
 				IgnoreChannels *[]string `json:"ignoreChannels"`
+				// ScreenshotHosts replaces the list of sites that may be opened for a picture.
+				ScreenshotHosts *[]string `json:"screenshotHosts"`
 				// Provider is "codex", "claude", or "" to go back to the connected one.
 				Provider *string `json:"provider"`
 				// Models changes the model of the providers named in it only.
@@ -83,6 +88,12 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 			if patch.GitLabPipelines != nil && !validPipelineMode(*patch.GitLabPipelines) {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": i18n.T(lang, `GitLab pipelines must be "all", "failures" or "off"`)})
 				return
+			}
+			if patch.ScreenshotHosts != nil {
+				if bad, ok := firstInvalidHost(*patch.ScreenshotHosts); !ok {
+					writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": i18n.T(lang, "“%s” is not a site name: write only the host, such as preprod.example.com", bad)})
+					return
+				}
 			}
 			if problem := validate(lang, patch.PollSeconds, patch.DailyTurnLimit, patch.ProjectsRoot, patch.AutoApprove, patch.UILanguage); problem != "" {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": problem})
@@ -137,6 +148,9 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 				if patch.IgnoreChannels != nil {
 					s.IgnoreChannels = cleanList(*patch.IgnoreChannels)
+				}
+				if patch.ScreenshotHosts != nil {
+					s.ScreenshotHosts = lowerList(cleanList(*patch.ScreenshotHosts))
 				}
 			})
 			if err != nil {
@@ -201,6 +215,33 @@ func validateProvider(lang i18n.Lang, current config.Settings, provider *string,
 		cleaned[key] = model
 	}
 	return cleaned, ""
+}
+
+var hostName = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+
+// firstInvalidHost returns the first entry that is not a bare host name (no scheme, path, port or wildcard).
+func firstInvalidHost(hosts []string) (string, bool) {
+	for _, host := range cleanList(hosts) {
+		if !hostName.MatchString(host) || strings.Contains(host, "..") {
+			return host, false
+		}
+	}
+	return "", true
+}
+
+func lowerList(values []string) []string {
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = strings.ToLower(value)
+	}
+	return out
+}
+
+func nonNil(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func cleanList(values []string) []string {

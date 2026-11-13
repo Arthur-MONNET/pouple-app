@@ -368,3 +368,142 @@ func TestACommentNeedsATextAndItsTextIsRedacted(t *testing.T) {
 		t.Error("only the comment writes")
 	}
 }
+
+type fakeBrowser struct {
+	asked []string
+	fail  error
+	// reachesOut makes the page load something from another site.
+	reachesOut bool
+}
+
+// pngBytes is the smallest valid PNG header the attachment store recognizes as an image.
+var pngBytes = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x9b\x1d\xb8\x00\x00\x00\x00IEND\xaeB`\x82")
+
+func (b *fakeBrowser) Take(_ context.Context, address, viewport string, watch BrowserWatch) ([]byte, error) {
+	b.asked = append(b.asked, address+" "+viewport)
+	watch.Step("Opening the page")
+	watch.Frame([]byte("jpeg"))
+	if b.reachesOut {
+		watch.Foreign()
+	}
+	if b.fail != nil {
+		return nil, b.fail
+	}
+	return pngBytes, nil
+}
+
+func TestAPictureTheAIAskedForIsShownInTheConversationAndGivenBackToIt(t *testing.T) {
+	h := newHarness(t,
+		lookupReply(Lookup{Service: "screenshot", Action: "capture", Target: "http://localhost:8001/premium", Text: "mobile"}),
+		reply(map[string]any{"summary": "**Looks right**"}))
+	browser := &fakeBrowser{}
+	h.svc.deps.Screenshots = browser
+	h.receive(message("show me the premium page"))
+
+	if len(browser.asked) != 1 || browser.asked[0] != "http://localhost:8001/premium mobile" {
+		t.Fatalf("asked %v", browser.asked)
+	}
+	second := h.codex.turns[1]
+	if len(second.Images) != 1 || !strings.Contains(second.Prompt, "Screenshot of http://localhost:8001/premium taken") {
+		t.Fatalf("the AI must get the picture and be told: images %v\n%s", second.Images, second.Prompt)
+	}
+	got := h.svc.Snapshot().Requests[0]
+	var shown bool
+	for _, entry := range got.Entries {
+		if len(entry.Attachments) == 1 && entry.Attachments[0].Kind == "image" && strings.Contains(entry.Text, "Screenshot of http://localhost:8001/premium") {
+			shown = true
+		}
+	}
+	if !shown {
+		t.Errorf("the picture must be in the conversation: %+v", got.Entries)
+	}
+	// A page of the user's own computer is not what strangers wrote: automatic approvals stay possible.
+	if stored, _ := h.svc.deps.Store.Get(got.ID); stored.WebUsed {
+		t.Error("localhost is not the web")
+	}
+	// The browser is shown while it works and gone afterwards.
+	if got.Browser != nil {
+		t.Errorf("no browser must be left open: %+v", got.Browser)
+	}
+	if _, open := h.svc.BrowserFrame(got.ID); open {
+		t.Error("the last frame must go with the browser")
+	}
+}
+
+func TestTheUserSeesTheBrowserWhileItWorksAndAPageFromASiteMarksTheRequestAsFromTheWeb(t *testing.T) {
+	h := newHarness(t,
+		lookupReply(Lookup{Service: "screenshot", Action: "capture", Target: "https://preprod.example.com/p"}),
+		reply(map[string]any{}))
+	var during *BrowserView
+	var frame []byte
+	h.svc.deps.Screenshots = screenshotFunc(func(ctx context.Context, address, viewport string, watch BrowserWatch) ([]byte, error) {
+		watch.Step("Waiting for the page to settle")
+		watch.Frame([]byte("jpeg-now"))
+		for _, request := range h.svc.Snapshot().Requests {
+			during = request.Browser
+		}
+		frame, _ = h.svc.BrowserFrame(h.svc.Snapshot().Requests[0].ID)
+		return pngBytes, nil
+	})
+	h.receive(message("show me the preprod page"))
+
+	if during == nil || during.URL != "https://preprod.example.com/p" || during.Step != "Waiting for the page to settle" || string(frame) != "jpeg-now" {
+		t.Fatalf("while it works: %+v %q", during, frame)
+	}
+	got := h.svc.Snapshot().Requests[0]
+	if stored, _ := h.svc.deps.Store.Get(got.ID); !stored.WebUsed {
+		t.Error("what another site shows is written by strangers: it must count as the web")
+	}
+}
+
+type screenshotFunc func(context.Context, string, string, BrowserWatch) ([]byte, error)
+
+func (f screenshotFunc) Take(ctx context.Context, address, viewport string, watch BrowserWatch) ([]byte, error) {
+	return f(ctx, address, viewport, watch)
+}
+
+func TestALocalPageThatLoadsFromAnotherSiteCountsAsTheWeb(t *testing.T) {
+	h := newHarness(t, lookupReply(Lookup{Service: "screenshot", Action: "capture", Target: "http://localhost:8001/"}), reply(map[string]any{}))
+	h.svc.deps.Screenshots = &fakeBrowser{reachesOut: true}
+	h.receive(message("show me the page"))
+	got := h.svc.Snapshot().Requests[0]
+	if stored, _ := h.svc.deps.Store.Get(got.ID); !stored.WebUsed {
+		t.Error("a localhost page that pulled in another site's content must count as the web")
+	}
+}
+
+func TestAFailedPictureIsReportedToTheAIAndInTheJournal(t *testing.T) {
+	h := newHarness(t,
+		lookupReply(Lookup{Service: "screenshot", Action: "capture", Target: "http://localhost:8001/"}),
+		reply(map[string]any{}))
+	h.svc.deps.Screenshots = &fakeBrowser{fail: i18n.NewError("The page took too long to open")}
+	h.receive(message("show me the page"))
+
+	if len(h.codex.turns[1].Images) != 0 || !strings.Contains(h.codex.turns[1].Prompt, "failed: The page took too long to open") {
+		t.Fatalf("the AI must be told it failed:\n%s", h.codex.turns[1].Prompt)
+	}
+	var journal []string
+	for _, entry := range h.svc.Snapshot().Requests[0].Entries {
+		journal = append(journal, entry.Text)
+	}
+	if !strings.Contains(strings.Join(journal, "|"), "failed: The page took too long to open") {
+		t.Errorf("journal: %v", journal)
+	}
+}
+
+func TestWithoutABrowserTheAIIsTold(t *testing.T) {
+	h := newHarness(t, lookupReply(Lookup{Service: "screenshot", Action: "capture", Target: "http://localhost:8001/"}), reply(map[string]any{}))
+	h.receive(message("show me the page"))
+	if !strings.Contains(h.codex.turns[1].Prompt, "Screenshots are not available") {
+		t.Fatalf("%s", h.codex.turns[1].Prompt)
+	}
+}
+
+func TestOnlyTheScreenSizesAreKeptOfAScreenshotLookup(t *testing.T) {
+	raw := `{"outcome":"lookup","summary":"s","reply":null,"questions":[],"proposal":null,"sourcesUsed":[],"lookups":[{"service":"screenshot","action":"capture","target":"http://localhost:1/","text":"mobile-with-a-very-long-suffix"},{"service":"screenshot","action":"read","target":"x","text":""}]}`
+	outcome, err := ParseOutcome(raw)
+	// The text is cut short (the browser refuses what it does not know), and a screenshot has no other action.
+	if err != nil || len(outcome.Lookups) != 1 || !strings.HasPrefix(outcome.Lookups[0].Text, "mobile-with") || len([]rune(outcome.Lookups[0].Text)) > 12 {
+		t.Fatalf("%+v, %v", outcome.Lookups, err)
+	}
+}

@@ -52,6 +52,12 @@ func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", 
 func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }
 func (f *fakeAssistant) Remove(id string) error      { return f.record("remove", id) }
 func (f *fakeAssistant) Stop(id string) error        { return f.record("stop", id) }
+func (f *fakeAssistant) BrowserFrame(id string) ([]byte, bool) {
+	if id == "live" {
+		return []byte("\xff\xd8jpeg"), true
+	}
+	return nil, false
+}
 func (f *fakeAssistant) ContinueWith(id string, provider providers.ID) error {
 	return f.record("continue-with", id+" "+string(provider))
 }

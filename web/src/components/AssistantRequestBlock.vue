@@ -11,6 +11,7 @@ import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AssistantQuestionCard from './AssistantQuestionCard.vue';
 import AttachmentList from './AttachmentList.vue';
+import BrowserLive from './BrowserLive.vue';
 import ClampedBox from './ClampedBox.vue';
 import MarkdownText from './MarkdownText.vue';
 import InlineError from './InlineError.vue';
@@ -136,12 +137,13 @@ watch(
         <ClampedBox v-if="group.entry.role === 'assistant'" :length="group.entry.text.length">
           <MarkdownText :source="group.entry.text" />
         </ClampedBox>
-        <template v-else>
-          <p class="whitespace-pre-wrap break-words">{{ group.entry.text }}</p>
-          <AttachmentList v-if="group.entry.attachments && group.entry.attachments.length > 0" class="mt-2" :request-id="request.id" :attachments="group.entry.attachments" />
-        </template>
+        <p v-else class="whitespace-pre-wrap break-words">{{ group.entry.text }}</p>
+        <!-- A picture the browser took comes with an assistant message: it shows under it like a file the user sent. -->
+        <AttachmentList v-if="group.entry.attachments && group.entry.attachments.length > 0" class="mt-2" :request-id="request.id" :attachments="group.entry.attachments" />
       </div>
     </template>
+
+    <BrowserLive v-if="request.browser" :request-id="request.id" :browser="request.browser" />
 
     <div v-if="working" class="flex items-center gap-2 text-xs text-ink-dim">
       <p class="flex items-center gap-2" role="status">

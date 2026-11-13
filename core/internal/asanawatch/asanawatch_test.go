@@ -27,7 +27,9 @@ type fakeAsana struct {
 	asked    []string
 }
 
-func (f *fakeAsana) Me(context.Context) (asana.Me, error) { return asana.Me{GID: "100001", Name: "Arthur"}, nil }
+func (f *fakeAsana) Me(context.Context) (asana.Me, error) {
+	return asana.Me{GID: "100001", Name: "Arthur"}, nil
+}
 func (f *fakeAsana) OpenTasks(context.Context) (asana.Open, error) {
 	return asana.Open{Tasks: f.tasks, More: f.more}, nil
 }

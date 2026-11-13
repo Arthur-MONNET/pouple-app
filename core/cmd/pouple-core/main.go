@@ -140,7 +140,7 @@ func run() error {
 		}
 	}
 	hints := slackinbox.NewThreadHints()
-	service, attachments, err := newAssistant(dir, registry, settings, hints, log.Printf)
+	service, attachments, err := newAssistant(dir, port, registry, settings, hints, log.Printf)
 	if err != nil {
 		return err
 	}

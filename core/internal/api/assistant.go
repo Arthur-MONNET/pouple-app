@@ -29,6 +29,8 @@ type Assistant interface {
 	ContinueWith(id string, provider providers.ID) error
 	Remove(id string) error
 	Stop(id string) error
+	// BrowserFrame is the last picture the browser drew while it worked for a conversation; false when none is open.
+	BrowserFrame(id string) ([]byte, bool)
 }
 
 const (
@@ -166,6 +168,18 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 				return i18n.Wrap(engine.ErrInput, "%s", err)
 			}
 			writeJSON(w, http.StatusCreated, ref)
+			return nil
+		})
+		handle("GET /api/assistant/requests/{id}/browser", func(w http.ResponseWriter, r *http.Request) error {
+			frame, ok := assistant.BrowserFrame(r.PathValue("id"))
+			if !ok {
+				return engine.ErrNotFound
+			}
+			// A picture of a page is shown as a picture and nothing else, and is never kept by the browser.
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write(frame)
 			return nil
 		})
 		handle("GET /api/assistant/requests/{id}/attachments/{attachmentId}", func(w http.ResponseWriter, r *http.Request) error {

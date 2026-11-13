@@ -306,6 +306,9 @@ export const fr: MessageTree = {
     keywords: 'Mots surveillés',
     keywordsPlaceholder: 'déploiement, incident, facture',
     keywordsHelp: 'Sépare les mots par des virgules. Un message qui en contient un devient une demande, où qu\'il soit posté.',
+    screenshotHosts: 'Sites pour les captures',
+    screenshotHostsPlaceholder: 'preprod.exemple.com',
+    screenshotHostsHelp: "En plus de cet ordinateur (localhost), les sites que l'assistant peut demander à Pouple d'ouvrir dans un navigateur pour faire une capture. Seulement le nom d'hôte, séparés par des virgules. Le navigateur démarre vide : aucun compte, aucun cookie.",
     saved: 'Enregistré',
   },
   home: {
@@ -353,6 +356,12 @@ export const fr: MessageTree = {
     openInSlack: 'Ouvrir dans Slack',
     didLabel: "Ce que l'assistant a fait",
     working: 'Huit bras sur le coup.',
+    browser: {
+      title: 'Chromium',
+      collapse: 'Masquer ce que fait le navigateur',
+      expand: 'Afficher ce que fait le navigateur',
+      alt: 'Ce que le navigateur montre de {site}',
+    },
     stopAria: "Arrêter l'assistant sur cette demande",
     stop: 'Arrêter',
     suggestedReply: 'Réponse suggérée',
