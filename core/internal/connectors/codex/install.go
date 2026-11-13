@@ -35,7 +35,36 @@ var macOSAssets = map[string]releaseAsset{
 	"amd64": {"codex-x86_64-apple-darwin", "d8eb4a865a0b17319cde10347523e5bab0978d01725b39f4a639f40905e01221"},
 }
 
+// Since 0.167 Codex runs every command of its shell tool through a helper program that must sit beside it. Without
+// it the AI cannot read a single file, and says so in its own words ("the project is inaccessible").
+var macOSHostAssets = map[string]releaseAsset{
+	"arm64": {"codex-code-mode-host-aarch64-apple-darwin", "876a3e263348ef0edaeae5cf5bc52a5c121141cefd15157ab0eeca305f3eb563"},
+	"amd64": {"codex-code-mode-host-x86_64-apple-darwin", "612d0dc2c7316fbf05ee922796f4d740a285b76a55d4c78e1b946ba621bdcc91"},
+}
+
 func managedPath(home string) string { return filepath.Join(home, "bin", "codex") }
+
+// hostPath is where Codex looks for its helper: next to its own executable.
+func hostPath(home string) string { return filepath.Join(home, "bin", "codex-code-mode-host") }
+
+func isExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o100 != 0
+}
+
+// EnsureHost installs the helper of Pouple's own Codex when it is missing, which is the case of every Codex installed
+// by an earlier Pouple. A Codex found on the PATH brings its own helper: nothing to do for it.
+func EnsureHost(ctx context.Context, home string) error {
+	if !isExecutable(managedPath(home)) || isExecutable(hostPath(home)) {
+		return nil
+	}
+	asset, supported := macOSHostAssets[runtime.GOARCH]
+	if runtime.GOOS != "darwin" || !supported {
+		return nil
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	return installAsset(ctx, client, releaseURL+asset.name+".tar.gz", asset, hostPath(home))
+}
 
 // Command uses Pouple's installation when present and keeps existing installations on PATH working.
 func Command(home string) string {
@@ -57,6 +86,9 @@ func (c *Connector) install(ctx context.Context, emit func(connector.Event)) err
 	log("Downloading Codex from OpenAI…")
 	client := &http.Client{Timeout: 5 * time.Minute}
 	if err := installAsset(ctx, client, releaseURL+asset.name+".tar.gz", asset, managedPath(c.Home)); err != nil {
+		return err
+	}
+	if err := EnsureHost(ctx, c.Home); err != nil {
 		return err
 	}
 	log("Codex is installed. You can now sign in.")

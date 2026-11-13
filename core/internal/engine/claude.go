@@ -258,7 +258,7 @@ func (r *ClaudeRunner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		// gateway, and the API token of the local server never reaches the child.
 		Env: providers.ChildEnv(os.Environ(), claudeHomeEnv(r.opts.Home)...),
 	}
-	stream := &claudeStream{dir: turn.Dir, lang: i18n.FromContext(ctx), onEvent: turn.OnEvent, result: TurnResult{ThreadID: turn.ResumeThread}}
+	stream := &claudeStream{dir: turn.Dir, lang: i18n.FromContext(ctx), onEvent: turn.OnEvent, onUsage: turn.OnUsage, result: TurnResult{ThreadID: turn.ResumeThread}}
 	end, err := runProcess(ctx, spec, stream.read)
 	if err != nil {
 		return TurnResult{}, err
@@ -283,6 +283,7 @@ type claudeStream struct {
 	dir     string
 	lang    i18n.Lang
 	onEvent func(Event)
+	onUsage func(Tokens, *Limits)
 
 	result     TurnResult
 	lastText   string
@@ -357,11 +358,15 @@ func (c *claudeStream) read(raw string) error {
 		c.finished(event)
 		// Claude counts the cached tokens apart from the input ones: both are read.
 		usage := event.Usage
-		c.result.Tokens = c.result.Tokens.Add(Tokens{
+		used := Tokens{
 			Input:  usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens,
 			Cached: usage.CacheReadInputTokens,
 			Output: usage.OutputTokens,
-		})
+		}
+		c.result.Tokens = c.result.Tokens.Add(used)
+		if c.onUsage != nil && !used.IsZero() {
+			c.onUsage(used, nil)
+		}
 	case "rate_limit_event":
 		if limits := claudeLimits(event.RateLimitInfo, time.Now()); limits != nil {
 			merged := limits
@@ -369,6 +374,9 @@ func (c *claudeStream) read(raw string) error {
 				merged = ptr(c.result.Limits.Merge(*limits))
 			}
 			c.result.Limits = merged
+			if c.onUsage != nil {
+				c.onUsage(Tokens{}, limits)
+			}
 		}
 	}
 	return nil

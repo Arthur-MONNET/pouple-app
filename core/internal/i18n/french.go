@@ -20,6 +20,9 @@ var fr = map[string]string{
 	"Slack answered %d":                                   "Slack a répondu %d",
 	`GitLab pipelines must be "all", "failures" or "off"`: `Les pipelines GitLab doivent être « all », « failures » ou « off »`,
 	"GitLab pipelines could not be read: %s":              "Les pipelines GitLab n’ont pas pu être lus : %s",
+	"%s could not be read: %s":                            "%s n’a pas pu être lu : %s",
+	"the Asana connection could not be read":              "la connexion Asana est illisible",
+	"the saved Asana connection could not be used":        "la connexion Asana enregistrée est inutilisable",
 	"This is a bot token (xoxb-). Pouple needs the User OAuth Token, which starts with xoxp-.": "C’est un jeton de bot (xoxb-). Pouple a besoin du jeton OAuth utilisateur, qui commence par xoxp-.",
 	"Slack does not accept this token. Copy it again from the app's Install App page.":         "Slack n’accepte pas ce jeton. Copie-le à nouveau depuis la page Install App de l’app.",
 	"This token expired. Reinstall the app to the workspace and copy the new token.":           "Ce jeton a expiré. Réinstalle l’app dans l’espace de travail et copie le nouveau jeton.",
@@ -244,7 +247,7 @@ var fr = map[string]string{
 	"Slack is read every 15 to 3600 seconds":                                   "Slack est relu toutes les 15 à 3 600 secondes",
 	"The daily limit cannot be negative (0 means no limit)":                    "La limite quotidienne ne peut pas être négative (0 = pas de limite)",
 	"The interface language must be \"fr\" or \"en\"":                          "La langue de l’interface doit être « fr » ou « en »",
-	"Automatic approval must be \"off\" or \"own-notes\"":                      "L’approbation automatique doit valoir « off » ou « own-notes »",
+	"Automatic approval must be \"off\", \"own-notes\" or \"all\"":             "L’approbation automatique doit valoir « off », « own-notes » ou « all »",
 	"“%s” is not a folder":                                                     "« %s » n’est pas un dossier",
 	"Choose a folder that holds only your projects, not / or your home folder": "Choisis un dossier qui ne contient que tes projets, pas / ni ton dossier personnel",
 

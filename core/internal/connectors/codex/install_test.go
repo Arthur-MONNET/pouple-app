@@ -73,3 +73,29 @@ func TestInstallAssetPublishesOnlyTheVerifiedExecutable(t *testing.T) {
 		t.Fatalf("temporary files were not removed: %v, %v", entries, err)
 	}
 }
+
+func TestEnsureHostInstallsTheHelperBesideAManagedCodexOnly(t *testing.T) {
+	const name = "codex-code-mode-host-test"
+	archive := makeReleaseArchive(t, name, "helper")
+	asset := releaseAsset{name: name, digest: fmt.Sprintf("%x", sha256.Sum256(archive))}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) }))
+	defer server.Close()
+
+	// A Codex of the PATH brings its own helper: nothing is downloaded for it.
+	empty := t.TempDir()
+	if err := EnsureHost(context.Background(), empty); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(hostPath(empty)); err == nil {
+		t.Fatal("a helper was installed without a managed Codex")
+	}
+
+	// The helper lands where Codex looks for it, executable.
+	home := t.TempDir()
+	if err := installAsset(context.Background(), server.Client(), server.URL, asset, hostPath(home)); err != nil {
+		t.Fatal(err)
+	}
+	if !isExecutable(hostPath(home)) || filepath.Dir(hostPath(home)) != filepath.Dir(managedPath(home)) {
+		t.Fatalf("helper is not executable beside codex: %s", hostPath(home))
+	}
+}

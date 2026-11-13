@@ -57,6 +57,18 @@ describe('groupBySource', () => {
     expect(showsMessageBelow(groups[0]!)).toBe(false);
   });
 
+  it('groups the Asana events and the merge request feedback apart, each titled by its headline', () => {
+    const task = request('a', 'asana', { channelId: 'asana', channelName: 'Asana', senderName: 'Asana' });
+    const feedback = request('b', 'merge-request', { channelId: 'gitlab-merge-requests', channelName: 'GitLab', senderName: 'GitLab' });
+    task.text = '📌 Assigned to you · Remove the grey mention\nA task was assigned to you in Asana.';
+    feedback.text = '💬 dating/pay-vue!93 · 2 new comments\nSomeone wrote.';
+    const groups = groupBySource([task, feedback]);
+    expect(groups.map((group) => group.kind)).toEqual(['asana', 'mergeRequests']);
+    expect(itemTitle(task)).toBe('📌 Assigned to you · Remove the grey mention');
+    expect(itemTitle(feedback)).toBe('💬 dating/pay-vue!93 · 2 new comments');
+    expect(showsMessageBelow(groups[0]!)).toBe(false);
+  });
+
   it('counts what waits for the user', () => {
     const [group] = groupBySource([request('a', 'mention', {}, 'awaiting-user'), request('b', 'mention', {}, 'failed'), request('c', 'mention')]);
     expect(group?.attention).toBe(2);

@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { headlineOf, needsAttention } from './assistantRequests';
 
 /** What kind of place the requests of a group come from. */
-export type GroupKind = 'notes' | 'pipelines' | 'channel' | 'direct' | 'group';
+export type GroupKind = 'notes' | 'pipelines' | 'asana' | 'mergeRequests' | 'channel' | 'direct' | 'group';
 
 export interface ConversationGroup {
   /** Stable across refreshes: what keeps a collapsed group collapsed. */
@@ -16,8 +16,11 @@ export interface ConversationGroup {
   attention: number;
 }
 
-/** Notes and pipelines each form one group, whatever the channel id they carry. */
-const SINGLE_GROUPS: Partial<Record<GroupKind, string>> = { notes: 'notes', pipelines: 'pipelines' };
+/** Notes, pipelines, Asana and merge requests each form one group, whatever the channel id they carry. */
+const SINGLE_GROUPS: Partial<Record<GroupKind, string>> = { notes: 'notes', pipelines: 'pipelines', asana: 'asana', mergeRequests: 'merge-requests' };
+
+/** The groups whose requests are events of a service: nobody wrote, so the title is the headline of the event. */
+const EVENT_GROUPS: readonly GroupKind[] = ['pipelines', 'asana', 'mergeRequests'];
 
 function kindOf(request: AssistantRequest): GroupKind {
   switch (request.source.origin) {
@@ -25,6 +28,10 @@ function kindOf(request: AssistantRequest): GroupKind {
       return 'notes';
     case 'pipeline':
       return 'pipelines';
+    case 'asana':
+      return 'asana';
+    case 'merge-request':
+      return 'mergeRequests';
     case 'direct-message':
       return 'direct';
     case 'group-message':
@@ -43,6 +50,10 @@ function labelOf(request: AssistantRequest): string {
       return t('groups.notes');
     case 'pipelines':
       return t('groups.pipelines');
+    case 'asana':
+      return t('groups.asana');
+    case 'mergeRequests':
+      return t('groups.mergeRequests');
     case 'direct':
       return source.senderName;
     case 'group':
@@ -82,7 +93,7 @@ const namesTheSender = (kind: GroupKind): boolean => kind === 'channel' || kind 
  * the project and the branch.
  */
 export function itemTitle(request: AssistantRequest): string {
-  if (kindOf(request) === 'pipelines') return headlineOf(request.text);
+  if (EVENT_GROUPS.includes(kindOf(request))) return headlineOf(request.text);
   return namesTheSender(kindOf(request)) ? request.source.senderName : request.text;
 }
 

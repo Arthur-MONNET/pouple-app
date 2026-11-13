@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +37,21 @@ type Pipelines interface {
 	Poll(ctx context.Context, cursor *Cursor) (PipelinePoll, error)
 }
 
-// PipelinePoll is what one look at the pipelines found: one Incoming per finished pipeline, oldest first.
-type PipelinePoll struct {
+// EventPoll is what one look at an event source found: one Incoming per event, oldest first.
+type EventPoll struct {
 	Incoming []Incoming
 	Cursor   Cursor
+}
+
+// PipelinePoll is what one look at the pipelines found.
+type PipelinePoll = EventPoll
+
+// EventSource finds what happened in a connected service (a task assigned, a comment on a merge request) and turns it
+// into requests, the way Slack messages become requests. A first look, with no cursor, only records the place.
+type EventSource interface {
+	// Name keys the source's cursor, and names it in the notice shown when it cannot be read.
+	Name() string
+	Poll(ctx context.Context, cursor *Cursor) (EventPoll, error)
 }
 
 // Incoming is a message the inbox found.
@@ -62,6 +75,8 @@ type Deps struct {
 	Inbox Inbox
 	// Pipelines reports the finished GitLab pipelines of the user; nil when there is no such source.
 	Pipelines Pipelines
+	// Events are the other event sources (Asana, GitLab merge requests); none when there is no such source.
+	Events []EventSource
 	// Providers are the AIs a turn can run on, each already metered when the usage limit must apply to it.
 	Providers map[providers.ID]Provider
 	// Selection says which provider and model run the next turn. It is read at each turn, so a change in the
@@ -98,6 +113,10 @@ type Deps struct {
 	// SettleDelay is how long a request from someone else waits before its turn, so a burst of messages is one request.
 	SettleDelay         time.Duration
 	AutoApproveOwnNotes func() bool
+	// AutoApproveAll applies every proposed change without asking, whoever the request came from and whatever went into
+	// the analysis. It is the user's own choice to trust the assistant with their projects; the change is still made
+	// by a turn that sees only the proposal, in the project folder, without network.
+	AutoApproveAll func() bool
 	// Connected says whether an AI is set up. With UseProvider, it lets a request stopped by one AI's usage limit go
 	// on with the other; nil leaves that out.
 	Connected func(providers.ID) bool
@@ -130,7 +149,9 @@ type Service struct {
 	// pipelineNotice is why the pipelines could not be read; "" when they can. Kept apart from notices, which every
 	// Slack poll rewrites.
 	pipelineNotice *i18n.Message
-	lastPollAt     *string
+	// eventNotices are why each event source could not be read, by source name.
+	eventNotices map[string]i18n.Message
+	lastPollAt   *string
 	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
 	pausedUntil  map[providers.ID]time.Time
 	loginProblem map[providers.ID]bool
@@ -194,6 +215,9 @@ func (s *Service) Subscribe() (<-chan struct{}, func()) {
 		s.mu.Unlock()
 	}
 }
+
+// UsageChanged tells the clients that the usage of the AIs changed, so they show it at once.
+func (s *Service) UsageChanged() { s.broadcast() }
 
 func (s *Service) broadcast() {
 	s.mu.Lock()
@@ -272,6 +296,9 @@ func (s *Service) Snapshot() Snapshot {
 	if s.pipelineNotice != nil {
 		notices = append(notices, s.pipelineNotice.Text(lang))
 	}
+	for _, name := range slices.Sorted(maps.Keys(s.eventNotices)) {
+		notices = append(notices, s.eventNotices[name].Text(lang))
+	}
 	notices = append(notices, s.standingNoticesLocked(lang)...)
 	lastPoll := s.lastPollAt
 	s.mu.Unlock()
@@ -347,6 +374,7 @@ func (s *Service) Poll(ctx context.Context) {
 	}
 	s.pollSlack(ctx)
 	s.pollPipelines(ctx)
+	s.pollEvents(ctx)
 	s.expireStale()
 }
 
@@ -397,6 +425,33 @@ func (s *Service) pollPipelines(ctx context.Context) {
 	}
 }
 
+// pollEvents reads each event source once. The first look of a source only records the place, so connecting a service
+// never replays what already happened; a source that cannot be read leaves a notice and does not stop the others.
+func (s *Service) pollEvents(ctx context.Context) {
+	for _, source := range s.deps.Events {
+		name := source.Name()
+		result, err := source.Poll(ctx, s.deps.Store.EventCursor(name))
+		s.mu.Lock()
+		if err != nil {
+			if s.eventNotices == nil {
+				s.eventNotices = map[string]i18n.Message{}
+			}
+			s.eventNotices[name] = i18n.NewMessage("%s could not be read: %s", name, err)
+		} else {
+			delete(s.eventNotices, name)
+		}
+		s.mu.Unlock()
+		if err != nil {
+			s.broadcast()
+			continue
+		}
+		s.deps.Store.SetEventCursor(name, result.Cursor)
+		for _, incoming := range result.Incoming {
+			s.receive(incoming)
+		}
+	}
+}
+
 func (s *Service) receive(in Incoming) {
 	if s.mergeIntoWaiting(in) {
 		return
@@ -412,7 +467,7 @@ func (s *Service) receive(in Incoming) {
 		request.Entries = []Entry{s.entry("system", "text", s.text(reason))}
 		s.deps.Store.Add(request)
 	}
-	if !ownNote && in.Source.Origin != OriginPipeline && len(in.Files) == 0 && IsSmallTalk(in.Text) {
+	if !ownNote && !IsEvent(in.Source.Origin) && len(in.Files) == 0 && IsSmallTalk(in.Text) {
 		skip("Skipped: nothing to answer.")
 		return
 	}
@@ -446,8 +501,8 @@ func (s *Service) receive(in Incoming) {
 
 // mergeIntoWaiting joins a message to the request of the same person, in the same place, that still waits.
 func (s *Service) mergeIntoWaiting(in Incoming) bool {
-	// A pipeline is an event of its own: two of them are never one request.
-	if in.Source.Origin == "note-to-self" || in.Source.Origin == OriginPipeline {
+	// An event is a thing of its own: two of them are never one request.
+	if in.Source.Origin == "note-to-self" || IsEvent(in.Source.Origin) {
 		return false
 	}
 	now := s.deps.Now()
@@ -646,8 +701,8 @@ func (s *Service) alert(id, message string) {
 	if request.Source.Origin == "note-to-self" {
 		title = i18n.T(lang, "Note to self")
 	}
-	if request.Source.Origin == OriginPipeline {
-		// The first line of a pipeline request is its headline: the outcome, the project and the branch.
+	if IsEvent(request.Source.Origin) {
+		// The first line of an event is its headline: the outcome, the project and the branch, or the task or merge request.
 		title, _, _ = strings.Cut(request.Text, "\n")
 	}
 	message = strings.Join(strings.Fields(strings.ReplaceAll(message, "**", "")), " ")

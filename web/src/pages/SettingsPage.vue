@@ -7,7 +7,6 @@ import GitLabSettings from '../components/GitLabSettings.vue';
 import InlineError from '../components/InlineError.vue';
 import SettingsRow from '../components/SettingsRow.vue';
 import SettingsSection from '../components/SettingsSection.vue';
-import ToggleSwitch from '../components/ToggleSwitch.vue';
 import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
 import UpdateSection from '../components/UpdateSection.vue';
 import SaveStatus from '../components/SaveStatus.vue';
@@ -54,9 +53,8 @@ const keywordList = computed(() => form.keywords.split(/[,\n]/).map((word) => wo
 /** Every change applies at once: the field that changed is the only one sent. */
 const apply = (patch: SettingsPatch): Promise<boolean> => autosave.run(() => save(patch));
 
-const ownNotes = computed(() => form.autoApprove === 'own-notes');
-function setOwnNotes(on: boolean): void {
-  form.autoApprove = on ? 'own-notes' : 'off';
+function setAutoApprove(event: Event): void {
+  form.autoApprove = (event.target as HTMLSelectElement).value as AutoApprove;
   void apply({ autoApprove: form.autoApprove });
 }
 
@@ -143,9 +141,19 @@ function onInterfaceLanguage(event: Event): void {
             <input id="limit" v-model.number="form.dailyTurnLimit" type="number" min="0" step="1" inputmode="numeric" class="h-10 w-28 rounded-lg border border-line-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-accent" @change="saveDailyLimit" />
           </SettingsRow>
 
-          <div class="py-4">
-            <ToggleSwitch :model-value="ownNotes" :label="$t('settings.ownNotes')" :description="$t('settings.ownNotesHelp')" data-testid="auto-approve-own-notes" @update:model-value="setOwnNotes" />
-          </div>
+          <SettingsRow :label="$t('settings.autoApprove')" :description="$t(`settings.autoApproveHelp.${form.autoApprove}`)" label-for="auto-approve">
+            <select
+              id="auto-approve"
+              :value="form.autoApprove"
+              class="h-10 w-full rounded-lg border border-line-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-accent min-[560px]:w-56"
+              data-testid="auto-approve"
+              @change="setAutoApprove"
+            >
+              <option value="off">{{ $t('settings.autoApproveOff') }}</option>
+              <option value="own-notes">{{ $t('settings.autoApproveOwnNotes') }}</option>
+              <option value="all">{{ $t('settings.autoApproveAll') }}</option>
+            </select>
+          </SettingsRow>
 
           <SettingsRow :label="$t('settings.keywords')" :description="$t('settings.keywordsHelp')" label-for="keywords" stacked>
             <input id="keywords" v-model="form.keywords" type="text" :placeholder="$t('settings.keywordsPlaceholder')" autocomplete="off" spellcheck="false" class="h-10 w-full rounded-lg border border-line-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-accent" @change="apply({ keywords: keywordList })" />

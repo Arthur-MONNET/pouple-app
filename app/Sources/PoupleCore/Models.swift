@@ -13,6 +13,8 @@ public enum RequestOrigin: String, Codable, Sendable {
     case channelMessage = "channel-message"
     case poupleAction = "pouple-action"
     case pipeline
+    case asana
+    case mergeRequest = "merge-request"
     case unknown
 
     public init(from decoder: Decoder) throws {
@@ -142,7 +144,7 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
         let channel = "#\(source.channelName ?? source.channelId)"
         switch source.origin {
         case .poupleAction: return source.label ?? L10n.text(.titleAction, language: language)
-        case .pipeline: return text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? source.senderName
+        case .pipeline, .asana, .mergeRequest: return text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? source.senderName
         case .noteToSelf: return L10n.text(.titleNoteToSelf, language: language)
         case .directMessage: return L10n.text(.titleDirect, source.senderName, language: language)
         case .groupMessage: return L10n.text(.titleGroup, source.senderName, language: language)

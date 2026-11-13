@@ -22,7 +22,7 @@ const (
 	searchSize    = 10
 	maxWorkspaces = 3
 	maxSearchTerm = 2
-	taskFields    = "name,due_on,completed,permalink_url,assignee.name,memberships.section.name,memberships.project.name"
+	taskFields    = "name,due_on,completed,permalink_url,assignee.name,memberships.section.name,memberships.project.name,modified_at"
 )
 
 // Client reads Asana and posts comments. The token is sent in the Authorization header, to Asana only.
@@ -113,6 +113,8 @@ type Task struct {
 	Assignee     string
 	Section      string
 	Project      string
+	// ModifiedAt is when the task last changed (RFC 3339), "" when Asana did not say.
+	ModifiedAt string
 }
 
 type taskPayload struct {
@@ -121,6 +123,7 @@ type taskPayload struct {
 	DueOn        string `json:"due_on"`
 	Completed    bool   `json:"completed"`
 	PermalinkURL string `json:"permalink_url"`
+	ModifiedAt   string `json:"modified_at"`
 	Assignee     *struct {
 		Name string `json:"name"`
 	} `json:"assignee"`
@@ -138,7 +141,7 @@ func (p taskPayload) task() (Task, bool) {
 	if p.GID == "" || p.Name == "" {
 		return Task{}, false
 	}
-	task := Task{GID: p.GID, Name: p.Name, DueOn: p.DueOn, Completed: p.Completed}
+	task := Task{GID: p.GID, Name: p.Name, DueOn: p.DueOn, Completed: p.Completed, ModifiedAt: p.ModifiedAt}
 	// Only Asana's own address is kept: the assistant must not receive a link to somewhere else.
 	if link, err := url.Parse(p.PermalinkURL); err == nil && link.Scheme == "https" && strings.EqualFold(link.Host, "app.asana.com") {
 		task.PermalinkURL = p.PermalinkURL

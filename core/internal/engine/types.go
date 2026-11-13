@@ -27,8 +27,21 @@ func (s Status) Pending() bool {
 	return s == StatusQueued || s == StatusAnalyzing || s == StatusApplying
 }
 
-// OriginPipeline is the origin of a request that no one wrote: a pipeline of the user's GitLab account finished.
-const OriginPipeline = "pipeline"
+// The origins of a request that no one wrote: something happened in a service the user is connected to.
+const (
+	// OriginPipeline: a pipeline of the user's GitLab account finished.
+	OriginPipeline = "pipeline"
+	// OriginAsana: a task was assigned to the user, or a comment mentions them.
+	OriginAsana = "asana"
+	// OriginMergeRequest: someone commented on, or reviewed, a merge request of the user.
+	OriginMergeRequest = "merge-request"
+)
+
+// IsEvent says whether a request is an event of a service, not a message someone wrote to the user: its text is what
+// the service reports, there is no one to answer, and two events are never one conversation.
+func IsEvent(origin string) bool {
+	return origin == OriginPipeline || origin == OriginAsana || origin == OriginMergeRequest
+}
 
 // Source says where a request came from.
 type Source struct {

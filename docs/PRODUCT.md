@@ -106,6 +106,17 @@ current 5-hour window and of the current week.
 The window lists the tokens of the day and each AI's windows; the menu bar menu repeats them, and each conversation shows
 the tokens it used. A window that started again since the AI reported it is no longer shown.
 
+The usage follows the AIs as they report it, not the next time something else changes: the meter tells the clients at the
+start of a turn, when Claude reports a window (during the turn), and when Codex reports its tokens. Only what Pouple's own
+turns report is shown: Pouple has no way to read what you use of an AI outside of it.
+
+## Changes to your code
+
+The setting "Changes to your code" has three levels: ask each time (default), apply at once the changes proposed from a note
+you wrote to yourself, or apply every proposed change at once. The last one is a conscious choice to trust the assistant:
+whoever asked for the change, it is made by a turn that sees only the proposal, in the project folder, without network, and
+nothing is committed, pushed or published.
+
 ## Privacy
 
 Everything that notifies you is sent to the AI you chose, direct messages included. There is no exclusion list.
@@ -116,7 +127,7 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 |---|---|---|
 | Writing code | One proposal, approved, then an isolated writing turn that never sees the Slack text. It writes in your project folder. | A frozen plan approved by you, a scope per project, free work inside it, a worktree by default, then branch, push and merge request. |
 | Writing in services | Read-only. A comment is possible only on a request you made yourself. | Writes in Asana, Slite and GitLab inside the approved scope. |
-| Sources | Slack and finished GitLab pipelines. | Plus Asana (assigned or mentioned) and feedback on your merge requests. |
+| Sources | Slack, finished GitLab pipelines, and Asana (a task assigned to you, a comment that mentions you on one of your tasks). | Plus feedback on your merge requests. |
 | Reading | A fixed number of lookup rounds. | No limit. |
 | Replies | A neutral, short suggested text. | Written in your learned style. |
 | Thread updates | Not followed. | Taken into account silently. |
@@ -125,9 +136,10 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 
 These are not decided or not verified. None of them changes the decisions above, but each needs an answer before it is built.
 
-- **Claude's windows.** Codex was checked on a real turn: its tokens and its two windows are read. Claude Code's
-  `rate_limit_event` was read from the CLI itself (shares from 0 to 1 for the five-hour and seven-day windows) but not seen
-  on a real turn yet, because no Claude login was at hand: to confirm when Claude is connected.
+- **Claude's windows.** Codex and Claude Code both report their windows on a real turn and the app shows them. Claude only
+  reports them during a turn, so they are as fresh as the last turn.
+- **Asana limits.** Only the first 100 open tasks are read, and a mention is found only on a task assigned to you (finding
+  it elsewhere takes the search of a paid Asana plan).
 - **Credentials for writing.** The GitLab token needs a write scope, and pushing needs git credentials on your computer. Asana
   and Slite tokens need write rights. Today they are read-only tokens.
 - **What a plan covers.** The plan fixes scopes and kinds of action, and the writing AI chooses the steps. The exact boundary

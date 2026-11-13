@@ -44,7 +44,8 @@ type Settings struct {
 	Language string `json:"language"`
 	// UILanguage is the language of the whole app: "fr" (default) or "en".
 	UILanguage string `json:"uiLanguage"`
-	// AutoApprove is "off" (always ask) or "own-notes" (apply a change proposed from a note to oneself).
+	// AutoApprove is "off" (always ask), "own-notes" (apply a change proposed from a note to oneself) or "all" (apply every
+	// proposed change without asking, whoever asked for it).
 	AutoApprove string `json:"autoApprove"`
 	// Keywords are words that make a Slack message a request wherever it is posted.
 	Keywords []string `json:"keywords"`

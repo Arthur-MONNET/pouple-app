@@ -272,6 +272,8 @@ struct BubbleCard: View {
         switch request.source.origin {
         case .poupleAction: return "bolt.fill"
         case .pipeline: return "gearshape.2"
+        case .asana: return "checklist"
+        case .mergeRequest: return "arrow.triangle.merge"
         case .noteToSelf: return "note.text"
         case .directMessage: return "envelope"
         case .groupMessage: return "person.2"

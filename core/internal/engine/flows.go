@@ -69,8 +69,8 @@ func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []st
 }
 
 func (s *Service) previousInConversation(request Stored) []Stored {
-	// Pipelines of different projects share one group but are not one conversation.
-	if request.Source.Origin == OriginPipeline {
+	// Events of different projects share one group but are not one conversation.
+	if IsEvent(request.Source.Origin) {
 		return nil
 	}
 	var previous []Stored
@@ -314,8 +314,9 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 		// They asked for it themselves, in writing: the approval step would only repeat their request. Never when other
 		// people's text (their tasks, notes, merge requests) or the web went into the analysis: a person must read it.
 		request, _ := s.deps.Store.Get(id)
-		auto := s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() &&
-			request.Source.Origin == "note-to-self" && !request.ServicesUsed && !request.WebUsed
+		auto := s.deps.AutoApproveAll != nil && s.deps.AutoApproveAll()
+		auto = auto || (s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() &&
+			request.Source.Origin == "note-to-self" && !request.ServicesUsed && !request.WebUsed)
 		write := s.update
 		if auto {
 			// No question is put to the user, so the work stays silent until the change is made.

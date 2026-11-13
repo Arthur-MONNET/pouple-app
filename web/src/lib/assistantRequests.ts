@@ -37,7 +37,7 @@ export const headlineOf = (text: string): string => text.split('\n', 1)[0]?.trim
 /** "Demande de Morgan dans #front", "Note à moi-même"… */
 export function requestTitle(request: Pick<AssistantRequest, 'source' | 'text'>): string {
   const { source } = request;
-  if (source.origin === 'pipeline') return headlineOf(request.text);
+  if (source.origin === 'pipeline' || source.origin === 'asana' || source.origin === 'merge-request') return headlineOf(request.text);
   return t(`title.${source.origin}`, { name: source.senderName, channel: source.channelName ?? source.channelId });
 }
 

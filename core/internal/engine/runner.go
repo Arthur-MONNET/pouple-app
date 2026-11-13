@@ -43,6 +43,9 @@ type Turn struct {
 	// Web lets the turn search the web and read public pages; only analysis turns the user allowed it for.
 	Web     bool
 	OnEvent func(Event)
+	// OnUsage is called as soon as the AI reports what it used (tokens) or its usage windows, not at the end of the
+	// turn: the meter, and the screens that show it, follow the turn as it goes.
+	OnUsage func(Tokens, *Limits)
 }
 
 // TurnResult is what a turn produced.
@@ -320,6 +323,9 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 			failure = parsed.failure
 		}
 		result.Tokens = result.Tokens.Add(parsed.tokens)
+		if turn.OnUsage != nil && !parsed.tokens.IsZero() {
+			turn.OnUsage(parsed.tokens, codexLimits(r.opts.Home, result.ThreadID, time.Now()))
+		}
 		return nil
 	})
 	if err != nil {
@@ -329,5 +335,9 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		return TurnResult{}, err
 	}
 	result.Limits = codexLimits(r.opts.Home, result.ThreadID, time.Now())
+	// The session file may not have held the windows yet when the tokens came: what it holds now completes them.
+	if turn.OnUsage != nil && result.Limits != nil {
+		turn.OnUsage(Tokens{}, result.Limits)
+	}
 	return result, nil
 }

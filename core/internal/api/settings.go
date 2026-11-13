@@ -158,8 +158,8 @@ func validate(lang i18n.Lang, poll, limit *int, root, autoApprove, uiLanguage *s
 		return i18n.T(lang, "The daily limit cannot be negative (0 means no limit)")
 	case uiLanguage != nil && *uiLanguage != "fr" && *uiLanguage != "en":
 		return i18n.T(lang, `The interface language must be "fr" or "en"`)
-	case autoApprove != nil && *autoApprove != "off" && *autoApprove != "own-notes":
-		return i18n.T(lang, `Automatic approval must be "off" or "own-notes"`)
+	case autoApprove != nil && *autoApprove != "off" && *autoApprove != "own-notes" && *autoApprove != "all":
+		return i18n.T(lang, `Automatic approval must be "off", "own-notes" or "all"`)
 	case root != nil && strings.TrimSpace(*root) != "":
 		path := strings.TrimSpace(*root)
 		if info, err := os.Stat(path); err != nil || !info.IsDir() {

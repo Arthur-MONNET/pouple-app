@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
@@ -50,9 +51,28 @@ type TaskDetails struct {
 
 // Comment is something a person wrote on a task.
 type Comment struct {
+	GID       string
 	Author    string
+	AuthorGID string
 	Text      string
 	CreatedAt string
+	// Mentions are the ids of the users the comment mentions.
+	Mentions []string
+}
+
+// mention is how Asana writes a mentioned user in the rich text of a comment.
+var mention = regexp.MustCompile(`data-asana-gid="(\d{5,25})"`)
+
+// mentionsIn lists the users a comment's rich text mentions, each once. Mentioned objects other than users (a task, a
+// project) are written the same way: the caller compares with a user's id, so they never match.
+func mentionsIn(html string) []string {
+	var ids []string
+	for _, match := range mention.FindAllStringSubmatch(html, -1) {
+		if !slices.Contains(ids, match[1]) {
+			ids = append(ids, match[1])
+		}
+	}
+	return ids
 }
 
 func validTask(gid string) error {
@@ -91,15 +111,18 @@ func (c *Client) Comments(ctx context.Context, gid string, limit int) ([]Comment
 	}
 	var payload struct {
 		Data []struct {
+			GID       string `json:"gid"`
 			Text      string `json:"text"`
+			HTMLText  string `json:"html_text"`
 			CreatedAt string `json:"created_at"`
 			Subtype   string `json:"resource_subtype"`
 			CreatedBy *struct {
+				GID  string `json:"gid"`
 				Name string `json:"name"`
 			} `json:"created_by"`
 		} `json:"data"`
 	}
-	query := url.Values{"opt_fields": {"text,created_at,resource_subtype,created_by.name"}, "limit": {"100"}}
+	query := url.Values{"opt_fields": {"text,html_text,created_at,resource_subtype,created_by.name"}, "limit": {"100"}}
 	if err := c.get(ctx, "/tasks/"+url.PathEscape(gid)+"/stories", query, &payload); err != nil {
 		return nil, err
 	}
@@ -108,9 +131,9 @@ func (c *Client) Comments(ctx context.Context, gid string, limit int) ([]Comment
 		if story.Subtype != "comment_added" || strings.TrimSpace(story.Text) == "" {
 			continue
 		}
-		comment := Comment{Text: story.Text, CreatedAt: story.CreatedAt}
+		comment := Comment{GID: story.GID, Text: story.Text, CreatedAt: story.CreatedAt, Mentions: mentionsIn(story.HTMLText)}
 		if story.CreatedBy != nil {
-			comment.Author = story.CreatedBy.Name
+			comment.Author, comment.AuthorGID = story.CreatedBy.Name, story.CreatedBy.GID
 		}
 		comments = append(comments, comment)
 	}

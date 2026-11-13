@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
@@ -36,6 +37,25 @@ type UsageMeter struct {
 	// tokens are by day, then by AI.
 	tokens map[string]map[providers.ID]Tokens
 	limits map[providers.ID]Limits
+	// onChange is told after each change, so the screens showing the usage follow it without waiting for something else.
+	onChange func()
+}
+
+// SetOnChange registers what to call whenever the counts change. It is called outside the meter's lock.
+func (m *UsageMeter) SetOnChange(onChange func()) {
+	m.mu.Lock()
+	m.onChange = onChange
+	m.mu.Unlock()
+}
+
+// notify tells the listener; the caller must not hold the lock.
+func (m *UsageMeter) notify() {
+	m.mu.Lock()
+	onChange := m.onChange
+	m.mu.Unlock()
+	if onChange != nil {
+		onChange()
+	}
 }
 
 const keptDays = 14
@@ -87,11 +107,13 @@ type usageFile struct {
 // Record counts one more turn and returns today's total.
 func (m *UsageMeter) Record() (int, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	today := m.day()
 	m.days[today]++
 	forgetOld(m.days)
-	return m.days[today], m.save()
+	total, err := m.days[today], m.save()
+	m.mu.Unlock()
+	m.notify()
+	return total, err
 }
 
 // TokensToday are what each AI used today.
@@ -125,7 +147,13 @@ func (m *UsageMeter) Observe(provider providers.ID, result TurnResult) error {
 		return nil
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	err := m.observeLocked(provider, result)
+	m.mu.Unlock()
+	m.notify()
+	return err
+}
+
+func (m *UsageMeter) observeLocked(provider providers.ID, result TurnResult) error {
 	if !result.Tokens.IsZero() {
 		today := m.day()
 		if m.tokens[today] == nil {
@@ -196,8 +224,16 @@ func (m *Metered) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 			m.OnThreshold("warning", used, limit)
 		}
 	}
+	// What the AI reports is kept as it comes, so the usage follows the turn; a failed turn keeps what it had reported.
+	var reported atomic.Bool
+	turn.OnUsage = func(tokens Tokens, limits *Limits) {
+		reported.Store(true)
+		_ = m.Meter.Observe(m.Provider, TurnResult{Tokens: tokens, Limits: limits})
+	}
 	result, err := m.Inner.Run(ctx, turn)
-	// What the AI reported is kept; a failed turn reports nothing (its runner returns an empty result).
-	_ = m.Meter.Observe(m.Provider, result)
+	// A provider that did not report as it went (a fake, or an AI without a live report) is counted from its result.
+	if !reported.Load() {
+		_ = m.Meter.Observe(m.Provider, result)
+	}
 	return result, err
 }

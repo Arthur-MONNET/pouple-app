@@ -124,7 +124,11 @@ export type RequestOrigin =
   | 'thread-reply'
   | 'channel-message'
   /** A GitLab pipeline of the user finished: nobody wrote, the text is what GitLab reports. */
-  | 'pipeline';
+  | 'pipeline'
+  /** Something happened on a task of the user in Asana (assigned, mentioned): the text is what Asana reports. */
+  | 'asana'
+  /** A reviewer wrote on a merge request of the user: the text is what GitLab reports. */
+  | 'merge-request';
 
 export interface RequestSource {
   origin: RequestOrigin;
@@ -288,7 +292,7 @@ export type ProposalDecision = 'approve' | 'decline';
 
 export type UiLanguage = 'fr' | 'en';
 
-export type AutoApprove = 'off' | 'own-notes';
+export type AutoApprove = 'off' | 'own-notes' | 'all';
 
 /** Which finished GitLab pipelines of the user become conversations. */
 export type PipelineMode = 'all' | 'failures' | 'off';

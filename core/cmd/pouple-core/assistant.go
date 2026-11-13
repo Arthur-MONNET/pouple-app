@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/asanawatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
@@ -53,6 +54,12 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 	// turn, so a change applies to the very next turn.
 	limit := func() int { return load().DailyTurnLimit }
 	codexHome := filepath.Join(dir, "codex")
+	// A Codex installed by an earlier Pouple lacks the helper its shell tool needs: without it the AI reads no file.
+	go func() {
+		if err := codex.EnsureHost(context.Background(), codexHome); err != nil {
+			logf("codex helper not installed: %v", err)
+		}
+	}()
 	claudeHome := filepath.Join(dir, "claude")
 	aiProviders := map[providers.ID]engine.Provider{
 		providers.Codex: &engine.Metered{
@@ -79,7 +86,9 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 
 	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
-		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }), Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
+		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
+		Events:    []engine.EventSource{asanawatch.New(registry)},
+		Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
 		Services:     gatherer.Gather,
@@ -118,6 +127,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		},
 		Inactive:            func() string { return inactiveReason(registry, language()) },
 		AutoApproveOwnNotes: func() bool { return load().AutoApprove == "own-notes" },
+		AutoApproveAll:      func() bool { return load().AutoApprove == "all" },
 		Connected:           func(id providers.ID) bool { return load().Connected(string(id)) },
 		UseProvider: func(id providers.ID) error {
 			_, err := settings.Update(func(current *config.Settings) { current.Provider = string(id) })
@@ -126,6 +136,8 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		SettleDelay: 3 * time.Second,
 		OnError:     func(err error) { logf("assistant: %v", err) },
 	})
+	// The usage shown on screen follows the AIs as they report it, not the next time something else changes.
+	meter.SetOnChange(service.UsageChanged)
 	return service, attachments, nil
 }
 

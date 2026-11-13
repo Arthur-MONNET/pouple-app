@@ -19,8 +19,10 @@ type state struct {
 	Cursor *Cursor `json:"cursor"`
 	// PipelineCursor is what the pipeline source remembers between two polls; apart from Cursor so that neither
 	// source can lose the other's place.
-	PipelineCursor *Cursor  `json:"pipelineCursor,omitempty"`
-	Requests       []Stored `json:"requests"`
+	PipelineCursor *Cursor `json:"pipelineCursor,omitempty"`
+	// EventCursors are what the other event sources remember between two polls, by source name.
+	EventCursors map[string]*Cursor `json:"eventCursors,omitempty"`
+	Requests     []Stored           `json:"requests"`
 }
 
 // Store keeps the conversations in memory and on disk. Writes are coalesced and happen in the background; Flush
@@ -166,6 +168,28 @@ func (s *Store) PipelineCursor() *Cursor {
 func (s *Store) SetPipelineCursor(c Cursor) {
 	s.mu.Lock()
 	s.state.PipelineCursor = &c
+	s.changed()
+}
+
+// EventCursor is what an event source remembered at its last poll; nil before its first look.
+func (s *Store) EventCursor(source string) *Cursor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stored := s.state.EventCursors[source]
+	if stored == nil {
+		return nil
+	}
+	c := *stored
+	c.Seen = append([]string(nil), c.Seen...)
+	return &c
+}
+
+func (s *Store) SetEventCursor(source string, c Cursor) {
+	s.mu.Lock()
+	if s.state.EventCursors == nil {
+		s.state.EventCursors = map[string]*Cursor{}
+	}
+	s.state.EventCursors[source] = &c
 	s.changed()
 }
 
