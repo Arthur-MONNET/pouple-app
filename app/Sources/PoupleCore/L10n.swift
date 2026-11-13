@@ -38,6 +38,7 @@ public enum L10n {
         case activityOne, activityOther
         case handleName, handleWorking, handleOverflow, handleDrag, handleOffline
         case replyPlaceholder, replySend, wizardOther, wizardBack, wizardNext, wizardSend, wizardSeveral
+        case attachmentTooMany, attachmentTooLarge, attachmentEmpty, attachmentUnsupported, attachmentDropHint, attachmentRemove
         // Titles of requests
         case titleNoteToSelf, titleDirect, titleGroup, titleBroadcast, titleKeyword, titleThread, titleChannel, titleAction
         // Relative time
@@ -213,6 +214,12 @@ public enum L10n {
         .wizardNext: "Suivant",
         .wizardSend: "Envoyer",
         .wizardSeveral: "Un ou plusieurs choix",
+        .attachmentTooMany: "%d fichiers au maximum par message",
+        .attachmentTooLarge: "%@ dépasse 8 Mo",
+        .attachmentEmpty: "%@ est vide",
+        .attachmentUnsupported: "%@ : seuls les images et les fichiers texte peuvent être ajoutés",
+        .attachmentDropHint: "Dépose pour ajouter à cette conversation",
+        .attachmentRemove: "Retirer %@",
         .titleNoteToSelf: "Note à toi-même",
         .titleDirect: "%@ · message direct",
         .titleGroup: "%@ · discussion de groupe",
@@ -346,6 +353,12 @@ public enum L10n {
         .wizardNext: "Next",
         .wizardSend: "Send",
         .wizardSeveral: "Pick one or more",
+        .attachmentTooMany: "At most %d files per message",
+        .attachmentTooLarge: "%@ is larger than 8 MB",
+        .attachmentEmpty: "%@ is empty",
+        .attachmentUnsupported: "%@: only images and text files can be added",
+        .attachmentDropHint: "Drop to add to this conversation",
+        .attachmentRemove: "Remove %@",
         .titleNoteToSelf: "Note to self",
         .titleDirect: "%@ · direct message",
         .titleGroup: "%@ · group chat",

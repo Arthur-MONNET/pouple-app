@@ -7,6 +7,10 @@ struct BubbleCard: View {
     @ObservedObject private var language = LanguageModel.shared
     let item: BubbleItem
     let expanded: Bool
+    /// The files dropped on this bubble, waiting for the next message.
+    @StateObject private var draft = AttachmentDraft()
+    /// A file is being dragged over the card.
+    @State private var dropTargeted = false
 
     private var request: AssistantRequest { item.request }
     private var busy: Bool { store.busy.contains(request.id) }
@@ -29,6 +33,17 @@ struct BubbleCard: View {
             .onHover { store.setHover(request.id, $0) }
     }
 
+    /// Files can be dropped on an open bubble that can be written to: not on a one-line one, nor while the work runs.
+    private var acceptsFiles: Bool { expanded && item.kind != .working }
+
+    private var dropHint: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.card.opacity(0.85)))
+            .overlay(Text(L10n.text(.attachmentDropHint)).font(.system(size: 13, weight: .medium)))
+            .allowsHitTesting(false)
+    }
+
     /// One solid surface in the app's background color: the state is told by the dot and the word, not by a border.
     private func card(withMascot: Bool) -> some View {
         Group {
@@ -37,6 +52,12 @@ struct BubbleCard: View {
         .frame(width: Theme.cardWidth, alignment: .leading)
         // Anywhere on the card that is not a control moves the panel: the drag area sits under the content.
         .background { if !store.previewing { WindowDragArea() } }
+        .overlay { if dropTargeted && acceptsFiles { dropHint } }
+        .takingFiles(acceptsFiles && !store.previewing, isTargeted: $dropTargeted) { providers in
+            AttachmentDraft.fileURLs(of: providers) { urls in
+                draft.add(urls, upload: store.uploader(for: request))
+            }
+        }
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.card))
         // A hairline only, so the card still lifts off a dark wallpaper.
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
@@ -71,7 +92,7 @@ struct BubbleCard: View {
             // While the assistant works, the steps are the content, and there is nothing to write to it yet.
             if item.kind != .working {
                 if !steps.isEmpty { ActivityLog(steps: steps) }
-                ReplyField(busy: busy) { store.send(request, $0) }
+                ReplyField(busy: busy, draft: draft) { store.send(request, $0, attachmentIds: $1) }
             }
             if let error = store.errors[request.id] {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Theme.fail).fixedSize(horizontal: false, vertical: true)

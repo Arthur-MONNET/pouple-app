@@ -159,8 +159,16 @@ final class BubbleStore: ObservableObject {
         perform(request.id) { api in try await api.decideProposal(requestId: request.id, approve: approve) }
     }
 
-    func send(_ request: AssistantRequest, _ text: String) {
-        perform(request.id) { api in try await api.message(requestId: request.id, text: text) }
+    func send(_ request: AssistantRequest, _ text: String, attachmentIds: [String] = []) {
+        perform(request.id) { api in try await api.message(requestId: request.id, text: text, attachmentIds: attachmentIds) }
+    }
+
+    /// Uploads a file to the core for the next message of a request; nil api means no core to talk to.
+    func uploader(for request: AssistantRequest) -> (String, Data) async throws -> AttachmentRef {
+        { [weak self] name, data in
+            guard let api = self?.api else { throw PoupleAPIError.invalidResponse }
+            return try await api.uploadAttachment(requestId: request.id, name: name, data: data)
+        }
     }
 
     func retry(_ request: AssistantRequest) {

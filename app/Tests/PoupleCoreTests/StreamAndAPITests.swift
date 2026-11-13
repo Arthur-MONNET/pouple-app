@@ -67,6 +67,46 @@ final class PoupleAPITests: XCTestCase {
         XCTAssertNil(answer?["optionId"])
     }
 
+    func testAFileIsUploadedAsRawBytesWithItsNameInTheQuery() async throws {
+        var seen: (String?, String?, String?, Data)?
+        StubProtocol.handler = { request in
+            seen = (request.httpMethod, request.url?.path, request.url?.query, request.bodyData)
+            return (201, Data(#"{"id":"0123456789abcdef01234567","name":"capture.png","mime":"image/png","size":4,"kind":"image"}"#.utf8))
+        }
+        let ref = try await api().uploadAttachment(requestId: "r1", name: "capture 1.png", data: Data([1, 2, 3, 4]))
+        XCTAssertEqual(seen?.0, "POST")
+        XCTAssertEqual(seen?.1, "/api/assistant/requests/r1/attachments")
+        XCTAssertEqual(seen?.2, "name=capture%201.png")
+        XCTAssertEqual(seen?.3, Data([1, 2, 3, 4]))
+        XCTAssertEqual(ref.id, "0123456789abcdef01234567")
+        XCTAssertTrue(ref.isImage)
+    }
+
+    func testARefusedUploadReportsTheCoresReason() async {
+        StubProtocol.handler = { _ in (400, Data(#"{"error":"The file is larger than 10 MB"}"#.utf8)) }
+        do {
+            _ = try await api().uploadAttachment(requestId: "r1", name: "big.png", data: Data([1]))
+            XCTFail("a refused upload went through")
+        } catch let PoupleAPIError.http(status, message) {
+            XCTAssertEqual(status, 400)
+            XCTAssertEqual(message, "The file is larger than 10 MB")
+        } catch {
+            XCTFail("\(error)")
+        }
+    }
+
+    func testAMessageNamesItsFilesAndOnlyWhenItHasSome() async throws {
+        var bodies: [[String: Any]] = []
+        StubProtocol.handler = { request in
+            bodies.append((try? JSONSerialization.jsonObject(with: request.bodyData)) as? [String: Any] ?? [:])
+            return (202, Data())
+        }
+        try await api().message(requestId: "r1", text: "look", attachmentIds: ["a", "b"])
+        try await api().message(requestId: "r1", text: "just text")
+        XCTAssertEqual(bodies[0]["attachmentIds"] as? [String], ["a", "b"])
+        XCTAssertNil(bodies[1]["attachmentIds"])
+    }
+
     func testClosingABubbleTellsTheCoreWhichStateWasClosed() async throws {
         var seen: (String?, String?, [String: Any])?
         StubProtocol.handler = { request in

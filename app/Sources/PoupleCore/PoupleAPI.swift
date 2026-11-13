@@ -95,8 +95,30 @@ public struct PoupleAPI: Sendable {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/proposal", body: ["decision": approve ? "approve" : "decline"])
     }
 
-    public func message(requestId: String, text: String) async throws {
-        _ = try await send("POST", "/api/assistant/requests/\(requestId)/messages", body: ["text": text])
+    public func message(requestId: String, text: String, attachmentIds: [String] = []) async throws {
+        var body: [String: Any] = ["text": text]
+        if !attachmentIds.isEmpty { body["attachmentIds"] = attachmentIds }
+        _ = try await send("POST", "/api/assistant/requests/\(requestId)/messages", body: body)
+    }
+
+    /// Stores a file in the core, to be sent with the next message of the request.
+    public func uploadAttachment(requestId: String, name: String, data: Data) async throws -> AttachmentRef {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/assistant/requests/\(requestId)/attachments"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = components?.url else { throw PoupleAPIError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("Bearer \(connection.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        let (body, response) = try await session.upload(for: request, from: data)
+        guard let http = response as? HTTPURLResponse else { throw PoupleAPIError.invalidResponse }
+        guard (200 ..< 300).contains(http.statusCode) else {
+            let message = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
+            throw PoupleAPIError.http(status: http.statusCode, message: message ?? "")
+        }
+        guard let ref = try? JSONDecoder().decode(AttachmentRef.self, from: body) else { throw PoupleAPIError.invalidResponse }
+        return ref
     }
 
     public func ignore(requestId: String) async throws {
