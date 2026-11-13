@@ -308,6 +308,13 @@ type claudeEvent struct {
 	Attempt          int             `json:"attempt"`
 	ErrorStatus      *int            `json:"error_status"`
 	ToolName         string          `json:"tool_name"`
+	RateLimitInfo    json.RawMessage `json:"rate_limit_info"`
+	Usage            struct {
+		InputTokens              int64 `json:"input_tokens"`
+		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+		OutputTokens             int64 `json:"output_tokens"`
+	} `json:"usage"`
 }
 
 type claudeBlock struct {
@@ -348,6 +355,21 @@ func (c *claudeStream) read(raw string) error {
 	case "result":
 		c.session(event.SessionID)
 		c.finished(event)
+		// Claude counts the cached tokens apart from the input ones: both are read.
+		usage := event.Usage
+		c.result.Tokens = c.result.Tokens.Add(Tokens{
+			Input:  usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens,
+			Cached: usage.CacheReadInputTokens,
+			Output: usage.OutputTokens,
+		})
+	case "rate_limit_event":
+		if limits := claudeLimits(event.RateLimitInfo, time.Now()); limits != nil {
+			merged := limits
+			if c.result.Limits != nil {
+				merged = ptr(c.result.Limits.Merge(*limits))
+			}
+			c.result.Limits = merged
+		}
 	}
 	return nil
 }

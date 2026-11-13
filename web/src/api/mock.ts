@@ -90,7 +90,12 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       problem: options.view === 'paused' ? text().paused : null,
       lastPollAt: nowIso(),
       notices: [],
-      usage: { today: 7, limit: 40 },
+      usage: {
+        today: 7,
+        limit: 40,
+        tokensToday: { input: 412_000, cached: 351_000, output: 9_800 },
+        limits: { codex: { fiveHour: { usedPercent: 9, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString() }, week: { usedPercent: 82, resetsAt: new Date(Date.now() + 2 * 86400_000).toISOString() }, seenAt: nowIso() } },
+      },
     },
     requests: structuredClone(requests),
   });

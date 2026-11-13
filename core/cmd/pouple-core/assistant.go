@@ -61,7 +61,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 				Home:           codexHome,
 				ResolveCommand: func() string { return codex.Command(codexHome) },
 			}),
-			Meter: meter, Limit: limit,
+			Provider: providers.Codex, Meter: meter, Limit: limit,
 		},
 		providers.Claude: &engine.Metered{
 			Inner: engine.NewClaudeRunner(engine.ClaudeOptions{
@@ -71,7 +71,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 				// the projects folder happens to contain it.
 				ProtectedDirs: []string{dir},
 			}),
-			Meter: meter, Limit: limit,
+			Provider: providers.Claude, Meter: meter, Limit: limit,
 		},
 	}
 	projectsRoot := func() string { return load().ProjectsRoot }
@@ -110,7 +110,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 			return engine.NewRedactor(secrets...)
 		},
 		Usage: func() engine.Usage {
-			usage := engine.Usage{Today: meter.Today()}
+			usage := engine.Usage{Today: meter.Today(), TokensToday: meter.TokensToday(), Limits: meter.Limits()}
 			if limit := load().DailyTurnLimit; limit > 0 {
 				usage.Limit = &limit
 			}

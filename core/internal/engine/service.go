@@ -696,6 +696,16 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	if trackThread && result.ThreadID != "" {
 		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = result.ThreadID, selection.Provider })
 	}
+	if !result.Tokens.IsZero() {
+		// Counting is not activity: the time the request was last updated stays.
+		s.deps.Store.Update(id, func(r *Stored) {
+			total := result.Tokens
+			if r.Tokens != nil {
+				total = r.Tokens.Add(result.Tokens)
+			}
+			r.Tokens = &total
+		})
+	}
 	return result, selection.Provider, nil
 }
 

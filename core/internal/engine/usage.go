@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 // QuotaError is returned when the day's limit of turns is used up.
@@ -25,12 +26,15 @@ func (e *QuotaError) ErrorText(lang i18n.Lang) string {
 }
 
 // UsageMeter counts the turns of the day, whichever AI runs them. Each turn costs quota whether or not it succeeds, so it is counted
-// when it starts. Counts are kept for two weeks in a small file.
+// when it starts. It also adds up the tokens of each day and keeps each AI's last reported usage windows. Counts are
+// kept for two weeks in a small file.
 type UsageMeter struct {
-	path string
-	now  func() time.Time
-	mu   sync.Mutex
-	days map[string]int
+	path   string
+	now    func() time.Time
+	mu     sync.Mutex
+	days   map[string]int
+	tokens map[string]Tokens
+	limits map[providers.ID]Limits
 }
 
 const keptDays = 14
@@ -39,7 +43,7 @@ func NewUsageMeter(path string, now func() time.Time) (*UsageMeter, error) {
 	if now == nil {
 		now = time.Now
 	}
-	meter := &UsageMeter{path: path, now: now, days: map[string]int{}}
+	meter := &UsageMeter{path: path, now: now, days: map[string]int{}, tokens: map[string]Tokens{}, limits: map[providers.ID]Limits{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return meter, nil
@@ -47,11 +51,17 @@ func NewUsageMeter(path string, now func() time.Time) (*UsageMeter, error) {
 	if err != nil {
 		return nil, err
 	}
-	var file struct {
-		Days map[string]int `json:"days"`
-	}
-	if json.Unmarshal(data, &file) == nil && file.Days != nil {
-		meter.days = file.Days
+	var file usageFile
+	if json.Unmarshal(data, &file) == nil {
+		if file.Days != nil {
+			meter.days = file.Days
+		}
+		if file.Tokens != nil {
+			meter.tokens = file.Tokens
+		}
+		if file.Limits != nil {
+			meter.limits = file.Limits
+		}
 	}
 	return meter, nil
 }
@@ -65,27 +75,79 @@ func (m *UsageMeter) Today() int {
 	return m.days[m.day()]
 }
 
+// usageFile is the meter on disk. Files written before tokens and windows were kept hold days only.
+type usageFile struct {
+	Days   map[string]int          `json:"days"`
+	Tokens map[string]Tokens       `json:"tokens,omitempty"`
+	Limits map[providers.ID]Limits `json:"limits,omitempty"`
+}
+
 // Record counts one more turn and returns today's total.
 func (m *UsageMeter) Record() (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	today := m.day()
 	m.days[today]++
-	if len(m.days) > keptDays {
-		keys := make([]string, 0, len(m.days))
-		for key := range m.days {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys[:len(keys)-keptDays] {
-			delete(m.days, key)
-		}
-	}
+	forgetOld(m.days)
 	return m.days[today], m.save()
 }
 
+// TokensToday are what the AIs used today.
+func (m *UsageMeter) TokensToday() Tokens {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tokens[m.day()]
+}
+
+// Limits are each AI's usage windows that still hold: a window that started again since it was reported is left out.
+func (m *UsageMeter) Limits() map[providers.ID]Limits {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	out := map[providers.ID]Limits{}
+	for provider, limits := range m.limits {
+		if current := limits.Current(now); current.FiveHour != nil || current.Week != nil {
+			out[provider] = current
+		}
+	}
+	return out
+}
+
+// Observe adds what a turn of an AI used, and keeps the usage windows it reported.
+func (m *UsageMeter) Observe(provider providers.ID, result TurnResult) error {
+	if result.Tokens.IsZero() && result.Limits == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !result.Tokens.IsZero() {
+		today := m.day()
+		m.tokens[today] = m.tokens[today].Add(result.Tokens)
+		forgetOld(m.tokens)
+	}
+	if result.Limits != nil {
+		m.limits[provider] = m.limits[provider].Merge(*result.Limits)
+	}
+	return m.save()
+}
+
+// forgetOld keeps the last keptDays days of a count.
+func forgetOld[T any](days map[string]T) {
+	if len(days) <= keptDays {
+		return
+	}
+	keys := make([]string, 0, len(days))
+	for key := range days {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys[:len(keys)-keptDays] {
+		delete(days, key)
+	}
+}
+
 func (m *UsageMeter) save() error {
-	data, err := json.Marshal(map[string]any{"days": m.days})
+	data, err := json.Marshal(usageFile{Days: m.days, Tokens: m.tokens, Limits: m.limits})
 	if err != nil {
 		return err
 	}
@@ -99,10 +161,12 @@ func (m *UsageMeter) save() error {
 	return os.Rename(temporary, m.path)
 }
 
-// Metered wraps a Provider so every turn is counted and refused once the day's limit is used.
+// Metered wraps a Provider so every turn is counted and refused once the day's limit is used, and what it used is kept.
 type Metered struct {
 	Inner Provider
-	Meter *UsageMeter
+	// Provider names the AI, for the usage windows it reports.
+	Provider providers.ID
+	Meter    *UsageMeter
 	// Limit returns the turns allowed per day; 0 or less means no limit.
 	Limit func() int
 	// OnThreshold is called once a day at 80 % of the limit, and once when it is all used.
@@ -123,5 +187,8 @@ func (m *Metered) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 			m.OnThreshold("warning", used, limit)
 		}
 	}
-	return m.Inner.Run(ctx, turn)
+	result, err := m.Inner.Run(ctx, turn)
+	// What the AI reported is kept; a failed turn reports nothing (its runner returns an empty result).
+	_ = m.Meter.Observe(m.Provider, result)
+	return result, err
 }

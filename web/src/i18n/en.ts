@@ -309,6 +309,13 @@ export const en: MessageTree = {
     usageLimit: 'Codex today: {today} / {limit}',
     usageTitle: 'Codex turns used today (no limit)',
     usageTitleLimit: 'Codex turns used today, out of the daily limit',
+    tokensToday: '{tokens} tokens today',
+    tokensTitle: 'Tokens the AIs used today for Pouple: {input} read (of which {cached} from the cache), {output} written',
+    limitsLabel: 'Usage windows of the AIs',
+    fiveHour: '5 h',
+    week: 'week',
+    windowTitle: '{name}: {used} of the {window} window used, starts again {when}',
+    windowTitleNoReset: '{name}: {used} of the {window} window used',
   },
   groups: {
     notes: "Notes to self",
@@ -324,6 +331,7 @@ export const en: MessageTree = {
     emptyDone: 'Nothing finished yet.',
   },
   chat: {
+    tokens: '{tokens} tokens',
     openInSlack: 'Open in Slack',
     didLabel: 'What the assistant did',
     working: 'Eight arms on it.',

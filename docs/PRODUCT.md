@@ -103,7 +103,8 @@ language of the request. It is stored on your computer only. You copy it and sen
 There is no limit on how much Pouple reads per request. Instead, usage is shown: tokens used, and the share used of the
 current 5-hour window and of the current week.
 
-What the Codex and Claude Code CLIs expose for this is not verified yet (see [Open points](#open-points)).
+The window lists the tokens of the day and each AI's windows; the menu bar menu repeats them, and each conversation shows
+the tokens it used. A window that started again since the AI reported it is no longer shown.
 
 ## Privacy
 
@@ -117,7 +118,6 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 | Writing in services | Read-only. A comment is possible only on a request you made yourself. | Writes in Asana, Slite and GitLab inside the approved scope. |
 | Sources | Slack and finished GitLab pipelines. | Plus Asana (assigned or mentioned) and feedback on your merge requests. |
 | Reading | A fixed number of lookup rounds. | No limit. |
-| Usage | A daily count of turns. | Tokens, and the share of the 5-hour window and of the week. |
 | Replies | A neutral, short suggested text. | Written in your learned style. |
 | Thread updates | Not followed. | Taken into account silently. |
 
@@ -125,8 +125,9 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 
 These are not decided or not verified. None of them changes the decisions above, but each needs an answer before it is built.
 
-- **Quotas.** Whether Codex and Claude Code expose the 5-hour window, the weekly window and token counts in a form Pouple can
-  read, and how. This is to be checked against the installed CLIs, not assumed.
+- **Claude's windows.** Codex was checked on a real turn: its tokens and its two windows are read. Claude Code's
+  `rate_limit_event` was read from the CLI itself (shares from 0 to 1 for the five-hour and seven-day windows) but not seen
+  on a real turn yet, because no Claude login was at hand: to confirm when Claude is connected.
 - **Credentials for writing.** The GitLab token needs a write scope, and pushing needs git credentials on your computer. Asana
   and Slite tokens need write rights. Today they are read-only tokens.
 - **What a plan covers.** The plan fixes scopes and kinds of action, and the writing AI chooses the steps. The exact boundary

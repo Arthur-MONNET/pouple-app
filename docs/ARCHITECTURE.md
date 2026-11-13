@@ -135,6 +135,17 @@ The engine does not know Codex: it knows a `Provider` (`Run(ctx, Turn) (TurnResu
 it (`engine.Runner` for Codex, `engine.ClaudeRunner` for Claude) and are wrapped by the same `Metered` wrapper, so
 the daily quota counts the turns of whichever AI runs them.
 
+- **Usage**: a turn returns the tokens it used (`TurnResult.Tokens`) and the AI's own usage windows when it reported
+  them (`TurnResult.Limits`: the current five hours and week, each with its share used and its reset time). Codex gives
+  its tokens in the `turn.completed` event of `codex exec --json`, and its windows only in its session file
+  (`CODEX_HOME/sessions/…/rollout-…-<thread>.jsonl`, the last `rate_limits` that holds a window, read from the end of the
+  file first): the windows are told apart by their length (300 and 10080 minutes), not by their place. Claude Code gives its tokens in the `result` event and its windows in
+  `rate_limit_event` (`rate_limit_info`, utilizations from 0 to 1; a value above 1 is taken as a percentage). `Metered` hands both to the `UsageMeter`, which adds
+  up the tokens of the day and keeps each AI's last windows in `usage.json`, and drops a window once its reset time is
+  past (or, without one, a whole window after it was reported); the interfaces drop it too when their snapshot is older.
+  A failed turn reports no tokens. Each conversation adds up its own tokens (`Request.tokens`), without counting it as activity. The snapshot's
+  `status.usage` carries `tokensToday` and `limits` by AI.
+
 - **Chosen at each turn**: `Deps.Selection` reads the settings (`provider`, `models`) when a turn starts, so a change
   applies to the very next turn without restarting anything. `provider` is empty (automatic) or `codex`/`claude`;
   automatic means the connected one, Codex when both are (`config.Settings.ActiveProvider`). `models` holds one model

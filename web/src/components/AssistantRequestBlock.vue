@@ -5,7 +5,8 @@ import { errorMessage } from '../api/client';
 import { useAssistantStore } from '../composables/assistantStore';
 import { t } from '../i18n';
 import { groupEntries, isWorking, requestTitle, statusLabel } from '../lib/assistantRequests';
-import { formatReceived } from '../lib/format';
+import { compactCount, formatReceived } from '../lib/format';
+import { totalTokens } from '../lib/usage';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AssistantQuestionCard from './AssistantQuestionCard.vue';
@@ -99,6 +100,7 @@ watch(
       >
         <span class="truncate font-medium text-ink">{{ title }}</span>
         <span class="shrink-0 text-ink-dim">· {{ formatReceived(request.receivedAt) }}</span>
+        <span v-if="request.tokens" class="shrink-0 text-ink-dim">· {{ $t('chat.tokens', { tokens: compactCount(totalTokens(request.tokens)) }) }}</span>
         <AppIcon v-if="request.source.permalink" name="external" size="sm" />
       </component>
       <hr class="flex-1 border-line-soft" />

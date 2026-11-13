@@ -52,6 +52,10 @@ type TurnResult struct {
 	Model string
 	// FinalMessage is the last agent message, empty when there was none.
 	FinalMessage string
+	// Tokens are what the turn used, as the CLI reported it.
+	Tokens Tokens
+	// Limits are the AI's own usage windows after the turn; nil when it did not report them.
+	Limits *Limits
 }
 
 // Provider runs turns for one AI (the Codex CLI or the Claude Code CLI). The interface lets the service be tested
@@ -181,6 +185,7 @@ type line struct {
 	events       []Event
 	failure      error
 	finalMessage string
+	tokens       Tokens
 }
 
 const maxStepChars = 400
@@ -211,7 +216,12 @@ func interpretLine(raw string, lang i18n.Lang) line {
 		Error    struct {
 			Message string `json:"message"`
 		} `json:"error"`
-		Item map[string]any `json:"item"`
+		Item  map[string]any `json:"item"`
+		Usage struct {
+			InputTokens       int64 `json:"input_tokens"`
+			CachedInputTokens int64 `json:"cached_input_tokens"`
+			OutputTokens      int64 `json:"output_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(raw), &event); err != nil {
 		return line{}
@@ -228,6 +238,9 @@ func interpretLine(raw string, lang i18n.Lang) line {
 		return line{failure: ClassifyFailure(event.Error.Message)}
 	case "item.completed":
 		return interpretItem(event.Item, lang)
+	case "turn.completed":
+		// Codex counts the cached tokens inside the input ones.
+		return line{tokens: Tokens{Input: event.Usage.InputTokens, Cached: event.Usage.CachedInputTokens, Output: event.Usage.OutputTokens}}
 	}
 	return line{}
 }
@@ -306,6 +319,7 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		if parsed.failure != nil {
 			failure = parsed.failure
 		}
+		result.Tokens = result.Tokens.Add(parsed.tokens)
 		return nil
 	})
 	if err != nil {
@@ -314,5 +328,6 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	if err := end.settle(spec, failure); err != nil {
 		return TurnResult{}, err
 	}
+	result.Limits = codexLimits(r.opts.Home, result.ThreadID, time.Now())
 	return result, nil
 }

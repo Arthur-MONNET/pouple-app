@@ -213,6 +213,12 @@ export interface AssistantRequest {
   error: string | null;
   /** A follow-up message can continue the Codex conversation of this request. */
   continuable?: boolean;
+  /** The request has reached the user; its work then shows in the bubble. */
+  engaged?: boolean;
+  /** The user closed its bubble. */
+  closed?: boolean;
+  /** What the AI used on this conversation; absent until it used any. */
+  tokens?: Tokens;
 }
 
 export interface AssistantStatusInfo {
@@ -223,8 +229,38 @@ export interface AssistantStatusInfo {
   lastPollAt: string | null;
   /** Parts of Slack that could not be watched; the rest keeps working. */
   notices: string[];
-  /** Codex turns started today, and the daily limit (null when there is none). */
-  usage: { today: number; limit: number | null };
+  /** AI turns started today, the daily limit (null when there is none), tokens and each AI's own usage windows. */
+  usage: Usage;
+}
+
+/** Tokens an AI used: input (cached ones included), cached, output. */
+export interface Tokens {
+  input: number;
+  cached: number;
+  output: number;
+}
+
+/** One usage window of an AI subscription, as the AI last reported it. */
+export interface UsageWindow {
+  /** From 0 to 100. */
+  usedPercent: number;
+  resetsAt?: string;
+}
+
+/** An AI's own usage windows: the current five hours and the current week. A window it did not report is absent. */
+export interface UsageLimits {
+  fiveHour?: UsageWindow;
+  week?: UsageWindow;
+  seenAt: string;
+}
+
+export interface Usage {
+  today: number;
+  limit: number | null;
+  /** Older cores do not send it. */
+  tokensToday?: Tokens;
+  /** By AI ("codex", "claude"); an AI that never reported its windows, or whose windows started again, is absent. */
+  limits?: Record<string, UsageLimits>;
 }
 
 /** GET /api/assistant, and the payload of every `data:` frame of GET /api/assistant/stream. */

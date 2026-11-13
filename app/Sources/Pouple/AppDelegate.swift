@@ -143,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return "" }
             return StatusSummary.line(core: supervisor.state, setupComplete: setup.setupComplete, language: LanguageModel.shared.language)
         }
+        controller.usageLines = { [weak self] in UsageLines.lines(self?.store.snapshot?.status.usage) }
         controller.bubblesHidden = { [weak self] in self?.store.muted ?? false }
         controller.onOpen = { [weak self] in self?.showMainWindow() }
         controller.onToggleBubbles = { [weak self] in self?.store.muted.toggle() }

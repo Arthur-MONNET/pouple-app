@@ -151,6 +151,8 @@ func TestASingleChoiceQuestionRefusesSeveralOptions(t *testing.T) {
 	if err := h.svc.Answer(request.ID, []Answer{{QuestionID: "q1", Text: "  something else  "}}); err != nil {
 		t.Fatalf("a typed answer was refused: %v", err)
 	}
+	// The answer starts a turn in the background: wait for it, or the temp folder cleanup races its writes.
+	h.svc.Idle()
 }
 
 func TestClosingWhatTheUserNoLongerSeesLeavesTheNewStateOpen(t *testing.T) {

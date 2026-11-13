@@ -19,6 +19,18 @@ export function relativeTime(iso: string, now: Date = new Date(), locale: Lang =
   return date.toLocaleDateString(tag(locale), { month: 'short', day: 'numeric' });
 }
 
+/** "dans 3 h", "dans 2 j" / "in 3 hr", "in 2 days": a time to come, in the active language. */
+export function untilTime(iso: string, now: Date = new Date(), locale: Lang = lang.value): string {
+  const seconds = Math.round((new Date(iso).getTime() - now.getTime()) / 1000);
+  if (Number.isNaN(seconds)) return '';
+  const format = new Intl.RelativeTimeFormat(tag(locale), { numeric: 'auto', style: 'short' });
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return format.format(minutes, 'minute');
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return format.format(hours, 'hour');
+  return format.format(Math.round(hours / 24), 'day');
+}
+
 /** "14:02" for today, "4 nov., 14:02" otherwise. */
 export function formatReceived(iso: string, now: Date = new Date(), locale: Lang = lang.value): string {
   const date = new Date(iso);
@@ -26,6 +38,16 @@ export function formatReceived(iso: string, now: Date = new Date(), locale: Lang
   return date.toDateString() === now.toDateString()
     ? time
     : `${date.toLocaleDateString(tag(locale), { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
+/** "1,2 k", "3,4 M" in French, "1.2K", "3.4M" in English: a count short enough for a status line. */
+export function compactCount(value: number, locale: Lang = lang.value): string {
+  return new Intl.NumberFormat(tag(locale), { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}
+
+/** "9 %" in French, "9%" in English, from a share between 0 and 100. */
+export function percent(value: number, locale: Lang = lang.value): string {
+  return new Intl.NumberFormat(tag(locale), { style: 'percent', maximumFractionDigits: 0 }).format(value / 100);
 }
 
 /** Up to two initials, for an avatar without a picture. */

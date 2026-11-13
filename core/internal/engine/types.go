@@ -111,6 +111,8 @@ type Request struct {
 	Engaged bool `json:"engaged,omitempty"`
 	// Closed is set when the user closed its bubble. The bubble comes back the next time the request needs them.
 	Closed bool `json:"closed,omitempty"`
+	// Tokens are what the AI used on this conversation; absent until it used any.
+	Tokens *Tokens `json:"tokens,omitempty"`
 }
 
 // Stored is a request as kept on disk: the visible part plus what stays on the server.
@@ -168,6 +170,11 @@ type ProviderInfo struct {
 type Usage struct {
 	Today int  `json:"today"`
 	Limit *int `json:"limit"`
+	// TokensToday are what the AIs used today for Pouple.
+	TokensToday Tokens `json:"tokensToday"`
+	// Limits are each AI's own usage windows (five hours, week), as it last reported them; an AI that never did is
+	// absent.
+	Limits map[providers.ID]Limits `json:"limits,omitempty"`
 }
 
 // Snapshot is what GET /api/assistant returns and the stream repeats.

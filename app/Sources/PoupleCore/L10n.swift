@@ -33,6 +33,7 @@ public enum L10n {
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
+        case usageTokensToday, usageFiveHour, usageWeek
         case bubbleIgnore, bubbleStop, bubbleWorking
         case activityOne, activityOther
         case handleName, handleWorking, handleOverflow, handleDrag, handleOffline
@@ -192,6 +193,9 @@ public enum L10n {
         .badgeApplied: "Modification faite",
         .badgeAnswerReady: "Réponse prête",
         .badgeWorking: "Travail en cours",
+        .usageTokensToday: "%@ tokens aujourd'hui",
+        .usageFiveHour: "5 h : %@",
+        .usageWeek: "semaine : %@",
         .bubbleIgnore: "Ignorer",
         .bubbleStop: "Arrêter",
         .bubbleWorking: "Huit bras sur le coup.",
@@ -321,6 +325,9 @@ public enum L10n {
         .badgeApplied: "Change applied",
         .badgeAnswerReady: "Answer ready",
         .badgeWorking: "Working",
+        .usageTokensToday: "%@ tokens today",
+        .usageFiveHour: "5 h: %@",
+        .usageWeek: "week: %@",
         .bubbleIgnore: "Ignore",
         .bubbleStop: "Stop",
         .bubbleWorking: "Eight arms on it.",

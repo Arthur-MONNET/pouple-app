@@ -7,6 +7,8 @@ import PoupleCore
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    /// The tokens of the day and each AI's usage windows, under the status line; hidden when there is nothing to say.
+    private let usageItems = (0 ..< 3).map { _ in NSMenuItem(title: "", action: nil, keyEquivalent: "") }
     private let openItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let bubblesItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let resetItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -20,6 +22,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private static let blinkInterval: TimeInterval = 0.6
 
     var summary: () -> String = { "" }
+    var usageLines: () -> [String] = { [] }
     var bubblesHidden: () -> Bool = { false }
     var currentLanguage: () -> Language = { L10n.current }
     var onOpen: () -> Void = {}
@@ -34,6 +37,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         statusLine.isEnabled = false
+        for item in usageItems { item.isEnabled = false }
         let actions: [(NSMenuItem, Selector)] = [
             (openItem, #selector(open)), (bubblesItem, #selector(toggleBubbles)), (resetItem, #selector(resetPosition)),
             (loginItem, #selector(toggleLogin)), (quitItem, #selector(quit)),
@@ -51,7 +55,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             languageChoices[language] = choice
         }
         languageItem.submenu = languageMenu
-        for entry in [statusLine, .separator(), openItem, bubblesItem, resetItem, .separator(), loginItem, languageItem, .separator(), quitItem] {
+        for entry in [statusLine] + usageItems + [.separator(), openItem, bubblesItem, resetItem, .separator(), loginItem, languageItem, .separator(), quitItem] {
             menu.addItem(entry)
         }
         item.menu = menu
@@ -84,6 +88,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Updates every title that depends on state or language.
     func refresh() {
         statusLine.title = summary()
+        let lines = usageLines()
+        for (index, item) in usageItems.enumerated() {
+            item.title = index < lines.count ? lines[index] : ""
+            item.isHidden = index >= lines.count
+        }
         openItem.title = L10n.text(.menuOpen)
         bubblesItem.title = L10n.text(bubblesHidden() ? .menuShowBubbles : .menuHideBubbles)
         resetItem.title = L10n.text(.menuResetPosition)

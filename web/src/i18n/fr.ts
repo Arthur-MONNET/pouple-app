@@ -313,6 +313,13 @@ export const fr: MessageTree = {
     usageLimit: "Codex aujourd'hui : {today} / {limit}",
     usageTitle: "Tours Codex utilisés aujourd'hui (sans limite)",
     usageTitleLimit: "Tours Codex utilisés aujourd'hui, sur la limite quotidienne",
+    tokensToday: "{tokens} tokens aujourd'hui",
+    tokensTitle: "Tokens utilisés aujourd'hui par les IA pour Pouple : {input} lus (dont {cached} depuis le cache), {output} écrits",
+    limitsLabel: 'Fenêtres d’utilisation des IA',
+    fiveHour: '5 h',
+    week: 'semaine',
+    windowTitle: '{name} : {used} de la fenêtre {window} utilisés, repart {when}',
+    windowTitleNoReset: '{name} : {used} de la fenêtre {window} utilisés',
   },
   groups: {
     notes: "Notes à moi-même",
@@ -328,6 +335,7 @@ export const fr: MessageTree = {
     emptyDone: 'Rien de terminé pour le moment.',
   },
   chat: {
+    tokens: '{tokens} tokens',
     openInSlack: 'Ouvrir dans Slack',
     didLabel: "Ce que l'assistant a fait",
     working: 'Huit bras sur le coup.',

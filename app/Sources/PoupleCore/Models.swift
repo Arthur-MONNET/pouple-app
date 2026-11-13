@@ -151,6 +151,62 @@ public struct AssistantStatusInfo: Codable, Equatable, Sendable {
     public let active: Bool
     public let problem: String?
     public let notices: [String]
+    /// Absent from older cores.
+    public let usage: AssistantUsage?
+}
+
+/// Tokens an AI used: input (cached ones included), cached, output.
+public struct TokenCount: Codable, Equatable, Sendable {
+    public let input: Int64
+    public let cached: Int64
+    public let output: Int64
+
+    public init(input: Int64, cached: Int64, output: Int64) {
+        self.input = input
+        self.cached = cached
+        self.output = output
+    }
+
+    /// Everything read and written.
+    public var total: Int64 { input + output }
+}
+
+/// One usage window of an AI subscription, as the AI last reported it.
+public struct UsageWindow: Codable, Equatable, Sendable {
+    /// From 0 to 100.
+    public let usedPercent: Double
+    public let resetsAt: Date?
+
+    public init(usedPercent: Double, resetsAt: Date? = nil) {
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+    }
+}
+
+/// An AI's own usage windows: the current five hours and the current week.
+public struct UsageLimits: Codable, Equatable, Sendable {
+    public let fiveHour: UsageWindow?
+    public let week: UsageWindow?
+
+    public init(fiveHour: UsageWindow? = nil, week: UsageWindow? = nil) {
+        self.fiveHour = fiveHour
+        self.week = week
+    }
+}
+
+public struct AssistantUsage: Codable, Equatable, Sendable {
+    public let today: Int
+    public let limit: Int?
+    public let tokensToday: TokenCount?
+    /// By AI ("codex", "claude"); an AI that never reported its windows is absent.
+    public let limits: [String: UsageLimits]?
+
+    public init(today: Int, limit: Int? = nil, tokensToday: TokenCount? = nil, limits: [String: UsageLimits]? = nil) {
+        self.today = today
+        self.limit = limit
+        self.tokensToday = tokensToday
+        self.limits = limits
+    }
 }
 
 public struct AssistantSnapshot: Codable, Equatable, Sendable {

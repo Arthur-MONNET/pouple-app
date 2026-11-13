@@ -8,6 +8,7 @@ import IconButton from '../components/IconButton.vue';
 import ConversationList from '../components/ConversationList.vue';
 import InlineError from '../components/InlineError.vue';
 import MascotStage from '../components/MascotStage.vue';
+import UsageSummary from '../components/UsageSummary.vue';
 import ConversationView from '../components/ConversationView.vue';
 import { provideAssistantStore } from '../composables/assistantStore';
 import { useApi } from '../composables/useApi';
@@ -72,11 +73,7 @@ watch(
           </div>
           <AppButton variant="outline" size="sm" class="self-start" @click="router.push({ name: 'connectors' })">{{ $t('extras.hint.open') }}</AppButton>
         </div>
-        <p v-if="usage" class="border-t border-line-soft px-4 py-2 font-mono text-2xs text-ink-dim"
-          :title="usage.limit === null ? $t('home.usageTitle') : $t('home.usageTitleLimit')"
-        >
-          {{ usage.limit === null ? $t('home.usage', { today: usage.today }) : $t('home.usageLimit', { today: usage.today, limit: usage.limit }) }}
-        </p>
+        <UsageSummary v-if="usage" :usage="usage" />
       </aside>
 
       <main class="flex min-w-0 flex-1 flex-col bg-canvas" :class="{ 'max-[699px]:hidden': !selected }">
