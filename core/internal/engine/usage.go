@@ -29,11 +29,12 @@ func (e *QuotaError) ErrorText(lang i18n.Lang) string {
 // when it starts. It also adds up the tokens of each day and keeps each AI's last reported usage windows. Counts are
 // kept for two weeks in a small file.
 type UsageMeter struct {
-	path   string
-	now    func() time.Time
-	mu     sync.Mutex
-	days   map[string]int
-	tokens map[string]Tokens
+	path string
+	now  func() time.Time
+	mu   sync.Mutex
+	days map[string]int
+	// tokens are by day, then by AI.
+	tokens map[string]map[providers.ID]Tokens
 	limits map[providers.ID]Limits
 }
 
@@ -43,7 +44,7 @@ func NewUsageMeter(path string, now func() time.Time) (*UsageMeter, error) {
 	if now == nil {
 		now = time.Now
 	}
-	meter := &UsageMeter{path: path, now: now, days: map[string]int{}, tokens: map[string]Tokens{}, limits: map[providers.ID]Limits{}}
+	meter := &UsageMeter{path: path, now: now, days: map[string]int{}, tokens: map[string]map[providers.ID]Tokens{}, limits: map[providers.ID]Limits{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return meter, nil
@@ -56,8 +57,8 @@ func NewUsageMeter(path string, now func() time.Time) (*UsageMeter, error) {
 		if file.Days != nil {
 			meter.days = file.Days
 		}
-		if file.Tokens != nil {
-			meter.tokens = file.Tokens
+		if file.TokensByAI != nil {
+			meter.tokens = file.TokensByAI
 		}
 		if file.Limits != nil {
 			meter.limits = file.Limits
@@ -75,11 +76,12 @@ func (m *UsageMeter) Today() int {
 	return m.days[m.day()]
 }
 
-// usageFile is the meter on disk. Files written before tokens and windows were kept hold days only.
+// usageFile is the meter on disk. Files written before tokens and windows were kept hold days only. A first version
+// kept the tokens of a day without saying which AI used them ("tokens"): they cannot be told apart, so they are left out.
 type usageFile struct {
-	Days   map[string]int          `json:"days"`
-	Tokens map[string]Tokens       `json:"tokens,omitempty"`
-	Limits map[providers.ID]Limits `json:"limits,omitempty"`
+	Days       map[string]int                     `json:"days"`
+	TokensByAI map[string]map[providers.ID]Tokens `json:"tokensByAI,omitempty"`
+	Limits     map[providers.ID]Limits            `json:"limits,omitempty"`
 }
 
 // Record counts one more turn and returns today's total.
@@ -92,11 +94,15 @@ func (m *UsageMeter) Record() (int, error) {
 	return m.days[today], m.save()
 }
 
-// TokensToday are what the AIs used today.
-func (m *UsageMeter) TokensToday() Tokens {
+// TokensToday are what each AI used today.
+func (m *UsageMeter) TokensToday() map[providers.ID]Tokens {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.tokens[m.day()]
+	out := map[providers.ID]Tokens{}
+	for provider, tokens := range m.tokens[m.day()] {
+		out[provider] = tokens
+	}
+	return out
 }
 
 // Limits are each AI's usage windows that still hold: a window that started again since it was reported is left out.
@@ -122,7 +128,10 @@ func (m *UsageMeter) Observe(provider providers.ID, result TurnResult) error {
 	defer m.mu.Unlock()
 	if !result.Tokens.IsZero() {
 		today := m.day()
-		m.tokens[today] = m.tokens[today].Add(result.Tokens)
+		if m.tokens[today] == nil {
+			m.tokens[today] = map[providers.ID]Tokens{}
+		}
+		m.tokens[today][provider] = m.tokens[today][provider].Add(result.Tokens)
 		forgetOld(m.tokens)
 	}
 	if result.Limits != nil {
@@ -147,7 +156,7 @@ func forgetOld[T any](days map[string]T) {
 }
 
 func (m *UsageMeter) save() error {
-	data, err := json.Marshal(usageFile{Days: m.days, Tokens: m.tokens, Limits: m.limits})
+	data, err := json.Marshal(usageFile{Days: m.days, TokensByAI: m.tokens, Limits: m.limits})
 	if err != nil {
 		return err
 	}

@@ -1,40 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import { compactCount, percent, untilTime } from './format';
-import { limitRows, nearlyUsed, totalTokens } from './usage';
+import { totalTokens, usageLevel, usageRows } from './usage';
 
-describe('usage windows', () => {
-  it('list the AIs that reported them, by name, five hours before the week', () => {
-    const rows = limitRows({
+const seenAt = '2026-11-13T12:00:00.000Z';
+
+describe('usage by AI', () => {
+  it('keeps each AI with its own tokens and windows, by name, five hours before the week', () => {
+    const rows = usageRows({
       today: 3,
       limit: null,
+      tokensByAI: { codex: { input: 1_500_000, cached: 1_200_000, output: 8_000 } },
       limits: {
-        codex: { week: { usedPercent: 27 }, fiveHour: { usedPercent: 9 }, seenAt: '2026-11-13T12:00:00.000Z' },
-        claude: { week: { usedPercent: 60 }, seenAt: '2026-11-13T12:00:00.000Z' },
+        codex: { week: { usedPercent: 27 }, fiveHour: { usedPercent: 9 }, seenAt },
+        claude: { week: { usedPercent: 60 }, seenAt },
       },
     });
     expect(rows.map((row) => row.name)).toEqual(['Claude', 'Codex']);
+    // Claude used no tokens today: the ones of Codex are never shown as its.
+    expect(rows[0]?.tokens).toBeUndefined();
+    expect(rows[1]?.tokens?.input).toBe(1_500_000);
     expect(rows[1]?.windows.map((window) => window.key)).toEqual(['fiveHour', 'week']);
-    expect(rows[0]?.windows.map((window) => window.key)).toEqual(['week']);
   });
 
-  it('show nothing for a core that sends no windows, or none left', () => {
-    expect(limitRows(null)).toEqual([]);
-    expect(limitRows({ today: 0, limit: null })).toEqual([]);
-    expect(limitRows({ today: 0, limit: null, limits: { codex: { seenAt: 'x' } } })).toEqual([]);
+  it('shows an AI that used tokens even before it reported its windows', () => {
+    const rows = usageRows({ today: 1, limit: null, tokensByAI: { claude: { input: 10, cached: 0, output: 2 } } });
+    expect(rows).toEqual([{ provider: 'claude', name: 'Claude', tokens: { input: 10, cached: 0, output: 2 }, windows: [] }]);
   });
 
-  it('leave out a window that started again since it was reported', () => {
+  it('shows nothing for a core that sends no usage, or none left', () => {
+    expect(usageRows(null)).toEqual([]);
+    expect(usageRows({ today: 0, limit: null })).toEqual([]);
+    expect(usageRows({ today: 0, limit: null, limits: { codex: { seenAt } }, tokensByAI: { codex: { input: 0, cached: 0, output: 0 } } })).toEqual([]);
+  });
+
+  it('leaves out a window that started again since it was reported', () => {
     const now = new Date('2026-11-13T12:00:00Z');
-    const rows = limitRows(
-      { today: 0, limit: null, limits: { codex: { fiveHour: { usedPercent: 90, resetsAt: '2026-11-13T11:59:00Z' }, week: { usedPercent: 30, resetsAt: '2026-11-15T00:00:00Z' }, seenAt: 'x' } } },
+    const rows = usageRows(
+      { today: 0, limit: null, limits: { codex: { fiveHour: { usedPercent: 90, resetsAt: '2026-11-13T11:59:00Z' }, week: { usedPercent: 30, resetsAt: '2026-11-15T00:00:00Z' }, seenAt } } },
       now,
     );
     expect(rows[0]?.windows.map((window) => window.key)).toEqual(['week']);
   });
 
-  it('warn from 80 %', () => {
-    expect(nearlyUsed({ usedPercent: 79 })).toBe(false);
-    expect(nearlyUsed({ usedPercent: 80 })).toBe(true);
+  it('turns high from 75 % and critical from 90 %', () => {
+    expect(usageLevel({ usedPercent: 74 })).toBe('normal');
+    expect(usageLevel({ usedPercent: 75 })).toBe('high');
+    expect(usageLevel({ usedPercent: 89 })).toBe('high');
+    expect(usageLevel({ usedPercent: 90 })).toBe('critical');
   });
 });
 

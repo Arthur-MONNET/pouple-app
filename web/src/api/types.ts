@@ -257,8 +257,8 @@ export interface UsageLimits {
 export interface Usage {
   today: number;
   limit: number | null;
-  /** Older cores do not send it. */
-  tokensToday?: Tokens;
+  /** What each AI used today, by AI; older cores do not send it. Never added up: each AI has its own plan. */
+  tokensByAI?: Record<string, Tokens>;
   /** By AI ("codex", "claude"); an AI that never reported its windows, or whose windows started again, is absent. */
   limits?: Record<string, UsageLimits>;
 }

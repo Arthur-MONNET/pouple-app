@@ -93,8 +93,11 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       usage: {
         today: 7,
         limit: 40,
-        tokensToday: { input: 412_000, cached: 351_000, output: 9_800 },
-        limits: { codex: { fiveHour: { usedPercent: 9, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString() }, week: { usedPercent: 82, resetsAt: new Date(Date.now() + 2 * 86400_000).toISOString() }, seenAt: nowIso() } },
+        tokensByAI: { codex: { input: 412_000, cached: 351_000, output: 9_800 }, claude: { input: 61_000, cached: 40_000, output: 2_100 } },
+        limits: {
+          codex: { fiveHour: { usedPercent: 9, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString() }, week: { usedPercent: 78, resetsAt: new Date(Date.now() + 2 * 86400_000).toISOString() }, seenAt: nowIso() },
+          claude: { fiveHour: { usedPercent: 92, resetsAt: new Date(Date.now() + 1 * 3600_000).toISOString() }, week: { usedPercent: 64, resetsAt: new Date(Date.now() + 4 * 86400_000).toISOString() }, seenAt: nowIso() },
+        },
       },
     },
     requests: structuredClone(requests),

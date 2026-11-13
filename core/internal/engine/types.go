@@ -170,8 +170,8 @@ type ProviderInfo struct {
 type Usage struct {
 	Today int  `json:"today"`
 	Limit *int `json:"limit"`
-	// TokensToday are what the AIs used today for Pouple.
-	TokensToday Tokens `json:"tokensToday"`
+	// TokensByAI are what each AI used today for Pouple; an AI that used none is absent.
+	TokensByAI map[providers.ID]Tokens `json:"tokensByAI,omitempty"`
 	// Limits are each AI's own usage windows (five hours, week), as it last reported them; an AI that never did is
 	// absent.
 	Limits map[providers.ID]Limits `json:"limits,omitempty"`

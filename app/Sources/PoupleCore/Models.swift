@@ -197,14 +197,15 @@ public struct UsageLimits: Codable, Equatable, Sendable {
 public struct AssistantUsage: Codable, Equatable, Sendable {
     public let today: Int
     public let limit: Int?
-    public let tokensToday: TokenCount?
-    /// By AI ("codex", "claude"); an AI that never reported its windows is absent.
+    /// What each AI used today, by AI ("codex", "claude"). Never added up: each AI has its own plan.
+    public let tokensByAI: [String: TokenCount]?
+    /// By AI; an AI that never reported its windows is absent.
     public let limits: [String: UsageLimits]?
 
-    public init(today: Int, limit: Int? = nil, tokensToday: TokenCount? = nil, limits: [String: UsageLimits]? = nil) {
+    public init(today: Int, limit: Int? = nil, tokensByAI: [String: TokenCount]? = nil, limits: [String: UsageLimits]? = nil) {
         self.today = today
         self.limit = limit
-        self.tokensToday = tokensToday
+        self.tokensByAI = tokensByAI
         self.limits = limits
     }
 }

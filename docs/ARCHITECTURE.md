@@ -141,10 +141,11 @@ the daily quota counts the turns of whichever AI runs them.
   (`CODEX_HOME/sessions/…/rollout-…-<thread>.jsonl`, the last `rate_limits` that holds a window, read from the end of the
   file first): the windows are told apart by their length (300 and 10080 minutes), not by their place. Claude Code gives its tokens in the `result` event and its windows in
   `rate_limit_event` (`rate_limit_info`, utilizations from 0 to 1; a value above 1 is taken as a percentage). `Metered` hands both to the `UsageMeter`, which adds
-  up the tokens of the day and keeps each AI's last windows in `usage.json`, and drops a window once its reset time is
+  up the tokens of the day for each AI and keeps each AI's last windows in `usage.json`, and drops a window once its reset time is
   past (or, without one, a whole window after it was reported); the interfaces drop it too when their snapshot is older.
   A failed turn reports no tokens. Each conversation adds up its own tokens (`Request.tokens`), without counting it as activity. The snapshot's
-  `status.usage` carries `tokensToday` and `limits` by AI.
+  `status.usage` carries `tokensByAI` and `limits`, both by AI: tokens are never added up across AIs, since each has
+  its own plan.
 
 - **Chosen at each turn**: `Deps.Selection` reads the settings (`provider`, `models`) when a turn starts, so a change
   applies to the very next turn without restarting anything. `provider` is empty (automatic) or `codex`/`claude`;

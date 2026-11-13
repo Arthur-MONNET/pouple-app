@@ -138,8 +138,8 @@ func TestTheMeterAddsUpTokensAndKeepsTheWindowsThatStillHold(t *testing.T) {
 		Week:     &Window{UsedPercent: 27, ResetsAt: stamp(now.Add(48 * time.Hour))},
 	}})
 	_ = meter.Observe(providers.Claude, TurnResult{Tokens: Tokens{Input: 50, Output: 5}})
-	if got := meter.TokensToday(); got != (Tokens{Input: 150, Cached: 60, Output: 15}) {
-		t.Fatalf("today %+v", got)
+	if got := meter.TokensToday(); len(got) != 2 || got[providers.Codex] != (Tokens{Input: 100, Cached: 60, Output: 10}) || got[providers.Claude] != (Tokens{Input: 50, Output: 5}) {
+		t.Fatalf("each AI keeps its own tokens: %+v", got)
 	}
 	if limits := meter.Limits(); len(limits) != 1 || limits[providers.Codex].FiveHour.UsedPercent != 9 {
 		t.Fatalf("limits %+v", limits)
@@ -157,18 +157,20 @@ func TestTheMeterAddsUpTokensAndKeepsTheWindowsThatStillHold(t *testing.T) {
 		t.Fatalf("an expired window is still shown: %+v", codex)
 	}
 	reloaded, _ := NewUsageMeter(path, func() time.Time { return now })
-	if reloaded.TokensToday().Output != 15 || reloaded.Limits()[providers.Codex].Week.UsedPercent != 30 {
+	if reloaded.TokensToday()[providers.Codex].Output != 10 || reloaded.Limits()[providers.Codex].Week.UsedPercent != 30 {
 		t.Fatalf("not kept on disk: %+v %+v", reloaded.TokensToday(), reloaded.Limits())
 	}
 }
 
 func TestAMeterFileFromBeforeTokensStillLoads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usage.json")
-	if err := os.WriteFile(path, []byte(`{"days":{"2026-11-13":7}}`), 0o600); err != nil {
+	// Days only, and the first version's tokens, which do not say which AI used them.
+	legacy := `{"days":{"2026-11-13":7},"tokens":{"2026-11-13":{"input":1579857,"cached":1265408,"output":8132}}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	meter, err := NewUsageMeter(path, func() time.Time { return limitsNow })
-	if err != nil || meter.Today() != 7 || !meter.TokensToday().IsZero() || len(meter.Limits()) != 0 {
+	if err != nil || meter.Today() != 7 || len(meter.TokensToday()) != 0 || len(meter.Limits()) != 0 {
 		t.Fatalf("legacy meter: %v %d", err, meter.Today())
 	}
 	if err := meter.Observe(providers.Codex, TurnResult{Tokens: Tokens{Input: 1}}); err != nil {

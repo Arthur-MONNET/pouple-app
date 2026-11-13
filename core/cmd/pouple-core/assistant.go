@@ -110,7 +110,7 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 			return engine.NewRedactor(secrets...)
 		},
 		Usage: func() engine.Usage {
-			usage := engine.Usage{Today: meter.Today(), TokensToday: meter.TokensToday(), Limits: meter.Limits()}
+			usage := engine.Usage{Today: meter.Today(), TokensByAI: meter.TokensToday(), Limits: meter.Limits()}
 			if limit := load().DailyTurnLimit; limit > 0 {
 				usage.Limit = &limit
 			}
