@@ -214,13 +214,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 
-    /// Development aid: draws the bubbles of a snapshot file into a PNG (`--render out.png --snapshot file.json [--expand id] [--lang fr|en]`)
+    /// Development aid: draws the bubbles of a snapshot file into a PNG (`--render out.png --snapshot file.json [--expand id] [--lang fr|en] [--corner bottomLeft|...]`)
     /// without a screen, so the look can be checked without screen-recording permission.
     private func render(to path: String) {
         do {
             guard let file = Self.argument("--snapshot") else { throw PoupleAPIError.invalidResponse }
             let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(contentsOf: URL(fileURLWithPath: file)))
             if let code = Self.argument("--lang"), let language = Language(code: code) { LanguageModel.shared.set(language) }
+            if let corner = Self.argument("--corner").flatMap(Corner.init(rawValue:)) { store.corner = corner }
             store.preview(snapshot)
             if let id = Self.argument("--expand") { store.expand(id) }
             let view = BubblesRootView(store: store).padding(20).background(Color(red: 0.35, green: 0.37, blue: 0.42))

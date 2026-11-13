@@ -19,8 +19,12 @@ struct BubbleCard: View {
         card(withMascot: mascot != nil)
             // Room above the card for the part of the mascot that rises over its edge.
             .padding(.top, mascot == nil ? 0 : Theme.mascotOverhang)
-            .overlay(alignment: .topLeading) {
-                if let mascot { BubbleMascot(image: mascot).padding(.leading, 14) }
+            // On the side of the screen the panel is anchored to: left corners, left; right corners, right.
+            .overlay(alignment: store.corner.isLeft ? .topLeading : .topTrailing) {
+                if let mascot {
+                    BubbleMascot(image: mascot)
+                        .padding(store.corner.isLeft ? .leading : .trailing, 14)
+                }
             }
             .onHover { store.setHover(request.id, $0) }
     }
