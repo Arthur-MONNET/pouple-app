@@ -11,23 +11,30 @@ struct BubbleCard: View {
     private var request: AssistantRequest { item.request }
     private var busy: Bool { store.busy.contains(request.id) }
 
+    /// The mascot of an expanded bubble; nil when collapsed, or when the app has no bundled mascots.
+    private var mascot: NSImage? { expanded ? BubbleMascot.image(for: item.kind) : nil }
+
     var body: some View {
-        Group {
-            if expanded { full } else { collapsed }
-        }
-        .frame(width: Theme.cardWidth, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card.opacity(0.96)))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(border))
-        .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
-        .onHover { store.setHover(request.id, $0) }
+        let mascot = mascot
+        card(withMascot: mascot != nil)
+            // Room above the card for the part of the mascot that rises over its edge.
+            .padding(.top, mascot == nil ? 0 : Theme.mascotOverhang)
+            .overlay(alignment: .topLeading) {
+                if let mascot { BubbleMascot(image: mascot).padding(.leading, 14) }
+            }
+            .onHover { store.setHover(request.id, $0) }
     }
 
-    private var border: Color {
-        switch item.kind {
-        case .decision: return Theme.accent.opacity(0.55)
-        case .failed: return Theme.fail.opacity(0.55)
-        case .result: return Theme.line
+    /// One solid surface in the app's background color: the state is told by the dot and the word, not by a border.
+    private func card(withMascot: Bool) -> some View {
+        Group {
+            if expanded { full(withMascot: withMascot) } else { collapsed }
         }
+        .frame(width: Theme.cardWidth, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.card))
+        // A hairline only, so the card still lifts off a dark wallpaper.
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
+        .shadow(color: .black.opacity(0.5), radius: 22, y: 10)
     }
 
     // MARK: - Collapsed
@@ -50,8 +57,8 @@ struct BubbleCard: View {
 
     // MARK: - Expanded
 
-    private var full: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func full(withMascot: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             header
             quote
             content
@@ -61,19 +68,21 @@ struct BubbleCard: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Theme.fail).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
+        // The mascot rises 24 pt into the card: the header starts below it.
+        .padding(EdgeInsets(top: withMascot ? 30 : 14, leading: 14, bottom: 14, trailing: 14))
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             icon
-            VStack(alignment: .leading, spacing: 1) {
-                Text(request.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                HStack(spacing: 4) {
-                    Text(badge).foregroundStyle(badgeColor)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(request.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 6) {
+                    Circle().fill(badgeColor).frame(width: 6, height: 6)
+                    Text(badge).fontWeight(.medium).foregroundStyle(badgeColor)
                     Text("· " + L10n.relativeTime(from: request.receivedAt, to: store.now)).foregroundStyle(Theme.dim)
                 }
-                .font(.system(size: 10.5))
+                .font(.system(size: 11))
                 .lineLimit(1)
             }
             Spacer(minLength: 4)
@@ -90,14 +99,14 @@ struct BubbleCard: View {
 
     private var quote: some View {
         Text(request.text)
-            .font(.system(size: 12))
+            .font(.system(size: 12.5))
             .foregroundStyle(Theme.muted)
             .lineLimit(3)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raised))
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.raised))
     }
 
     @ViewBuilder private var content: some View {
@@ -156,9 +165,10 @@ struct BubbleCard: View {
             }
             Text(text).font(.system(size: 12.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.tile))
     }
 
     // MARK: - Bits
@@ -206,14 +216,26 @@ struct BubbleCard: View {
 }
 
 struct IconButtonStyle: ButtonStyle {
-    /// Highlighted with the accent color, for the main action of a row.
-    var filled = false
+    enum Look {
+        /// A bare glyph, for the controls of a header.
+        case plain
+        /// A quiet disc that turns coral when the action is available.
+        case disc(ready: Bool)
+    }
+
+    var look: Look = .plain
 
     func makeBody(configuration: Configuration) -> some View {
+        let ready: Bool = if case .disc(let ready) = look { ready } else { false }
         configuration.label
             .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(filled ? Theme.onAccent : Theme.muted)
+            .foregroundStyle(ready ? Theme.onAccent : Theme.muted.opacity(configuration.isPressed ? 1 : 0.8))
             .frame(width: 22, height: 22)
-            .background(Circle().fill(filled ? Theme.accent : Color.white.opacity(configuration.isPressed ? 0.16 : 0.06)))
+            .background {
+                if case .disc = look {
+                    Circle().fill(ready ? Theme.accent : Color.white.opacity(0.1))
+                }
+            }
+            .contentShape(Rectangle())
     }
 }

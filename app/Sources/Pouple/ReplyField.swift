@@ -12,23 +12,26 @@ struct ReplyField: View {
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 6) {
+        // One filled field with the send button inside it, no outline.
+        HStack(alignment: .bottom, spacing: 8) {
             TextField(L10n.text(.replyPlaceholder), text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .lineLimit(1 ... 4)
                 .onSubmit(send)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
+                .padding(.leading, 14)
+                .padding(.vertical, 8)
             Button(action: send) {
                 Image(systemName: "arrow.up").font(.system(size: 11, weight: .bold))
             }
-            .buttonStyle(IconButtonStyle(filled: !trimmed.isEmpty))
+            .buttonStyle(IconButtonStyle(look: .disc(ready: !trimmed.isEmpty)))
             .disabled(trimmed.isEmpty || busy)
             .help(L10n.text(.replySend))
             .accessibilityLabel(L10n.text(.replySend))
+            .padding(.trailing, 5)
+            .padding(.bottom, 5)
         }
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.tile))
     }
 
     private func send() {

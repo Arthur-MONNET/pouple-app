@@ -6,9 +6,15 @@ enum Theme {
     /// Room around the cards so shadows are not clipped by the panel edge.
     static let panelPadding: CGFloat = 14
 
-    /// Bubble surface, and the darker wells (quotes, fields) set into it.
-    static let card = Color(hex: 0x1B1E24)
+    /// The mascot sits on the top edge of an expanded bubble: its size, and how far it rises above the card.
+    static let mascotSize: CGFloat = 68
+    static let mascotOverhang: CGFloat = 44
+
+    /// Bubble surface: the same background as the app window.
+    static let card = Color(hex: 0x0E0F12)
+    /// Fills set into the card, from the quietest (quotes, code) to the one that holds controls (options, fields).
     static let raised = Color(hex: 0x15171B)
+    static let tile = Color(hex: 0x1B1E24)
     static let line = Color(hex: 0x3A3F48)
     /// Coral: the accent, and the fill of primary buttons.
     static let accent = Color(hex: 0xF2668B)
