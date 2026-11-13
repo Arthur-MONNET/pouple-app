@@ -13,6 +13,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 )
 
@@ -51,6 +52,9 @@ func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", 
 func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }
 func (f *fakeAssistant) Remove(id string) error      { return f.record("remove", id) }
 func (f *fakeAssistant) Stop(id string) error        { return f.record("stop", id) }
+func (f *fakeAssistant) ContinueWith(id string, provider providers.ID) error {
+	return f.record("continue-with", id+" "+string(provider))
+}
 
 func assistantServer(t *testing.T) (*Server, *fakeAssistant) {
 	t.Helper()
@@ -70,6 +74,8 @@ func TestAssistantRoutesCallTheEngineAndMapItsErrors(t *testing.T) {
 	}{
 		{"POST", "/api/assistant/requests/r1/stop", "", 202, "stop r1"},
 		{"POST", "/api/assistant/requests/r1/retry", "", 202, "retry r1"},
+		{"POST", "/api/assistant/requests/r1/continue-with", `{"provider":"codex"}`, 202, "continue-with r1 codex"},
+		{"POST", "/api/assistant/requests/r1/continue-with", `{"provider":"gpt"}`, 400, ""},
 		{"POST", "/api/assistant/requests/r1/ignore", "", 204, "ignore r1"},
 		{"POST", "/api/assistant/requests/r1/close", "", 204, "close r1"},
 		{"POST", "/api/assistant/requests/r1/close", `{"updatedAt":"2026-11-13T10:00:00.000Z"}`, 204, "close r12026-11-13T10:00:00.000Z"},

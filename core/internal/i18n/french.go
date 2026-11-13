@@ -228,6 +228,8 @@ var fr = map[string]string{
 	"no change is waiting for a decision":                                  "aucun changement n’attend de décision",
 	"the proposal changed since you read it":                               "la proposition a changé depuis que tu l’as lue",
 	"the request changed since you saw it":                                 "la demande a changé depuis que tu l’as vue",
+	"%s cannot take over this request":                                     "%s ne peut pas reprendre cette demande",
+	`"provider" must be "codex" or "claude"`:                               `"provider" doit valoir "codex" ou "claude"`,
 	"the assistant is still working on this request":                       "l’assistant travaille encore sur cette demande",
 	"only a failed, ignored or finished request can be investigated again": "seule une demande échouée, ignorée ou terminée peut être réexaminée",
 	"project “%s” no longer exists":                                        "le projet « %s » n’existe plus",

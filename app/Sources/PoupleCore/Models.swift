@@ -121,6 +121,13 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public var engaged: Bool? = nil
     /// Set by the core when the user closed the bubble; absent from older cores. Read `isClosed`.
     public var closed: Bool? = nil
+    /// The other AI ("codex", "claude") that can take over a request stopped by a usage limit; absent otherwise.
+    public var switchTo: String? = nil
+
+    /// The name of the AI that can take over, as shown in a button.
+    public var switchToName: String? {
+        switchTo.map { $0 == "claude" ? "Claude" : $0 == "codex" ? "Codex" : $0 }
+    }
 
     /// The request has reached the user (a question, an answer, a failure, a change made): from then on the work on it
     /// shows in its bubble. Before, the work is silent.

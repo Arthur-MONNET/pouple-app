@@ -111,6 +111,11 @@ public struct PoupleAPI: Sendable {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/close", body: ["updatedAt": formatter.string(from: seen)])
     }
 
+    /// Makes another AI the one Pouple uses, and investigates the request again with it.
+    public func continueWith(requestId: String, provider: String) async throws {
+        _ = try await send("POST", "/api/assistant/requests/\(requestId)/continue-with", body: ["provider": provider])
+    }
+
     public func retry(requestId: String) async throws {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/retry")
     }

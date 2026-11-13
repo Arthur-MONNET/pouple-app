@@ -17,6 +17,9 @@ export interface UsageRow {
 /** A window that started again since it was reported: what it said no longer holds. */
 const expired = (window: UsageWindow, now: Date): boolean => window.resetsAt !== undefined && new Date(window.resetsAt).getTime() <= now.getTime();
 
+/** The name of an AI, kept as it is in every language. */
+export const providerName = (provider: string): string => NAMES[provider] ?? provider;
+
 /** All the tokens of a count, read and written. */
 export const totalTokens = (tokens: Tokens): number => tokens.input + tokens.output;
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 var optionIDs = []string{"A", "B", "C", "D", "E", "F"}
@@ -623,9 +624,26 @@ func (s *Service) Retry(id string) error {
 	}
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error, r.ThreadID, r.ThreadProvider, r.Questions, r.Proposal = StatusQueued, nil, "", "", []Question{}, nil
+		r.LimitedBy = ""
 	})
 	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.analyze(ctx, id) })
 	return nil
+}
+
+// ContinueWith makes another AI the one Pouple uses, then investigates the request again with it: what a request
+// stopped by the usage limit of the AI in use offers. Only the AI the request offers (SwitchTo) is accepted.
+func (s *Service) ContinueWith(id string, provider providers.ID) error {
+	request, err := s.require(id)
+	if err != nil {
+		return err
+	}
+	if offered := s.switchTo(request); offered == "" || offered != provider {
+		return i18n.Wrap(ErrState, "%s cannot take over this request", provider.Name())
+	}
+	if err := s.deps.UseProvider(provider); err != nil {
+		return err
+	}
+	return s.Retry(id)
 }
 
 // Remove deletes a request that is not being worked on.

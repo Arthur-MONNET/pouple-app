@@ -113,6 +113,9 @@ type Request struct {
 	Closed bool `json:"closed,omitempty"`
 	// Tokens are what the AI used on this conversation; absent until it used any.
 	Tokens *Tokens `json:"tokens,omitempty"`
+	// SwitchTo is set when listed: the request stopped on an AI's usage limit, and this other AI, connected and not at
+	// its own limit, can take over.
+	SwitchTo providers.ID `json:"switchTo,omitempty"`
 }
 
 // Stored is a request as kept on disk: the visible part plus what stays on the server.
@@ -125,6 +128,8 @@ type Stored struct {
 	// WebUsed is set when a turn ran with the web allowed: what the web returns is written by strangers, so, like
 	// ServicesUsed, it means an automatic approval must not apply a proposal.
 	WebUsed bool `json:"webUsed,omitempty"`
+	// LimitedBy is the AI whose usage limit stopped the request; empty otherwise.
+	LimitedBy providers.ID `json:"limitedBy,omitempty"`
 	// ThreadProvider is the AI that owns ThreadID; empty for a thread kept before Claude existed, which is Codex's.
 	ThreadProvider providers.ID `json:"threadProvider,omitempty"`
 	// PendingFiles are Slack files not downloaded yet.

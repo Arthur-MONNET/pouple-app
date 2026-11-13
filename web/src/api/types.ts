@@ -219,6 +219,8 @@ export interface AssistantRequest {
   closed?: boolean;
   /** What the AI used on this conversation; absent until it used any. */
   tokens?: Tokens;
+  /** The other AI ("codex", "claude") that can take over a request stopped by a usage limit. */
+  switchTo?: string;
 }
 
 export interface AssistantStatusInfo {

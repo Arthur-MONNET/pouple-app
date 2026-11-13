@@ -11,6 +11,7 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
 // Assistant is what the HTTP layer needs from the engine.
@@ -24,6 +25,8 @@ type Assistant interface {
 	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
 	Close(id, seen string) error
 	Retry(id string) error
+	// ContinueWith switches to another AI and investigates the request again with it.
+	ContinueWith(id string, provider providers.ID) error
 	Remove(id string) error
 	Stop(id string) error
 }
@@ -121,6 +124,19 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
 			}
 			return noContent(w, assistant.Close(r.PathValue("id"), body.UpdatedAt))
+		})
+		handle("POST /api/assistant/requests/{id}/continue-with", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Provider string `json:"provider"`
+			}
+			provider, known := providers.ID(""), false
+			if err := decodeBody(r, &body); err == nil {
+				provider, known = providers.Parse(body.Provider)
+			}
+			if !known {
+				return i18n.Wrap(engine.ErrInput, `"provider" must be "codex" or "claude"`)
+			}
+			return accepted(w, assistant.ContinueWith(r.PathValue("id"), provider))
 		})
 		handle("POST /api/assistant/requests/{id}/retry", func(w http.ResponseWriter, r *http.Request) error {
 			return accepted(w, assistant.Retry(r.PathValue("id")))

@@ -6,7 +6,7 @@ import { useAssistantStore } from '../composables/assistantStore';
 import { t } from '../i18n';
 import { groupEntries, isWorking, requestTitle, statusLabel } from '../lib/assistantRequests';
 import { compactCount, formatReceived } from '../lib/format';
-import { totalTokens } from '../lib/usage';
+import { providerName, totalTokens } from '../lib/usage';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AssistantQuestionCard from './AssistantQuestionCard.vue';
@@ -179,9 +179,19 @@ watch(
       @submit="submitProposal"
     />
 
-    <div v-if="request.status === 'failed'" class="flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5" data-testid="failed-note">
+    <div v-if="request.status === 'failed'" class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-2.5" data-testid="failed-note">
       <MascotStage pose="oops" />
-      <InlineError>{{ request.error ?? $t('chat.failedFallback') }}</InlineError>
+      <InlineError class="min-w-0 flex-1">{{ request.error ?? $t('chat.failedFallback') }}</InlineError>
+      <AppButton
+        v-if="request.switchTo"
+        variant="primary"
+        size="sm"
+        :disabled="busy"
+        data-testid="continue-with"
+        @click="guard(() => store.continueWith(request.id, request.switchTo as string))"
+      >
+        {{ $t('chat.continueWith', { name: providerName(request.switchTo) }) }}
+      </AppButton>
     </div>
     <p v-else-if="stoppedNote && !working" class="flex items-center gap-2 text-xs text-ink-muted" data-testid="stopped-note">
       <MascotStage pose="stop" size="sm" />

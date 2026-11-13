@@ -34,7 +34,7 @@ public enum L10n {
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
         case usageTokens, usageFiveHour, usageWeek
-        case bubbleIgnore, bubbleStop, bubbleWorking
+        case bubbleIgnore, bubbleStop, bubbleWorking, bubbleContinueWith
         case activityOne, activityOther
         case handleName, handleWorking, handleOverflow, handleDrag, handleOffline
         case replyPlaceholder, replySend, wizardOther, wizardBack, wizardNext, wizardSend, wizardSeveral
@@ -199,6 +199,7 @@ public enum L10n {
         .bubbleIgnore: "Ignorer",
         .bubbleStop: "Arrêter",
         .bubbleWorking: "Huit bras sur le coup.",
+        .bubbleContinueWith: "Continuer avec %@",
         .activityOne: "Activité · %d étape",
         .activityOther: "Activité · %d étapes",
         .handleName: "Pouple",
@@ -331,6 +332,7 @@ public enum L10n {
         .bubbleIgnore: "Ignore",
         .bubbleStop: "Stop",
         .bubbleWorking: "Eight arms on it.",
+        .bubbleContinueWith: "Continue with %@",
         .activityOne: "Activity · %d step",
         .activityOther: "Activity · %d steps",
         .handleName: "Pouple",

@@ -335,6 +335,7 @@ export const en: MessageTree = {
   },
   chat: {
     tokens: '{tokens} tokens',
+    continueWith: 'Continue with {name}',
     openInSlack: 'Open in Slack',
     didLabel: 'What the assistant did',
     working: 'Eight arms on it.',

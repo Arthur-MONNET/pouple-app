@@ -129,7 +129,16 @@ struct BubbleCard: View {
                 .foregroundStyle(Theme.fail)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button(L10n.text(.bubbleRetry)) { store.retry(request) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
+                // When the AI in use reached its usage limit, the other one taking over is the way forward: investigating
+                // again with the AI at its limit would only fail again.
+                if let name = request.switchToName {
+                    Button(L10n.text(.bubbleContinueWith, name)) { store.continueWith(request) }
+                        .buttonStyle(PillButtonStyle(role: .primary))
+                        .fixedSize()
+                        .disabled(busy)
+                } else {
+                    Button(L10n.text(.bubbleRetry)) { store.retry(request) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
+                }
                 openButton
             }
         case .result:

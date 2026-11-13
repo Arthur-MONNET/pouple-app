@@ -114,6 +114,7 @@ export function createAssistantStore(api: PoupleApi) {
     send: (id: string, text: string, attachmentIds: string[] = []) => (forgetStopped(id), act(() => api.sendMessage(id, text, attachmentIds))),
     ignore: (id: string) => act(() => api.ignore(id)),
     retry: (id: string) => (forgetStopped(id), act(() => api.retry(id))),
+    continueWith: (id: string, provider: string) => (forgetStopped(id), act(() => api.continueWith(id, provider))),
     stopRequest: async (id: string) => {
       await act(() => api.stop(id));
       if (!stopped.value.includes(id)) stopped.value = [...stopped.value, id];

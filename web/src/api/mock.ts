@@ -306,6 +306,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       await wait();
       work(find(requestId), text().replies.again);
     },
+    async continueWith(requestId) {
+      await wait();
+      work(find(requestId), text().replies.again);
+    },
     async stop(requestId) {
       await wait();
       touch(find(requestId), { status: 'ready' });

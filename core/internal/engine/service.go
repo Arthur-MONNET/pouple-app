@@ -98,6 +98,11 @@ type Deps struct {
 	// SettleDelay is how long a request from someone else waits before its turn, so a burst of messages is one request.
 	SettleDelay         time.Duration
 	AutoApproveOwnNotes func() bool
+	// Connected says whether an AI is set up. With UseProvider, it lets a request stopped by one AI's usage limit go
+	// on with the other; nil leaves that out.
+	Connected func(providers.ID) bool
+	// UseProvider makes an AI the one the next turns run on, as the user would in the settings.
+	UseProvider func(providers.ID) error
 	// ChangeSummary says what git sees changed in a folder.
 	ChangeSummary func(ctx context.Context, dir string) (string, error)
 	OnError       func(error)
@@ -284,6 +289,7 @@ func (s *Service) Snapshot() Snapshot {
 	for i, request := range stored {
 		view := request.Request
 		view.Continuable = request.ThreadID != ""
+		view.SwitchTo = s.switchTo(request)
 		if view.Proposal != nil {
 			shown := *view.Proposal
 			shown.ID = ProposalFingerprint(shown)
@@ -589,8 +595,12 @@ func (s *Service) fail(id string, cause error) {
 		return
 	}
 	failure := i18n.T(lang, "Failed: %s", message)
+	limitedBy := providers.ID("")
+	if errors.Is(cause, ErrLimit) {
+		limitedBy = provider
+	}
 	s.update(id, func(r *Stored) {
-		r.Status, r.Error = StatusFailed, ptr(message)
+		r.Status, r.Error, r.LimitedBy = StatusFailed, ptr(message), limitedBy
 		r.Entries = append(r.Entries, s.entry("system", "text", failure))
 	})
 	if !quiet && !login {
@@ -665,6 +675,19 @@ func (s *Service) failedProvider(cause error) providers.ID {
 		return failure.provider
 	}
 	return s.deps.Selection().Provider
+}
+
+// switchTo is the other AI a request stopped by a usage limit can go on with: connected, and not at its own limit.
+func (s *Service) switchTo(request Stored) providers.ID {
+	if request.Status != StatusFailed || request.LimitedBy == "" || s.deps.Connected == nil || s.deps.UseProvider == nil {
+		return ""
+	}
+	for _, id := range providers.All() {
+		if id != request.LimitedBy && s.deps.Connected(id) && !s.pausedFor(id) {
+			return id
+		}
+	}
+	return ""
 }
 
 // pausedFor reports whether a provider's usage limit is reached.

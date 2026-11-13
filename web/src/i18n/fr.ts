@@ -339,6 +339,7 @@ export const fr: MessageTree = {
   },
   chat: {
     tokens: '{tokens} tokens',
+    continueWith: 'Continuer avec {name}',
     openInSlack: 'Ouvrir dans Slack',
     didLabel: "Ce que l'assistant a fait",
     working: 'Huit bras sur le coup.',

@@ -66,6 +66,8 @@ export interface PoupleApi {
   sendMessage(requestId: string, text: string, attachmentIds: string[]): Promise<void>;
   ignore(requestId: string): Promise<void>;
   retry(requestId: string): Promise<void>;
+  /** Makes another AI the one Pouple uses, and investigates the request again with it. */
+  continueWith(requestId: string, provider: string): Promise<void>;
   stop(requestId: string): Promise<void>;
   remove(requestId: string): Promise<void>;
   uploadAttachment(requestId: string, file: File): Promise<AttachmentRef>;
@@ -167,6 +169,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
       post(assistant(requestId, '/messages'), { text, ...(attachmentIds.length > 0 && { attachmentIds }) }),
     ignore: (requestId) => post(assistant(requestId, '/ignore')),
     retry: (requestId) => post(assistant(requestId, '/retry')),
+    continueWith: (requestId, provider) => post(assistant(requestId, '/continue-with'), { provider }),
     stop: (requestId) => post(assistant(requestId, '/stop')),
     remove: async (requestId) => void (await send(assistant(requestId), { method: 'DELETE' })),
 

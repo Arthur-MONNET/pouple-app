@@ -34,6 +34,7 @@ Paths below are relative to `/api/assistant`. URL-encode IDs from the snapshot w
 | POST | `/requests/{id}/answers` | `{"answers":[{"questionId":"…","optionId":"…"}]}`. For a free answer, use `text` in place of `optionId`. For a question with `"multiple": true`, send the picked options as `"optionIds":["A","C"]`, with an optional `text`. |
 | POST | `/requests/{id}/proposal` | `{"decision":"approve","proposalId":"…"}` or `decline`. Use the proposal ID shown to the user. |
 | POST | `/requests/{id}/retry`, `/stop`, or `/ignore` under that request | |
+| POST | `/requests/{id}/continue-with` | `{"provider":"codex"}`. For a request that offers `switchTo` (it stopped on an AI's usage limit, and the other AI is connected and not at its own limit): makes that AI the one Pouple uses, and investigates the request again with it. Any other AI returns 409. |
 | POST | `/requests/{id}/close` | Optional `{"updatedAt":"…"}`, the `updatedAt` of the request as the user saw it. Hides the request's bubble until it needs the user again (`closed` in the snapshot); the conversation is kept. When the request changed since that time, it stays open and the answer is 409. |
 | DELETE | `/requests/{id}` | |
 | POST | `/requests/{id}/attachments?name=example.txt` | Raw file bytes. The returned ID can be included in a message. |

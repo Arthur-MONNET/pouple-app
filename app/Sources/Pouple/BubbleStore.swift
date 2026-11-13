@@ -129,6 +129,12 @@ final class BubbleStore: ObservableObject {
         perform(request.id, work, onFailure: { [weak self] in self?.dismissed[request.id] = nil })
     }
 
+    /// Switches to the AI the request offers, and investigates it again with it.
+    func continueWith(_ request: AssistantRequest) {
+        guard let provider = request.switchTo else { return }
+        perform(request.id) { api in try await api.continueWith(requestId: request.id, provider: provider) }
+    }
+
     func stop(_ request: AssistantRequest) {
         perform(request.id) { api in try await api.stop(requestId: request.id) }
     }

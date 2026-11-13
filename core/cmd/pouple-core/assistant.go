@@ -118,8 +118,13 @@ func newAssistant(dir string, registry *connector.Registry, settings *config.Fil
 		},
 		Inactive:            func() string { return inactiveReason(registry, language()) },
 		AutoApproveOwnNotes: func() bool { return load().AutoApprove == "own-notes" },
-		SettleDelay:         3 * time.Second,
-		OnError:             func(err error) { logf("assistant: %v", err) },
+		Connected:           func(id providers.ID) bool { return load().Connected(string(id)) },
+		UseProvider: func(id providers.ID) error {
+			_, err := settings.Update(func(current *config.Settings) { current.Provider = string(id) })
+			return err
+		},
+		SettleDelay: 3 * time.Second,
+		OnError:     func(err error) { logf("assistant: %v", err) },
 	})
 	return service, attachments, nil
 }

@@ -135,6 +135,10 @@ The engine does not know Codex: it knows a `Provider` (`Run(ctx, Turn) (TurnResu
 it (`engine.Runner` for Codex, `engine.ClaudeRunner` for Claude) and are wrapped by the same `Metered` wrapper, so
 the daily quota counts the turns of whichever AI runs them.
 
+- **Taking over**: a request stopped by an AI's usage limit keeps which AI stopped it (`Stored.LimitedBy`). When the
+  other AI is connected and not at its own limit, the request offers it (`Request.switchTo`, set when listed), and
+  `Service.ContinueWith` makes it the AI in use (the same setting as the AI section of the settings) and investigates
+  the request again with it. The bubble and the window then show "Continue with Codex" in place of "Investigate again".
 - **Usage**: a turn returns the tokens it used (`TurnResult.Tokens`) and the AI's own usage windows when it reported
   them (`TurnResult.Limits`: the current five hours and week, each with its share used and its reset time). Codex gives
   its tokens in the `turn.completed` event of `codex exec --json`, and its windows only in its session file
