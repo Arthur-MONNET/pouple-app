@@ -13,7 +13,7 @@ struct BubbleCard: View {
 
     var body: some View {
         Group {
-            if expanded || item.kind == .working { full } else { collapsed }
+            if expanded { full } else { collapsed }
         }
         .frame(width: Theme.cardWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card.opacity(0.96)))
@@ -26,7 +26,7 @@ struct BubbleCard: View {
         switch item.kind {
         case .decision: return Theme.accent.opacity(0.55)
         case .failed: return Theme.fail.opacity(0.55)
-        case .working, .result: return Theme.line
+        case .result: return Theme.line
         }
     }
 
@@ -55,10 +55,8 @@ struct BubbleCard: View {
             header
             quote
             content
-            if item.kind != .working {
-                if !steps.isEmpty { ActivityLog(steps: steps) }
-                ReplyField(busy: busy) { store.send(request, $0) }
-            }
+            if !steps.isEmpty { ActivityLog(steps: steps) }
+            ReplyField(busy: busy) { store.send(request, $0) }
             if let error = store.errors[request.id] {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Theme.fail).fixedSize(horizontal: false, vertical: true)
             }
@@ -79,11 +77,9 @@ struct BubbleCard: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 4)
-            if item.kind != .working {
-                Button { store.toggle(request.id) } label: { Image(systemName: "chevron.down") }
-                    .help(L10n.text(.bubbleCollapse))
-                    .accessibilityLabel(L10n.text(.bubbleCollapse))
-            }
+            Button { store.toggle(request.id) } label: { Image(systemName: "chevron.down") }
+                .help(L10n.text(.bubbleCollapse))
+                .accessibilityLabel(L10n.text(.bubbleCollapse))
             Button { store.dismiss(request) } label: { Image(systemName: "xmark") }
                 .help(L10n.text(.bubbleClose))
                 .accessibilityLabel(L10n.text(.bubbleClose))
@@ -106,14 +102,6 @@ struct BubbleCard: View {
 
     @ViewBuilder private var content: some View {
         switch item.kind {
-        case .working:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(lastStep ?? L10n.text(.bubbleInvestigating))
-                    .font(.system(size: 11, design: lastStep == nil ? .default : .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
-            }
         case .decision:
             if let summary = request.summary { MarkdownView(source: summary) }
             decision
@@ -177,11 +165,9 @@ struct BubbleCard: View {
 
     private var steps: [ChatEntry] { request.entries.filter { $0.kind == .step } }
 
-    private var lastStep: String? { steps.last?.text }
 
     private var badge: String {
         switch item.kind {
-        case .working: return L10n.text(.bubbleInvestigating)
         case .decision: return request.proposal != nil ? L10n.text(.badgeApprove) : L10n.text(.badgeNeedsAnswer)
         case .failed: return L10n.text(.badgeFailed)
         case .result: return request.status == .done ? L10n.text(.badgeApplied) : L10n.text(.badgeAnswerReady)
@@ -190,7 +176,6 @@ struct BubbleCard: View {
 
     private var badgeColor: Color {
         switch item.kind {
-        case .working: return Theme.dim
         case .decision: return Theme.accent
         case .failed: return Theme.fail
         case .result: return Theme.ok
@@ -200,7 +185,7 @@ struct BubbleCard: View {
     private var icon: some View {
         Image(systemName: symbol)
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(badgeColor == Theme.dim ? Theme.muted : badgeColor)
+            .foregroundStyle(badgeColor)
             .frame(width: 22, height: 22)
             .background(Circle().fill(Color.white.opacity(0.08)))
     }

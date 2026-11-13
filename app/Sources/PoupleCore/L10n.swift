@@ -30,11 +30,11 @@ public enum L10n {
         case failReadyMalformed, failNotReady, failInvalidPort
         case apiAnswered, apiUnexpected
         // Bubbles
-        case bubbleCollapse, bubbleClose, bubbleInvestigating, bubbleSomethingWrong, bubbleRetry, bubbleDone
+        case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady
         case activityOne, activityOther
-        case handleName, handleOverflow, handleDrag, handleOffline
+        case handleName, handleWorking, handleOverflow, handleDrag, handleOffline
         case replyPlaceholder, replySend, wizardOther, wizardBack, wizardNext, wizardSend
         // Titles of requests
         case titleNoteToSelf, titleDirect, titleGroup, titleBroadcast, titleKeyword, titleThread, titleChannel, titleAction
@@ -175,7 +175,7 @@ public enum L10n {
         .apiUnexpected: "Pouple a répondu de travers",
         .bubbleCollapse: "Réduire",
         .bubbleClose: "Fermer cette bulle",
-        .bubbleInvestigating: "Enquête en cours…",
+        .handleWorking: "Enquête en cours…",
         .bubbleSomethingWrong: "Quelque chose a coincé",
         .bubbleRetry: "Enquêter à nouveau",
         .bubbleDone: "Terminé",
@@ -299,7 +299,7 @@ public enum L10n {
         .apiUnexpected: "Pouple sent an unexpected response",
         .bubbleCollapse: "Collapse",
         .bubbleClose: "Close this bubble",
-        .bubbleInvestigating: "Investigating…",
+        .handleWorking: "Investigating…",
         .bubbleSomethingWrong: "Something went wrong",
         .bubbleRetry: "Investigate again",
         .bubbleDone: "Done",

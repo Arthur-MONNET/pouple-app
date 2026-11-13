@@ -27,12 +27,22 @@ final class VisibilityTests: XCTestCase {
         Dictionary(uniqueKeysWithValues: layout.items.map { ($0.id, $0.kind) })
     }
 
-    func testDecisionsAndFailuresStayUntilHandledAndWorkIsShownDiscreetly() {
+    func testDecisionsAndFailuresStayUntilHandledAndWorkInProgressHasNoBubble() {
         let layout = BubbleVisibility.layout(
-            requests: [request("w", .analyzing), request("d", .awaitingUser, updatedAgo: 3600), request("f", .failed, updatedAgo: 3600)],
+            requests: [
+                request("q", .queued), request("a", .analyzing), request("p", .applying),
+                request("d", .awaitingUser, updatedAgo: 3600), request("f", .failed, updatedAgo: 3600),
+            ],
             now: now, dismissed: [:]
         )
-        XCTAssertEqual(kinds(layout), ["w": .working, "d": .decision, "f": .failed])
+        XCTAssertEqual(kinds(layout), ["d": .decision, "f": .failed])
+    }
+
+    func testOnlyQueuedAnalyzingAndApplyingCountAsWorkInProgress() {
+        let working: Set<RequestStatus> = [.queued, .analyzing, .applying]
+        for status in [RequestStatus.queued, .analyzing, .awaitingUser, .ready, .applying, .done, .ignored, .failed, .unknown] {
+            XCTAssertEqual(status.isInProgress, working.contains(status), "\(status)")
+        }
     }
 
     func testAnAnswerFadesAfterItsLifetime() {

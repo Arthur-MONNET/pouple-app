@@ -36,6 +36,14 @@ public enum RequestStatus: String, Codable, Sendable {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = RequestStatus(rawValue: raw) ?? .unknown
     }
+
+    /// The AI is still working on it; the user has nothing to do yet.
+    public var isInProgress: Bool {
+        switch self {
+        case .queued, .analyzing, .applying: return true
+        case .awaitingUser, .ready, .done, .ignored, .failed, .unknown: return false
+        }
+    }
 }
 
 public struct RequestSource: Codable, Equatable, Sendable {
@@ -137,6 +145,9 @@ public struct AssistantSnapshot: Codable, Equatable, Sendable {
         self.status = status
         self.requests = requests
     }
+
+    /// At least one request is being worked on.
+    public var isWorking: Bool { requests.contains { $0.status.isInProgress } }
 }
 
 public struct QuestionAnswer: Codable, Equatable, Sendable {

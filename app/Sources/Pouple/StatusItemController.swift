@@ -14,6 +14,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let languageItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let quitItem = NSMenuItem(title: "", action: nil, keyEquivalent: "q")
     private var languageChoices: [Language: NSMenuItem] = [:]
+    private var working = false
+    private var dotShown = true
+    private var blinkTimer: Timer?
+    private static let blinkInterval: TimeInterval = 0.6
 
     var summary: () -> String = { "" }
     var bubblesHidden: () -> Bool = { false }
@@ -54,6 +58,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         refresh()
     }
 
+    /// Shows or hides the "working" dot on the icon. The dot blinks, unless the user asked to reduce motion.
+    func setWorking(_ isWorking: Bool) {
+        guard isWorking != working else { return }
+        working = isWorking
+        dotShown = true
+        blinkTimer?.invalidate()
+        blinkTimer = nil
+        if isWorking, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            blinkTimer = Timer.scheduledTimer(withTimeInterval: Self.blinkInterval, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.dotShown.toggle()
+                    self?.drawIcon()
+                }
+            }
+        }
+        drawIcon()
+        refresh()
+    }
+
+    private func drawIcon() {
+        item.button?.image = StatusIcon.image(badge: working && dotShown)
+    }
+
     /// Updates every title that depends on state or language.
     func refresh() {
         statusLine.title = summary()
@@ -70,8 +97,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let title = L10n.text(.menuStartAtLogin)
         loginItem.title = state.detail().map { L10n.text(.loginWithDetail, title, $0) } ?? title
 
-        item.button?.setAccessibilityLabel(L10n.text(.handleName))
-        item.button?.toolTip = L10n.text(.handleName)
+        let label = working ? "\(L10n.text(.handleName)) – \(L10n.text(.handleWorking))" : L10n.text(.handleName)
+        item.button?.setAccessibilityLabel(label)
+        item.button?.toolTip = label
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

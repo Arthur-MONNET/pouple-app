@@ -2,8 +2,6 @@ import Foundation
 
 /// How a request shows up as a bubble.
 public enum BubbleKind: Equatable, Sendable {
-    /// Codex is still investigating: a discreet one-line pill.
-    case working
     /// The user must decide (a question or a proposed change). Stays until answered.
     case decision
     case failed
@@ -57,7 +55,8 @@ public enum BubbleVisibility {
 
     private static func kind(of request: AssistantRequest, now: Date, lingering: Set<String>) -> BubbleKind? {
         switch request.status {
-        case .queued, .analyzing, .applying: return .working
+        // Work in progress has no bubble: the menu bar icon shows it, so the corner only asks for something to do.
+        case .queued, .analyzing, .applying: return nil
         case .awaitingUser: return .decision
         case .failed: return .failed
         case .ready, .done:

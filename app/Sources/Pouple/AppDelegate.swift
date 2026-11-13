@@ -45,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.start()
         panelController = PanelController(store: store, corner: Self.argument("--corner").flatMap(Corner.init(rawValue:)))
         installStatusItem()
+        store.$snapshot
+            .map { $0?.isWorking ?? false }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.statusController?.setWorking($0) }
+            .store(in: &subscriptions)
 
         supervisor.$state
             .receive(on: DispatchQueue.main)

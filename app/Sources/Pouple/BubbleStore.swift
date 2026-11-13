@@ -176,14 +176,14 @@ final class BubbleStore: ObservableObject {
         self.snapshot = snapshot
         connected = true
         now = Date()
-        // A bubble that just appeared takes the room; a pill that is only working does not steal it.
+        // A bubble that just appeared takes the room.
         let items = layout.items
-        let appeared = items.last { !knownIDs.contains($0.id) && $0.kind != .working }
+        let appeared = items.last { !knownIDs.contains($0.id) }
         knownIDs.formUnion(items.map(\.id))
         if let appeared {
             expandedID = appeared.id
         } else if !items.contains(where: { $0.id == expandedID }) {
-            expandedID = items.last { $0.kind != .working }?.id
+            expandedID = items.last?.id
         }
     }
 
