@@ -141,7 +141,8 @@ struct BubbleCard: View {
     @ViewBuilder private var content: some View {
         switch item.kind {
         case .decision:
-            if let summary = request.summary { MarkdownView(source: summary) }
+            // A proposal says what it changes by its own title: the summary above it would only repeat it.
+            if request.proposal == nil, let summary = request.summary { MarkdownView(source: summary) }
             decision
         case .working:
             work
@@ -201,9 +202,10 @@ struct BubbleCard: View {
     @ViewBuilder private var decision: some View {
         if let proposal = request.proposal {
             VStack(alignment: .leading, spacing: 8) {
-                Text(L10n.text(.bubbleApplyIn, proposal.projectId)).font(.system(size: 13, weight: .semibold))
-                Text(proposal.title).font(.system(size: 12, weight: .medium))
-                Text(proposal.description).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(6).fixedSize(horizontal: false, vertical: true)
+                Text(proposal.title).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                // The full plan is one click away in Pouple: the bubble only gives its beginning.
+                Text(proposal.description).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(L10n.text(.bubbleApplyIn, proposal.projectId)).font(.system(size: 11)).foregroundStyle(Theme.dim)
                 HStack {
                     Button(L10n.text(.bubbleApply)) { store.decide(request, approve: true) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
                     Button(L10n.text(.bubbleNotNow)) { store.decide(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
