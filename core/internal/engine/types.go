@@ -96,8 +96,12 @@ type Request struct {
 	DraftReply  *string         `json:"draftReply"`
 	Questions   []Question      `json:"questions"`
 	Proposal    *Proposal       `json:"proposal"`
-	Entries     []Entry         `json:"entries"`
-	Error       *string         `json:"error"`
+	// Plan is the writes the assistant asks to make, waiting for approval or approved; absent until it writes a plan.
+	Plan *Plan `json:"plan,omitempty"`
+	// Grants are the write approvals given in this conversation; absent until the user approves a plan.
+	Grants  Grants  `json:"grants,omitempty"`
+	Entries []Entry `json:"entries"`
+	Error   *string `json:"error"`
 	// Continuable is set when listed: the AI has a conversation a follow-up can continue.
 	Continuable bool `json:"continuable,omitempty"`
 }

@@ -232,6 +232,33 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   model-output redactor.
 - Concise answers, small-talk skipping, burst merging, attachments (photos analysed), linked docs.
 
+### Plans and grants (being built)
+
+The target is described in [PRODUCT.md](PRODUCT.md), "Writing". The model lives in `core/internal/engine/plan.go`; nothing
+creates a plan yet, and the current proposal flow is unchanged.
+
+- A **scope** is one place a write approval covers: a project folder (`code`), a GitLab project (`gitlab`), an Asana project
+  (`asana`) or a Slite space (`slite`). Only the service and the ID match; the name is for display.
+- An **action** is one typed write. Each kind writes in one service (`code.edit`; `gitlab.push`,
+  `gitlab.merge-request`; `asana.comment`, `asana.create-task`; `slite.write`), so an action can only name a scope of
+  that service. The AI never pushes, calls GitLab or writes in Asana or Slite itself: the core carries out typed
+  actions, each checked against the grants.
+- A **plan** is the investigating AI's goal, a brief restating what the writing needs to know, and its actions.
+  `Plan.Normalize` checks a plan written by the AI before it is shown and refuses, as a bad answer (`ErrOutcome`), one
+  that does not hold together: an unknown kind, a kind in the wrong service, an identifier that is not one of that
+  service (a project folder is a plain folder name directly under the projects root and never hidden, like
+  `projectPath`; a GitLab project is a numeric ID or a `group/project` path; an Asana project a numeric gid; a Slite
+  space a plain ID), a text that is too long, or a character the user would not see as written (control and format
+  characters such as bidirectional overrides; line breaks only in the brief). Nothing is cut: the user approves what
+  the AI wrote. The AI that writes receives the plan, never the request's own text.
+- Approving a plan **grants** each of its scopes with the kinds of action it asked for there, for the rest of the
+  conversation (`Grants.With`, which refuses a plan that is not approved or was not checked). Matching is exact on the
+  service and the ID, so a trimming or case difference asks again. `Grants.Covers` never covers an action whose kind
+  does not write in its scope's service. `Grants.Uncovered` lists the actions that need a new approval: another scope,
+  or another kind in a granted scope. `PlanFingerprint` lets an approval name the plan the user read.
+- `Request.plan` and `Request.grants` are omitted from the JSON until they exist, so the interface sees no change, and
+  conversations saved before them load as they are.
+
 ## Distribution
 
 - GitHub Actions validates the code and publishes source releases from version tags.
