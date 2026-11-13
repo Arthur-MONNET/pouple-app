@@ -271,6 +271,8 @@ export const en: MessageTree = {
       modelPlaceholder: 'Default model of the CLI',
       modelHelp: 'The models come from the AI itself. With no choice, it uses its own default model.',
       modelsLoading: 'Loading the models…',
+      devServers: "Let Pouple start a project's server",
+      devServersHelp: "To take a screenshot of a page, the assistant asks Pouple to start the project's development server, and Pouple waits until it answers. The usual ways (the dev, preprod or start script, vite, next, python -m http.server…) run at once; anything unusual (another script, a shell line, a server open to the network, or a start configuration changed since the last commit) is shown to you first, and runs only if you allow that exact command. A server stops after 30 minutes without use, and when Pouple quits. On by default.",
       web: 'Let the AI use the web',
       webHelp: 'The AI can search the web and read public pages while it investigates, for every request. It still never changes anything by itself: a change waits for your approval, and one proposed after a web search is never applied automatically. The AI is told never to put your code, your messages or any credential in a search or an address. On by default. Applies to the next analysis.',
       test: 'Test',

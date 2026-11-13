@@ -275,6 +275,8 @@ export const fr: MessageTree = {
       modelPlaceholder: "Modèle par défaut du CLI",
       modelHelp: "Les modèles proposés viennent de l'IA elle-même. Sans choix, elle utilise son modèle par défaut.",
       modelsLoading: 'Chargement des modèles…',
+      devServers: "Laisser Pouple démarrer le serveur d'un projet",
+      devServersHelp: "Pour faire la capture d'une page, l'assistant demande à Pouple de démarrer le serveur de développement du projet, et Pouple attend qu'il réponde. Les façons habituelles (le script dev, preprod ou start, vite, next, python -m http.server…) se lancent tout de suite ; tout ce qui sort de l'ordinaire (un autre script, une ligne de shell, un serveur ouvert au réseau, ou une configuration de démarrage modifiée depuis le dernier commit) t'est montré d'abord, et ne se lance que si tu autorises cette commande précise. Un serveur s'arrête après 30 minutes sans usage, et quand Pouple se ferme. Activé par défaut.",
       web: "Laisser l'IA utiliser le web",
       webHelp: "L'IA peut chercher sur le web et lire des pages publiques pendant son enquête, pour toutes les demandes. Elle ne change toujours rien toute seule : un changement attend ton accord, et un changement proposé après une recherche web n'est jamais appliqué automatiquement. L'IA a pour consigne de ne jamais mettre ton code, tes messages ni un identifiant dans une recherche ou une adresse. Activé par défaut. S'applique à la prochaine analyse.",
       test: 'Tester',

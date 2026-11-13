@@ -507,3 +507,135 @@ func TestOnlyTheScreenSizesAreKeptOfAScreenshotLookup(t *testing.T) {
 		t.Fatalf("%+v, %v", outcome.Lookups, err)
 	}
 }
+
+type fakeServers struct {
+	asked []string
+	fail  error
+	// unusual makes the command need the user's approval, as a real server manager would for it.
+	unusual bool
+	allowed []bool
+}
+
+func (f *fakeServers) Serve(_ context.Context, project, script string, allowed bool, say func(string)) (ServedServer, error) {
+	f.asked = append(f.asked, project+" "+script)
+	f.allowed = append(f.allowed, allowed)
+	if f.unusual && !allowed {
+		return ServedServer{}, &ApprovalNeeded{Command: "node server.js --serve", Why: "not a usual way to start a dev server"}
+	}
+	say(project + " (pnpm run preprod)")
+	if f.fail != nil {
+		return ServedServer{}, f.fail
+	}
+	return ServedServer{URL: "http://localhost:8001", Command: "pnpm run preprod"}, nil
+}
+
+func TestTheAIAsksPoupleToStartTheServerAndGetsItsAddressWithoutWaitingForTheUser(t *testing.T) {
+	h := newHarness(t,
+		lookupReply(Lookup{Service: "screenshot", Action: "serve", Target: "pay-vue", Text: "preprod"}),
+		lookupReply(Lookup{Service: "screenshot", Action: "capture", Target: "http://localhost:8001/pv/premium"}),
+		reply(map[string]any{"summary": "**Done**"}))
+	servers := &fakeServers{}
+	h.svc.deps.DevServers = servers
+	h.svc.deps.Screenshots = &fakeBrowser{}
+	h.receive(message("show me the premium page"))
+
+	if len(servers.asked) != 1 || servers.asked[0] != "pay-vue preprod" {
+		t.Fatalf("asked %v", servers.asked)
+	}
+	second := h.codex.turns[1].Prompt
+	if !strings.Contains(second, "answers at http://localhost:8001") || !strings.Contains(second, "do not need to wait or to ask the user") {
+		t.Fatalf("the AI must get the address and be told to go on:\n%s", second)
+	}
+	// And the next round takes the picture, in the same conversation.
+	if len(h.codex.turns) != 3 || len(h.codex.turns[2].Images) != 1 {
+		t.Fatalf("turns %d", len(h.codex.turns))
+	}
+	var journal []string
+	for _, entry := range h.svc.Snapshot().Requests[0].Entries {
+		journal = append(journal, entry.Text)
+	}
+	text := strings.Join(journal, "|")
+	if !strings.Contains(text, "Starting the server of pay-vue (pnpm run preprod)") || !strings.Contains(text, "Server of pay-vue answers at http://localhost:8001") {
+		t.Errorf("the user sees what Pouple does: %v", journal)
+	}
+}
+
+func TestAServerThatFailsIsReportedWithItsReasonAndSecretsRemoved(t *testing.T) {
+	h := newHarness(t, lookupReply(Lookup{Service: "screenshot", Action: "serve", Target: "pay-vue"}), reply(map[string]any{}))
+	h.svc.deps.DevServers = &fakeServers{fail: i18n.NewError("The server stopped before it answered:\nAPI_KEY=sk-live-abcdef123456 EPERM")}
+	h.svc.deps.Redact = func() Redactor { return NewRedactor("sk-live-abcdef123456") }
+	h.receive(message("show me the premium page"))
+
+	prompt := h.codex.turns[1].Prompt
+	if !strings.Contains(prompt, "did not start") || !strings.Contains(prompt, "EPERM") || strings.Contains(prompt, "sk-live-abcdef123456") {
+		t.Fatalf("the reason must reach the AI, without the secret:\n%s", prompt)
+	}
+}
+
+func TestWithoutServerSupportTheAIIsTold(t *testing.T) {
+	h := newHarness(t, lookupReply(Lookup{Service: "screenshot", Action: "serve", Target: "pay-vue"}), reply(map[string]any{}))
+	h.receive(message("show me the premium page"))
+	if !strings.Contains(h.codex.turns[1].Prompt, "Starting a server is not available") {
+		t.Fatalf("%s", h.codex.turns[1].Prompt)
+	}
+}
+
+func TestAnUnusualCommandAsksTheUserAndRunsOnlyAfterTheyAllowIt(t *testing.T) {
+	ask := lookupReply(Lookup{Service: "screenshot", Action: "serve", Target: "pay-vue", Text: "node server.js --serve"})
+	h := newHarness(t, ask, ask, reply(map[string]any{"summary": "**Server is up**"}))
+	servers := &fakeServers{unusual: true}
+	h.svc.deps.DevServers = servers
+	h.receive(message("show me the premium page"))
+
+	got := h.svc.Snapshot().Requests[0]
+	// The analysis stopped on the question: one turn so far, and the user is asked about the exact command.
+	if got.Status != StatusAwaitingUser || len(got.Questions) != 1 || got.Questions[0].ID != "run-command" || len(h.codex.turns) != 1 {
+		t.Fatalf("status %s questions %+v turns %d", got.Status, got.Questions, len(h.codex.turns))
+	}
+	if !strings.Contains(got.Questions[0].Text, "node server.js --serve") || !strings.Contains(got.Questions[0].Text, "pay-vue") {
+		t.Errorf("the question shows what would run: %q", got.Questions[0].Text)
+	}
+	if err := h.svc.Answer(got.ID, []Answer{{QuestionID: "run-command", OptionID: "allow"}}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+
+	// The AI is told, asks again, and this time the command runs.
+	decision := h.codex.turns[1].Prompt
+	if !strings.Contains(decision, "allowed Pouple to run") || !strings.Contains(decision, "node server.js --serve") {
+		t.Fatalf("the AI must be told what the user decided:\n%s", decision)
+	}
+	if len(servers.asked) != 2 || servers.allowed[0] || !servers.allowed[1] {
+		t.Fatalf("it must run only after the approval: %v %v", servers.asked, servers.allowed)
+	}
+	final := h.svc.Snapshot().Requests[0]
+	if final.Status != StatusReady || final.Summary == nil || !strings.Contains(*final.Summary, "Server is up") {
+		t.Fatalf("%+v", final)
+	}
+	if stored, _ := h.svc.deps.Store.Get(final.ID); stored.PendingCommand != nil {
+		t.Error("nothing may stay pending")
+	}
+}
+
+func TestRefusingACommandIsRememberedAndTheAIIsToldNotToAskAgain(t *testing.T) {
+	h := newHarness(t,
+		lookupReply(Lookup{Service: "screenshot", Action: "serve", Target: "pay-vue", Text: "make serve"}),
+		reply(map[string]any{"summary": "**Without it**"}))
+	servers := &fakeServers{unusual: true}
+	h.svc.deps.DevServers = servers
+	h.receive(message("show me the premium page"))
+	id := h.svc.Snapshot().Requests[0].ID
+	if err := h.svc.Answer(id, []Answer{{QuestionID: "run-command", OptionID: "refuse"}}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+	if prompt := h.codex.turns[1].Prompt; !strings.Contains(prompt, "refused") || !strings.Contains(prompt, "Do not ask for it again") {
+		t.Fatalf("%s", prompt)
+	}
+	if stored, _ := h.svc.deps.Store.Get(id); len(stored.ApprovedCommands) != 0 {
+		t.Errorf("a refusal approves nothing: %v", stored.ApprovedCommands)
+	}
+	if len(servers.asked) != 1 {
+		t.Errorf("nothing must run after a refusal: %v", servers.asked)
+	}
+}

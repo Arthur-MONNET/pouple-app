@@ -201,6 +201,10 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 			return i18n.NewError("%s finished without an answer", provider.Name())
 		}
 		results, shots := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks), canAct, &writes)
+		// A command that is not one of the usual ways waits for the user: the analysis goes on with their answer.
+		if s.askToAllowCommand(id) {
+			return nil
+		}
 		// The pictures taken go back to the AI, which looks at them in its next turn.
 		prompt, resume, images = s.deps.Persona().LookupResultsPrompt(results, round == maxLookupRounds-1), thread, shots
 	}
@@ -382,7 +386,20 @@ func (s *Service) Answer(id string, answers []Answer) error {
 		}
 	}
 	prompt := s.deps.Persona().AnswersPrompt(request.Questions, answers)
+	allowedCommand := false
+	if pending := request.PendingCommand; pending != nil && slices.ContainsFunc(request.Questions, func(q Question) bool { return q.ID == commandQuestionID }) {
+		for _, answer := range answers {
+			if answer.QuestionID == commandQuestionID && slices.Contains(answer.chosen(), "allow") {
+				allowedCommand = true
+			}
+		}
+		prompt = s.deps.Persona().CommandDecisionPrompt(*pending, allowedCommand)
+	}
 	s.update(id, func(r *Stored) {
+		if allowedCommand && r.PendingCommand != nil {
+			r.ApprovedCommands = append(r.ApprovedCommands, approvalKey(r.PendingCommand.Project, r.PendingCommand.Asked))
+		}
+		r.PendingCommand = nil
 		// Answering is being in the conversation, even for a question asked before Pouple kept track of it.
 		r.Status, r.Questions, r.Engaged = StatusAnalyzing, []Question{}, true
 		r.Entries = append(r.Entries, s.entry("user", "text", answersText(request.Questions, answers)))

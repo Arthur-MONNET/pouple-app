@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
@@ -137,6 +138,11 @@ type Request struct {
 type Stored struct {
 	Request
 	ThreadID string `json:"threadId,omitempty"`
+	// PendingCommand is a command the assistant asked Pouple to run (a dev server) that is not one of the usual ways: the
+	// user was asked, and nothing runs until they allow it.
+	PendingCommand *PendingCommand `json:"pendingCommand,omitempty"`
+	// ApprovedCommands are the commands the user allowed in this conversation, as project and what was asked.
+	ApprovedCommands []string `json:"approvedCommands,omitempty"`
 	// ServicesUsed is set when text from Asana, GitLab or Slite was given to the analysis: written by other people, it
 	// may have shaped the proposal, so an automatic approval must not apply it.
 	ServicesUsed bool `json:"servicesUsed,omitempty"`
@@ -229,3 +235,16 @@ func (a Answer) chosen() []string {
 func (s Status) reachesUser() bool {
 	return s == StatusAwaitingUser || s == StatusReady || s == StatusFailed || s == StatusDone
 }
+
+// PendingCommand is what the user is asked to allow.
+type PendingCommand struct {
+	Project string `json:"project"`
+	// Asked is what the assistant asked for (a script name or a command), the key of the approval.
+	Asked string `json:"asked"`
+	// Command is exactly what would run.
+	Command string `json:"command"`
+	Why     string `json:"why"`
+}
+
+// approvalKey names an approved command: the project and what was asked.
+func approvalKey(project, asked string) string { return project + "\x00" + strings.TrimSpace(asked) }

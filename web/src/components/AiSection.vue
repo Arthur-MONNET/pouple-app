@@ -17,6 +17,7 @@ const info = ref<ProvidersInfo | null>(null);
 const provider = ref('');
 const model = ref('');
 const webAccess = ref(true);
+const devServers = ref(true);
 const loadError = ref<string | null>(null);
 const error = ref<string | null>(null);
 const autosave = useAutoSave();
@@ -59,7 +60,9 @@ onMounted(async () => {
     info.value = await api.getProviders();
     provider.value = info.value.active;
     model.value = selected.value?.model ?? '';
-    webAccess.value = (await api.getSettings()).webAccess !== false;
+    const settings = await api.getSettings();
+    webAccess.value = settings.webAccess !== false;
+    devServers.value = settings.devServers !== false;
     void loadModels(provider.value);
   } catch (cause) {
     loadError.value = errorMessage(cause);
@@ -89,6 +92,11 @@ function onModel(): void {
 function onWeb(on: boolean): void {
   webAccess.value = on;
   void persist({ webAccess: on });
+}
+
+function onDevServers(on: boolean): void {
+  devServers.value = on;
+  void persist({ devServers: on });
 }
 
 async function test(): Promise<void> {
@@ -129,6 +137,10 @@ async function test(): Promise<void> {
 
       <div class="py-4">
         <ToggleSwitch :model-value="webAccess" :label="$t('settings.ai.web')" :description="$t('settings.ai.webHelp')" data-testid="ai-web-access" @update:model-value="onWeb" />
+      </div>
+
+      <div class="py-4">
+        <ToggleSwitch :model-value="devServers" :label="$t('settings.ai.devServers')" :description="$t('settings.ai.devServersHelp')" data-testid="ai-dev-servers" @update:model-value="onDevServers" />
       </div>
 
       <div class="flex flex-col gap-3 py-4">

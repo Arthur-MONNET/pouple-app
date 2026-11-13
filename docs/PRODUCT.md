@@ -126,6 +126,15 @@ which can look at it: before a visual change, and after it was applied.
 
 - **What may be opened.** Only `localhost` (a dev server the user already runs) and the sites the user lists in Settings,
   never Pouple's own port. The AI chooses the address and the screen size, never a command.
+- **The server.** The assistant cannot start a dev server (its sandbox forbids it) and never has to ask you to. Through a lookup
+  `screenshot` / `serve` it names a project and what to start (nothing for the project's usual script, a script name, or a
+  command), and Pouple starts it outside the sandbox, waits until it listens and answers, however long that takes, and gives
+  the assistant its address. The usual ways run at once: a script named dev, develop, start, serve, preview, preprod or
+  storybook, `vite`, `next`, `nuxt`… (directly or through the package manager), `python3 -m http.server`. Anything else
+  (another script, a shell line, a variable before the command, a server open to the network, or a start configuration
+  such as package.json or vite.config changed since the last commit) is shown to you as a question, and runs only if you
+  allow that exact command, in that conversation. A server must listen on this computer only. At most two servers run; one
+  stops after 30 minutes without use and all stop when Pouple quits. Settings can turn this off.
 - **The browser.** It starts empty and is thrown away afterwards: no account, no cookie, no extension, no download and no
   keychain access. Pouple talks to it over a private pipe, so it listens on no port. Every request the page makes, redirects
   and frames included, is checked against the same rule: pages, frames and calls to a service must go to localhost or a

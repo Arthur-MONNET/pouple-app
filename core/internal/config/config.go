@@ -38,6 +38,9 @@ type Settings struct {
 	// is why a proposal made after a web search is never applied automatically. It replaces the earlier "webAccess"
 	// key, whose stored false could not tell a choice from a default.
 	WebDisabled bool `json:"webDisabled"`
+	// DevServersDisabled stops Pouple from starting a project's development server when the assistant needs to see one of
+	// its pages. Starting them is on unless the user turned it off.
+	DevServersDisabled bool `json:"devServersDisabled"`
 	// ProjectsRoot is the folder with one folder per project: where the AI looks, and where approved changes go.
 	ProjectsRoot string `json:"projectsRoot"`
 	// Language is the language of summaries and questions ("French"); empty uses the system language.

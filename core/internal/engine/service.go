@@ -119,6 +119,10 @@ type Deps struct {
 	AutoApproveAll func() bool
 	// Screenshots takes the pictures of pages the AI asks for; nil when there is no browser to do it.
 	Screenshots Screenshotter
+	// DevServers starts a project's development server for a screenshot; nil when Pouple cannot.
+	DevServers DevServers
+	// OnShutdown is called when the service stops: what it started (servers) goes with it.
+	OnShutdown []func()
 	// Background are long-running tasks (reading the usage of an AI, for one) that live as long as Run does.
 	Background []func(ctx context.Context)
 	// Connected says whether an AI is set up. With UseProvider, it lets a request stopped by one AI's usage limit go
@@ -616,6 +620,9 @@ func (s *Service) Shutdown() {
 	}
 	s.mu.Unlock()
 	s.queue.Wait()
+	for _, stop := range s.deps.OnShutdown {
+		stop()
+	}
 	s.deps.Store.Flush()
 }
 

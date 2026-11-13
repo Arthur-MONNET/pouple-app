@@ -117,8 +117,9 @@ var lookupActions = map[string][]string{
 	"slite":  {"search", "children", "read", "ask"},
 	"gitlab": {"mr", "diff"},
 	"asana":  {"task", "comment"},
-	// screenshot: Pouple opens the page in a browser; the lookup's text is the screen size ("" or "mobile").
-	"screenshot": {"capture"},
+	// screenshot: "capture" opens a page in a browser (the lookup's text is the screen size, "" or "mobile"); "serve" starts
+	// a project's dev server and waits for it (the target is the project, the text the script to start, "" for the usual).
+	"screenshot": {"capture", "serve"},
 }
 
 // ParseOutcome validates the final message of a turn.
@@ -156,7 +157,12 @@ func ParseOutcome(text string) (Outcome, error) {
 		}
 		kept := Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)}
 		if kept.IsScreenshot() {
-			kept.Text = clipRunes(strings.TrimSpace(lookup.Text), 12)
+			// A screen size is a word; what to start is a script name or a command.
+			limit := 12
+			if kept.Action == "serve" {
+				limit = 300
+			}
+			kept.Text = clipRunes(strings.TrimSpace(lookup.Text), limit)
 		}
 		if kept.Writes() {
 			if kept.Text = strings.TrimSpace(lookup.Text); kept.Text == "" {

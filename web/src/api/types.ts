@@ -327,6 +327,8 @@ export interface Settings {
   models?: Record<string, string>;
   /** Lets the AI search the web and read public pages while it investigates. On unless turned off. */
   webAccess?: boolean;
+  /** Whether Pouple may start a project's development server for a screenshot; on unless turned off. */
+  devServers?: boolean;
   /** Which finished GitLab pipelines become conversations; set on the GitLab connector's card. */
   gitlabPipelines?: PipelineMode;
 }

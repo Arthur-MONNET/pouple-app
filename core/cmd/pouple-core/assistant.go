@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
+	"github.com/Arthur-MONNET/pouple/core/internal/devserver"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/pipelinewatch"
@@ -87,12 +89,15 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 	projectsRoot := func() string { return load().ProjectsRoot }
 	language := func() i18n.Lang { return i18n.Parse(load().UILanguage) }
 
+	devServers := devserver.New(projectsRoot, func() bool { return !load().DevServersDisabled }, os.Getenv("SHELL"))
 	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
 		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
 		Events: []engine.EventSource{asanawatch.New(registry)},
 		// The AI cannot run a browser from its sandbox: it names a page, and Pouple opens it on localhost or on a site
 		// the user listed, with an empty profile, and takes the picture.
+		DevServers: devServerStarter{devServers},
+		OnShutdown: []func(){devServers.Shutdown},
 		Screenshots: browserShots{taker: &screenshot.Taker{
 			Hosts:     func() []string { return load().ScreenshotHosts },
 			Forbidden: func() []int { return []int{ownPort} },
@@ -263,4 +268,16 @@ type browserShots struct{ taker *screenshot.Taker }
 
 func (b browserShots) Take(ctx context.Context, address, viewport string, watch engine.BrowserWatch) ([]byte, error) {
 	return b.taker.Take(ctx, address, viewport, &screenshot.Observer{Step: watch.Step, Frame: watch.Frame, Foreign: watch.Foreign})
+}
+
+// devServerStarter lets the engine start servers without knowing about processes.
+type devServerStarter struct{ manager *devserver.Manager }
+
+func (d devServerStarter) Serve(ctx context.Context, project, asked string, allowed bool, say func(string)) (engine.ServedServer, error) {
+	served, err := d.manager.Serve(ctx, project, asked, allowed, say)
+	var approval *devserver.ApprovalError
+	if errors.As(err, &approval) {
+		return engine.ServedServer{}, &engine.ApprovalNeeded{Command: approval.Command, Why: approval.Why}
+	}
+	return engine.ServedServer{URL: served.URL, Command: served.Command, Reused: served.Reused}, err
 }
