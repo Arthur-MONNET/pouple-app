@@ -101,4 +101,6 @@ func TestPipelineTroubleIsANoticeAndDoesNotStopSlack(t *testing.T) {
 	if notices := h.svc.Snapshot().Status.Notices; len(notices) != 0 {
 		t.Fatalf("the notice stays after GitLab answers again: %v", notices)
 	}
+	// The poll saves the pipeline cursor in the background: wait for the write, or the temp folder cleanup races it.
+	h.svc.Idle()
 }
