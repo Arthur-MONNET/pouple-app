@@ -14,8 +14,10 @@ const props = withDefaults(
     submitLabel?: string;
     /** Offer a free-text answer next to the proposed options. */
     allowOther?: boolean;
+    /** Picking an option answers at once; the button is then only for the typed answer. Off for confirmations. */
+    submitOnPick?: boolean;
   }>(),
-  { busy: false, submitLabel: undefined, allowOther: true },
+  { busy: false, submitLabel: undefined, allowOther: true, submitOnPick: true },
 );
 const emit = defineEmits<{ submit: [answers: QuestionAnswer[]] }>();
 
@@ -42,6 +44,13 @@ function isAnswered(item: AssistantQuestion): boolean {
 }
 
 const canContinue = computed(() => isAnswered(question.value));
+const showAction = computed(() => !props.submitOnPick || choices.value[question.value.id] === OTHER);
+
+function pick(optionId: string): void {
+  if (props.busy) return;
+  choices.value[question.value.id] = optionId;
+  if (props.submitOnPick) next();
+}
 
 function next(): void {
   if (!canContinue.value) return;
@@ -72,7 +81,7 @@ function next(): void {
             :aria-checked="choices[question.id] === option.id"
             class="flex w-full items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition motion-reduce:transition-none"
             :class="choices[question.id] === option.id ? 'border-accent bg-selected text-ink' : 'border-line text-ink-muted hover:bg-raised hover:text-ink'"
-            @click="choices[question.id] = option.id"
+            @click="pick(option.id)"
           >
             <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded border border-line-strong font-mono text-2xs">{{ letter(index) }}</span>
             <span class="min-w-0">
@@ -110,7 +119,7 @@ function next(): void {
         </div>
         <div class="ml-auto flex gap-1.5">
           <AppButton v-if="step > 0" variant="ghost" size="sm" @click="step -= 1">{{ $t('question.back') }}</AppButton>
-          <AppButton variant="primary" size="sm" :disabled="!canContinue || busy" @click="next">
+          <AppButton v-if="showAction" variant="primary" size="sm" :disabled="!canContinue || busy" @click="next">
             {{ isLast ? (submitLabel ?? $t('question.send')) : $t('question.next') }}
           </AppButton>
         </div>

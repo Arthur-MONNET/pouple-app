@@ -164,6 +164,7 @@ watch(
       :questions="proposalQuestion"
       :busy="busy"
       :allow-other="false"
+      :submit-on-pick="false"
       submit-label="Confirm"
       @submit="submitProposal"
     />
