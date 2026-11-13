@@ -36,6 +36,8 @@ flowchart LR
   button. A ready answer stays until you press **Done**; a change made is confirmed for a few seconds. A failure stays
   too. At most five bubbles are shown, and only one is open at a time; the others are a single line.
 - **Questions** may let you pick several options together, for example several actions to take.
+- **Files** (images, text) can be dropped on a conversation in the window. Holding a dragged file over a conversation of
+  the list, or over a folded group, for about a second makes it blink twice and open, so the file can be dropped inside.
 - **The mascot** sits on the open bubble and changes pose with what it asks of you: looking for a decision,
   celebrating for a ready answer or an applied change, worried for a failure. It is also the grip to drag the
   panel: on release it snaps to the nearest corner of the screen.

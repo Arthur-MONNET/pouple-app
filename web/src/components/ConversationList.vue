@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { AssistantRequest } from '../api/types';
 import { filterLabel, FILTERS, matchesFilter, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
 import { groupBySource, itemTitle, showsMessageBelow, type ConversationGroup } from '../lib/conversationGroups';
 import { relativeTime } from '../lib/format';
+import { useSpringLoad } from '../composables/useSpringLoad';
 import MascotStage from './MascotStage.vue';
 import StatusDot from './StatusDot.vue';
 
 const props = defineProps<{ requests: AssistantRequest[]; selectedId: string | null; attention: number; loaded: boolean }>();
-defineEmits<{ select: [id: string] }>();
+const emit = defineEmits<{ select: [id: string] }>();
 
 const filter = ref<ConversationFilter>('all');
 const visible = computed(() => props.requests.filter((request) => matchesFilter(request, filter.value)));
@@ -26,6 +27,26 @@ function toggle(key: string): void {
   else next.add(key);
   folded.value = next;
 }
+
+// A file dragged over a conversation, or over a folded group, for a moment opens it, so it can be dropped inside.
+const CONVERSATION = 'conversation:';
+const GROUP = 'group:';
+const springLoad = useSpringLoad(
+  (key) => (key.startsWith(GROUP) ? toggle(key.slice(GROUP.length)) : emit('select', key.slice(CONVERSATION.length))),
+  (key) => (key.startsWith(GROUP) ? !isOpen(key.slice(GROUP.length)) : key.slice(CONVERSATION.length) !== props.selectedId),
+  () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+);
+const blinking = (key: string): boolean => springLoad.target.value === key && springLoad.lit.value;
+
+// A drag that ends anywhere, dropped or not, ends the wait.
+onMounted(() => {
+  window.addEventListener('drop', springLoad.reset);
+  window.addEventListener('dragend', springLoad.reset);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('drop', springLoad.reset);
+  window.removeEventListener('dragend', springLoad.reset);
+});
 
 /** Arrow keys move through the filters, as in any tab strip. */
 function onFilterKey(event: KeyboardEvent): void {
@@ -64,11 +85,15 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
       <li v-for="group in groups" :key="group.key" class="mb-1" data-testid="conversation-group">
         <button
           type="button"
-          class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium text-ink-muted transition hover:text-ink motion-reduce:transition-none"
+          class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-medium transition hover:text-ink motion-reduce:transition-none"
+          :class="{ 'bg-accent/25 text-ink': blinking(GROUP + group.key), 'text-ink-muted': !blinking(GROUP + group.key) }"
           :aria-expanded="isOpen(group.key)"
           :aria-controls="`group-${group.key}`"
           :aria-label="$t('groups.toggle', { name: group.label })"
           @click="toggle(group.key)"
+          @dragenter.prevent="springLoad.enter(GROUP + group.key, $event)"
+          @dragover.prevent
+          @dragleave="springLoad.leave(GROUP + group.key, $event)"
         >
           <svg class="size-3 shrink-0 transition-transform motion-reduce:transition-none" :class="isOpen(group.key) ? 'rotate-90' : ''" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" /></svg>
           <span class="min-w-0 flex-1 truncate">{{ group.label }}</span>
@@ -80,10 +105,13 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
             <button
               type="button"
               class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-raised motion-reduce:transition-none"
-              :class="request.id === selectedId ? 'bg-selected' : ''"
+              :class="{ 'bg-selected': request.id === selectedId && !blinking(CONVERSATION + request.id), 'bg-accent/25': blinking(CONVERSATION + request.id) }"
               :aria-current="request.id === selectedId ? 'true' : undefined"
               data-testid="conversation-item"
-              @click="$emit('select', request.id)"
+              @click="emit('select', request.id)"
+              @dragenter.prevent="springLoad.enter(CONVERSATION + request.id, $event)"
+              @dragover.prevent
+              @dragleave="springLoad.leave(CONVERSATION + request.id, $event)"
             >
               <StatusDot :status="request.status" class="mt-1.5" />
               <span class="min-w-0 flex-1">
