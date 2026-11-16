@@ -38,6 +38,8 @@ type Settings struct {
 	// is why a proposal made after a web search is never applied automatically. It replaces the earlier "webAccess"
 	// key, whose stored false could not tell a choice from a default.
 	WebDisabled bool `json:"webDisabled"`
+	// StyleDisabled stops Pouple from learning how the user writes from their Slack messages. Learning is on unless turned off.
+	StyleDisabled bool `json:"styleDisabled"`
 	// DevServersDisabled stops Pouple from starting a project's development server when the assistant needs to see one of
 	// its pages. Starting them is on unless the user turned it off.
 	DevServersDisabled bool `json:"devServersDisabled"`

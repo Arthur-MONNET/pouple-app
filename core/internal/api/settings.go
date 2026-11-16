@@ -32,6 +32,9 @@ type Settings struct {
 	Models map[string]string `json:"models"`
 	// WebAccess is whether the AI may search the web and read public pages: on unless the user turned it off.
 	WebAccess bool `json:"webAccess"`
+	// LearnStyle is whether Pouple learns how the user writes from their Slack messages, to draft replies in that style: on
+	// unless turned off.
+	LearnStyle bool `json:"learnStyle"`
 	// DevServers is whether Pouple may start a project's development server for a screenshot: on unless turned off.
 	DevServers bool `json:"devServers"`
 	// GitLabPipelines is which finished pipelines become requests: "all", "failures" or "off".
@@ -46,7 +49,7 @@ func viewOf(s config.Settings) Settings {
 	return Settings{
 		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
 		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels, ScreenshotHosts: nonNil(s.ScreenshotHosts),
-		Provider: string(s.ActiveProvider()), Models: models, WebAccess: !s.WebDisabled, DevServers: !s.DevServersDisabled, GitLabPipelines: s.GitLabPipelines,
+		Provider: string(s.ActiveProvider()), Models: models, WebAccess: !s.WebDisabled, DevServers: !s.DevServersDisabled, LearnStyle: !s.StyleDisabled, GitLabPipelines: s.GitLabPipelines,
 	}
 }
 
@@ -81,6 +84,7 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				Models     map[string]string `json:"models"`
 				WebAccess  *bool             `json:"webAccess"`
 				DevServers *bool             `json:"devServers"`
+				LearnStyle *bool             `json:"learnStyle"`
 				// GitLabPipelines is "all", "failures" or "off".
 				GitLabPipelines *string `json:"gitlabPipelines"`
 			}
@@ -127,6 +131,9 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 				if patch.DevServers != nil {
 					s.DevServersDisabled = !*patch.DevServers
+				}
+				if patch.LearnStyle != nil {
+					s.StyleDisabled = !*patch.LearnStyle
 				}
 				if patch.GitLabPipelines != nil {
 					s.GitLabPipelines = *patch.GitLabPipelines

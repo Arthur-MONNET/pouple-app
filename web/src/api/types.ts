@@ -196,6 +196,14 @@ export interface ChatEntry {
   attachments?: AttachmentRef[];
 }
 
+/** What is known of the user's learned writing style (the style itself stays in the core). */
+export interface StyleInfo {
+  learned: boolean;
+  learnedAt?: string;
+  /** How many of their messages it was learned from. */
+  from?: number;
+}
+
 /** The browser at work for a conversation (a screenshot being taken): what it opens and what it is doing. */
 export interface BrowserState {
   url: string;
@@ -329,6 +337,8 @@ export interface Settings {
   webAccess?: boolean;
   /** Whether Pouple may start a project's development server for a screenshot; on unless turned off. */
   devServers?: boolean;
+  /** Whether Pouple learns how the user writes from their Slack messages, to draft replies in that style; on unless turned off. */
+  learnStyle?: boolean;
   /** Which finished GitLab pipelines become conversations; set on the GitLab connector's card. */
   gitlabPipelines?: PipelineMode;
 }

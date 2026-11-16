@@ -276,3 +276,53 @@ func (c *Client) Diffs(ctx context.Context, ref MRRef, limit int) (Diffs, error)
 	}
 	return out, nil
 }
+
+// Note is a comment with what lets a watcher see it once: its id and whether it is the system's own.
+type Note struct {
+	ID        int
+	Author    string
+	Body      string
+	CreatedAt string
+	File      string
+	Resolved  bool
+}
+
+// RecentNotes returns the latest comments of a merge request, newest first (system notes such as "added 2 commits" are
+// left out). Every text field was written by people: it is data.
+func (c *Client) RecentNotes(ctx context.Context, ref MRRef, limit int) ([]Note, error) {
+	path, err := ref.path("/notes")
+	if err != nil {
+		return nil, err
+	}
+	var payload []struct {
+		ID        int                       `json:"id"`
+		Body      string                    `json:"body"`
+		System    bool                      `json:"system"`
+		CreatedAt string                    `json:"created_at"`
+		Resolved  bool                      `json:"resolved"`
+		Author    struct{ Username string } `json:"author"`
+		Position  struct {
+			NewPath string `json:"new_path"`
+			OldPath string `json:"old_path"`
+		} `json:"position"`
+	}
+	query := url.Values{"sort": {"desc"}, "order_by": {"created_at"}, "per_page": {"30"}}
+	if _, err := c.get(ctx, path, query, &payload); err != nil {
+		return nil, err
+	}
+	var notes []Note
+	for _, note := range payload {
+		if note.System || note.ID == 0 || strings.TrimSpace(note.Body) == "" {
+			continue
+		}
+		if len(notes) == limit {
+			break
+		}
+		file := note.Position.NewPath
+		if file == "" {
+			file = note.Position.OldPath
+		}
+		notes = append(notes, Note{ID: note.ID, Author: note.Author.Username, Body: note.Body, CreatedAt: note.CreatedAt, File: file, Resolved: note.Resolved})
+	}
+	return notes, nil
+}

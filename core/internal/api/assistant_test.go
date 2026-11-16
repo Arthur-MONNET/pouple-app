@@ -52,6 +52,10 @@ func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", 
 func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }
 func (f *fakeAssistant) Remove(id string) error      { return f.record("remove", id) }
 func (f *fakeAssistant) Stop(id string) error        { return f.record("stop", id) }
+func (f *fakeAssistant) StyleInfo() engine.StyleInfo {
+	return engine.StyleInfo{Learned: true, From: 40}
+}
+func (f *fakeAssistant) ForgetStyle() error { return f.record("forget-style") }
 func (f *fakeAssistant) BrowserFrame(id string) ([]byte, bool) {
 	if id == "live" {
 		return []byte("\xff\xd8jpeg"), true

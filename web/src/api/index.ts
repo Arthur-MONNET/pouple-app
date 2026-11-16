@@ -28,6 +28,8 @@ export async function createApi(): Promise<PoupleApi> {
       uploadAttachment: mock.uploadAttachment,
       getAttachment: mock.getAttachment,
       getBrowserFrame: mock.getBrowserFrame,
+      getStyle: mock.getStyle,
+      forgetStyle: mock.forgetStyle,
     };
   }
   if (import.meta.env.VITE_MOCK_BRIDGE !== '0') installMockBridge();

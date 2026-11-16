@@ -60,6 +60,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
+  const style = { learned: true };
   const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all' };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
@@ -323,6 +324,15 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       await sleep(latency + slow(300));
       uploads += 1;
       return { id: `att-${uploads}`, name: file.name || 'file', mime: file.type, size: file.size, kind: file.type.startsWith('image/') ? 'image' : 'text' };
+    },
+    async getStyle() {
+      await wait();
+      return { learned: style.learned, ...(style.learned && { learnedAt: new Date().toISOString(), from: 42 }) };
+    },
+    async forgetStyle() {
+      await wait();
+      style.learned = false;
+      return { learned: false };
     },
     async getBrowserFrame() {
       await wait();

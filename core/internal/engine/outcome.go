@@ -17,7 +17,7 @@ const OutcomeSchema = `{
   "required": ["outcome", "summary", "reply", "questions", "proposal", "sourcesUsed", "lookups"],
   "properties": {
     "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
-    "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup"]},
+    "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup", "no_change"]},
     "summary": {"type": "string"},
     "lookups": {
       "type": "array",
@@ -72,6 +72,8 @@ const (
 	ProposesChange = "proposes_change"
 	// LookupOutcome is not an answer: the AI wants more from a connected service first.
 	LookupOutcome = "lookup"
+	// NoChange is the answer to new messages of a thread that change nothing of what was said or proposed.
+	NoChange = "no_change"
 )
 
 var contextSources = []string{"memory", "slack", "files", "docs", "asana", "gitlab", "slite"}
@@ -117,10 +119,10 @@ var lookupActions = map[string][]string{
 	"slite":  {"search", "children", "read", "ask"},
 	"gitlab": {"mr", "diff"},
 	"asana":  {"task", "comment"},
+	// slack: "search" looks for messages like Slack's search box does; "thread" and "around" open a message found by it.
+	"slack": {"search", "thread", "around"},
 	// screenshot: "capture" opens a page in a browser (the lookup's text is the screen size, "" or "mobile"); "serve" starts
 	// a project's dev server and waits for it (the target is the project, the text the script to start, "" for the usual).
-	// slack: "search" looks for messages like Slack's search box does; "thread" and "around" open a message found by it.
-	"slack":      {"search", "thread", "around"},
 	"screenshot": {"capture", "serve"},
 }
 
@@ -130,7 +132,7 @@ func ParseOutcome(text string) (Outcome, error) {
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI did not answer with the expected JSON")
 	}
-	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome}, raw.Outcome) {
+	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome, NoChange}, raw.Outcome) {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI answered with an unexpected shape")
 	}
 	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}}

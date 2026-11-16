@@ -184,6 +184,23 @@ func (c *Client) CountOpenMergeRequests(ctx context.Context) (int, error) {
 	return total, err
 }
 
+// OpenMine lists the open merge requests the user wrote, the latest changed first. It is lighter than Overview: no
+// review list and no pipeline lookups.
+func (c *Client) OpenMine(ctx context.Context) ([]MergeRequest, error) {
+	payloads, _, err := c.list(ctx, url.Values{"scope": {"created_by_me"}}, listSize)
+	if err != nil {
+		return nil, err
+	}
+	var out []MergeRequest
+	for _, payload := range payloads {
+		if mr, ok := payload.toMergeRequest(); ok {
+			mr.WebURL = c.ownLink(mr.WebURL)
+			out = append(out, mr)
+		}
+	}
+	return out, nil
+}
+
 // Overview is the user's open merge requests and the ones waiting for their review.
 type Overview struct {
 	Mine          []MergeRequest

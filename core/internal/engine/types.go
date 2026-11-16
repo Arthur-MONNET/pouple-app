@@ -138,6 +138,9 @@ type Request struct {
 type Stored struct {
 	Request
 	ThreadID string `json:"threadId,omitempty"`
+	// ThreadSeen are the Slack timestamps of the messages of this thread that were read quietly after the conversation
+	// started, so none is read twice.
+	ThreadSeen []string `json:"threadSeen,omitempty"`
 	// PendingCommand is a command the assistant asked Pouple to run (a dev server) that is not one of the usual ways: the
 	// user was asked, and nothing runs until they allow it.
 	PendingCommand *PendingCommand `json:"pendingCommand,omitempty"`

@@ -716,3 +716,31 @@ func (i *Inbox) toIncoming(ctx context.Context, c candidate, userID string) (Inc
 	}
 	return Incoming{Source: source, Text: names.readable(ctx, hit.text), Context: strings.Join(lines, "\n"), Files: files}, nil
 }
+
+// OwnMessages returns the text of the latest messages the user wrote themselves, newest first, to learn how they write.
+// Messages too short to show a style, code and bare links are left out, and each is cut to a few hundred characters.
+func (i *Inbox) OwnMessages(ctx context.Context, limit int) ([]string, error) {
+	userID, _, err := i.client.Identity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hits, err := i.client.search(ctx, "from:<@"+userID+">", min(max(limit*2, 20), 100))
+	if err != nil {
+		return nil, err
+	}
+	var texts []string
+	for _, hit := range hits {
+		text := strings.TrimSpace(hit.text)
+		if hit.userID != userID || len([]rune(text)) < 15 || strings.Contains(text, "```") || (strings.HasPrefix(text, "<http") && !strings.Contains(text, " ")) {
+			continue
+		}
+		if runes := []rune(text); len(runes) > 400 {
+			text = string(runes[:400])
+		}
+		texts = append(texts, text)
+		if len(texts) == limit {
+			break
+		}
+	}
+	return texts, nil
+}

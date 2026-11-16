@@ -81,6 +81,15 @@ func (s *slackSource) Poll(ctx context.Context, cursor *engine.Cursor) (engine.P
 	return result, nil
 }
 
+// OwnMessages returns the latest messages the user wrote themselves, to learn their style.
+func (s *slackSource) OwnMessages(ctx context.Context, limit int) ([]string, error) {
+	_, inbox, err := s.cached()
+	if err != nil {
+		return nil, err
+	}
+	return inbox.OwnMessages(ctx, limit)
+}
+
 func (s *slackSource) Fetch(ctx context.Context, file engine.PendingFile) ([]byte, error) {
 	client, _, err := s.cached()
 	if err != nil {

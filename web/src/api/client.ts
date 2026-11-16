@@ -15,6 +15,7 @@ import type {
   ProvidersInfo,
   Settings,
   SettingsPatch,
+  StyleInfo,
   UpdateInfo,
 } from './types';
 
@@ -75,6 +76,10 @@ export interface PoupleApi {
   getAttachment(requestId: string, attachmentId: string): Promise<Blob>;
   /** The last picture (JPEG) the browser drew for a conversation; rejects when no browser is open. */
   getBrowserFrame(requestId: string): Promise<Blob>;
+  /** Whether the user's writing style was learned, and since when. */
+  getStyle(): Promise<StyleInfo>;
+  /** Makes Pouple forget the learned style. */
+  forgetStyle(): Promise<StyleInfo>;
 }
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -187,5 +192,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     getAttachment: async (requestId, attachmentId) =>
       (await send(assistant(requestId, `/attachments/${enc(attachmentId)}`))).blob(),
     getBrowserFrame: async (requestId) => (await send(assistant(requestId, '/browser'))).blob(),
+    getStyle: () => read<StyleInfo>('/api/assistant/style'),
+    forgetStyle: () => read<StyleInfo>('/api/assistant/style', { method: 'DELETE' }),
   };
 }

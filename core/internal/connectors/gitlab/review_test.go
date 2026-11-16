@@ -166,3 +166,29 @@ func TestAReferenceThatIsNotValidNeverReachesTheNetwork(t *testing.T) {
 		}
 	}
 }
+
+func TestRecentNotesAreNewestFirstWithTheirIdAndWithoutSystemNotes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.RawQuery, "sort=desc") || r.Header.Get("Private-Token") != "t" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`[
+			{"id":9,"body":"Please fix","system":false,"created_at":"2026-11-13T12:00:00Z","author":{"username":"gael"},"position":{"new_path":"src/a.ts"}},
+			{"id":8,"body":"added 2 commits","system":true,"created_at":"2026-11-13T11:00:00Z","author":{"username":"bot"}},
+			{"id":7,"body":"  ","system":false,"created_at":"2026-11-13T10:00:00Z","author":{"username":"x"}},
+			{"id":6,"body":"Earlier","system":false,"created_at":"2026-11-13T09:00:00Z","author":{"username":"thibaut"}}]`))
+	}))
+	defer server.Close()
+	client := &Client{api: server.URL, token: "t", http: server.Client()}
+	notes, err := client.RecentNotes(context.Background(), MRRef{Project: "dating/pay-vue", IID: 93}, 10)
+	if err != nil || len(notes) != 2 || notes[0].ID != 9 || notes[0].File != "src/a.ts" || notes[1].Author != "thibaut" {
+		t.Fatalf("%+v %v", notes, err)
+	}
+	if limited, _ := client.RecentNotes(context.Background(), MRRef{Project: "dating/pay-vue", IID: 93}, 1); len(limited) != 1 {
+		t.Fatalf("the limit: %+v", limited)
+	}
+	if _, err := client.RecentNotes(context.Background(), MRRef{Project: "../x", IID: 1}, 10); err == nil {
+		t.Fatal("a project path that could aim elsewhere must be refused")
+	}
+}

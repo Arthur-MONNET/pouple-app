@@ -161,10 +161,10 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 |---|---|---|
 | Writing code | One proposal, approved, then an isolated writing turn that never sees the Slack text. It writes in your project folder. | A frozen plan approved by you, a scope per project, free work inside it, a worktree by default, then branch, push and merge request. |
 | Writing in services | Read-only. A comment is possible only on a request you made yourself. | Writes in Asana, Slite and GitLab inside the approved scope. |
-| Sources | Slack, finished GitLab pipelines, and Asana (a task assigned to you, a comment that mentions you on one of your tasks). | Plus feedback on your merge requests. |
-| Reading | A fixed number of lookup rounds. | No limit. |
-| Replies | A neutral, short suggested text. | Written in your learned style. |
-| Thread updates | Not followed. | Taken into account silently. |
+| Sources | Slack, finished GitLab pipelines, feedback on your merge requests (one request per merge request and per poll, holding its new comments), and Asana (a task assigned to you, a comment that mentions you on one of your tasks). | Done. |
+| Reading | Up to 12 lookup rounds per question (a bound so that an AI that never settles ends); no other limit, the usage is shown. | No limit. |
+| Replies | Written in your learned style: a short description of how you write, learned from about 80 of your own Slack messages (every two weeks; Settings can switch it off and make Pouple forget it). | Done. |
+| Thread updates | A message in the Slack thread of a conversation that is still open (an answer or a question waiting) is read quietly in the conversation the assistant already has: it answers `no_change` and nothing reaches you, or it updates what it said and you are told. A closed or ignored conversation opens a new request. | Done. |
 
 ## Open points
 
@@ -180,8 +180,6 @@ These are not decided or not verified. None of them changes the decisions above,
   (for example, whether a new file, a dependency change or a CI change needs its own line in the plan) is to be defined.
 - **Sensitive changes.** The list of changes that always ask you, even inside an approved scope, is to be defined (for
   example: deleting files, rewriting history, changing CI, changing dependencies).
-- **Learning your style.** Which past messages are read, how many, where the result is stored, and how you reset it.
-- **Silent update of a thread.** What counts as "changes what it proposes", and how Pouple tells you when it does.
 - **Screenshots of localhost.** Opening a page on localhost runs that page's scripts and makes GET requests to your own
   dev servers, which a few tools answer with an action (opening a file in the editor, for example). The AI picks the
   address, so a message from someone else could try one. To decide: ask before a screenshot of a request that came from

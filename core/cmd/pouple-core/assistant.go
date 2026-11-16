@@ -17,6 +17,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/devserver"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/mrwatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/pipelinewatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 	"github.com/Arthur-MONNET/pouple/core/internal/screenshot"
@@ -89,11 +90,12 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 	projectsRoot := func() string { return load().ProjectsRoot }
 	language := func() i18n.Lang { return i18n.Parse(load().UILanguage) }
 
+	style := engine.NewStyleStore(filepath.Join(dir, "style.json"))
 	devServers := devserver.New(projectsRoot, func() bool { return !load().DevServersDisabled }, os.Getenv("SHELL"))
 	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
 		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
-		Events: []engine.EventSource{asanawatch.New(registry)},
+		Events: []engine.EventSource{asanawatch.New(registry), mrwatch.New(registry)},
 		// The AI cannot run a browser from its sandbox: it names a page, and Pouple opens it on localhost or on a site
 		// the user listed, with an empty profile, and takes the picture.
 		DevServers: devServerStarter{devServers},
@@ -103,7 +105,22 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			Forbidden: func() []int { return []int{ownPort} },
 		}},
 		// Claude reports its windows only during a turn: its own /usage command gives the real ones, at any time.
-		Background: []func(context.Context){(&engine.ClaudeUsageWatcher{
+		Background: []func(context.Context){(&engine.StyleLearner{
+			Store: style, Messages: slack.OwnMessages,
+			Enabled:   func() bool { return !load().StyleDisabled },
+			Connected: func() bool { return load().Connected("slack") && load().Connected(string(load().Selection().Provider)) },
+			Persona:   func() engine.Persona { return personaOf(registry, load()) },
+			Ask: func(ctx context.Context, prompt string) (string, error) {
+				selection := load().Selection()
+				provider, ok := aiProviders[selection.Provider]
+				if !ok {
+					return "", errors.New("no AI is available")
+				}
+				result, err := provider.Run(ctx, engine.Turn{Prompt: prompt, Dir: scratch, Sandbox: engine.ReadOnly, Model: selection.Model})
+				return result.FinalMessage, err
+			},
+			OnError: func(err error) { logf("style: %v", err) },
+		}).Run, (&engine.ClaudeUsageWatcher{
 			Runner: claudeRunner, Meter: meter, Every: time.Minute,
 			Connected: func() bool { return load().Connected(string(providers.Claude)) },
 			OnError:   func(err error) { logf("%v", err) },
@@ -111,10 +128,18 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 		Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
-		Services:     gatherer.Gather,
-		Lookups:      gatherer.Lookup,
-		WebAccess:    func() bool { return !load().WebDisabled },
-		Persona:      func() engine.Persona { return personaOf(registry, load()) },
+		Services:  gatherer.Gather,
+		Lookups:   gatherer.Lookup,
+		WebAccess: func() bool { return !load().WebDisabled },
+		Persona: func() engine.Persona {
+			persona := personaOf(registry, load())
+			// The style is used only while learning it is on; switching it off stops using it at once.
+			if !load().StyleDisabled {
+				persona.Style = style.Profile()
+			}
+			return persona
+		},
+		Style:        style,
 		Language:     language,
 		ProjectsRoot: projectsRoot,
 		ProtectedDir: dir,

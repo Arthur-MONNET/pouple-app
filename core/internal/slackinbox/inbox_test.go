@@ -1046,3 +1046,32 @@ func TestThreadHints(t *testing.T) {
 		}
 	})
 }
+
+func TestOwnMessagesAreTheUsersLongEnoughPlainTextOnes(t *testing.T) {
+	mine := func(text string) hitSpec {
+		return hit(func(h *hitSpec) { h.user, h.text = me, text })
+	}
+	long := strings.Repeat("x", 600)
+	h := newHarness(t, world{myThreads: []hitSpec{
+		mine("salut, je regarde ça cet après-midi"),
+		mine("ok"),
+		mine("<https://example.com/a-long-link-without-any-words-around-it>"),
+		mine("voilà le code ```const a = 1``` pour toi"),
+		mine(long),
+		hit(func(s *hitSpec) { s.user, s.text = "U9", "a message of somebody else, long enough" }),
+	}}, Options{})
+	texts, err := h.inbox.OwnMessages(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(texts) != 2 || texts[0] != "salut, je regarde ça cet après-midi" || len([]rune(texts[1])) != 400 {
+		t.Fatalf("%q", texts)
+	}
+	if limited, _ := h.inbox.OwnMessages(context.Background(), 1); len(limited) != 1 {
+		t.Fatalf("the limit: %d", len(limited))
+	}
+	searches := h.fake.callsTo("search.messages")
+	if len(searches) == 0 || searches[0].form.Get("query") != "from:<@"+me+">" {
+		t.Fatalf("it must search the user's own messages only: %+v", searches)
+	}
+}

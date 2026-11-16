@@ -31,6 +31,9 @@ type Assistant interface {
 	Stop(id string) error
 	// BrowserFrame is the last picture the browser drew while it worked for a conversation; false when none is open.
 	BrowserFrame(id string) ([]byte, bool)
+	// StyleInfo says whether the user's writing style was learned; ForgetStyle removes it.
+	StyleInfo() engine.StyleInfo
+	ForgetStyle() error
 }
 
 const (
@@ -168,6 +171,17 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 				return i18n.Wrap(engine.ErrInput, "%s", err)
 			}
 			writeJSON(w, http.StatusCreated, ref)
+			return nil
+		})
+		handle("GET /api/assistant/style", func(w http.ResponseWriter, r *http.Request) error {
+			writeJSON(w, http.StatusOK, assistant.StyleInfo())
+			return nil
+		})
+		handle("DELETE /api/assistant/style", func(w http.ResponseWriter, r *http.Request) error {
+			if err := assistant.ForgetStyle(); err != nil {
+				return err
+			}
+			writeJSON(w, http.StatusOK, assistant.StyleInfo())
 			return nil
 		})
 		handle("GET /api/assistant/requests/{id}/browser", func(w http.ResponseWriter, r *http.Request) error {

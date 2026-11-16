@@ -119,6 +119,8 @@ type Deps struct {
 	AutoApproveAll func() bool
 	// Screenshots takes the pictures of pages the AI asks for; nil when there is no browser to do it.
 	Screenshots Screenshotter
+	// Style is the learned writing style of the user, to show what is known of it and to forget it; nil when none is kept.
+	Style *StyleStore
 	// DevServers starts a project's development server for a screenshot; nil when Pouple cannot.
 	DevServers DevServers
 	// OnShutdown is called when the service stops: what it started (servers) goes with it.
@@ -160,8 +162,12 @@ type Service struct {
 	// eventNotices are why each event source could not be read, by source name.
 	eventNotices map[string]i18n.Message
 	// browsers are the browsers at work, by request id.
-	browsers   map[string]*liveBrowser
-	lastPollAt *string
+	browsers map[string]*liveBrowser
+	// threadPending are the thread messages waiting to be read quietly, by request id; threadScheduled says a read is
+	// already queued for it, which will take all of them.
+	threadPending   map[string][]Incoming
+	threadScheduled map[string]bool
+	lastPollAt      *string
 	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
 	pausedUntil  map[providers.ID]time.Time
 	loginProblem map[providers.ID]bool
@@ -224,6 +230,26 @@ func (s *Service) Subscribe() (<-chan struct{}, func()) {
 		delete(s.subscribers, channel)
 		s.mu.Unlock()
 	}
+}
+
+// StyleInfo says whether the user's writing style was learned, and since when.
+func (s *Service) StyleInfo() StyleInfo {
+	if s.deps.Style == nil {
+		return StyleInfo{}
+	}
+	return s.deps.Style.Info()
+}
+
+// ForgetStyle removes what was learned of the user's writing style.
+func (s *Service) ForgetStyle() error {
+	if s.deps.Style == nil {
+		return nil
+	}
+	if err := s.deps.Style.Forget(); err != nil {
+		return err
+	}
+	s.broadcast()
+	return nil
 }
 
 // UsageChanged tells the clients that the usage of the AIs changed, so they show it at once.
@@ -473,6 +499,15 @@ func (s *Service) pollEvents(ctx context.Context) {
 }
 
 func (s *Service) receive(in Incoming) {
+	// A message in the thread of an open conversation is read quietly there.
+	if s.followThread(in) {
+		return
+	}
+	s.receiveNew(in)
+}
+
+// receiveNew turns a message into a request of its own, or joins it to the one of the same person that still waits.
+func (s *Service) receiveNew(in Incoming) {
 	if s.mergeIntoWaiting(in) {
 		return
 	}

@@ -122,9 +122,13 @@ func TestTheAIGetsWhatItAskedForAndAnswersInTheSameConversation(t *testing.T) {
 	}
 }
 
-func TestLookupsStopAfterThreeRounds(t *testing.T) {
+func TestLookupsStopAfterTheLastRound(t *testing.T) {
 	one := lookupReply(Lookup{Service: "slite", Action: "search", Target: "again"})
-	h := newHarness(t, one, one, one, one, reply(map[string]any{}))
+	steps := make([]func(context.Context, Turn) (TurnResult, error), 0, maxLookupRounds+2)
+	for i := 0; i <= maxLookupRounds; i++ {
+		steps = append(steps, one)
+	}
+	h := newHarness(t, append(steps, reply(map[string]any{}))...)
 	rounds := 0
 	h.svc.deps.Lookups = func(context.Context, []Lookup) ServiceContext { rounds++; return ServiceContext{Text: "nothing"} }
 	h.receive(message("where are the app versions?"))

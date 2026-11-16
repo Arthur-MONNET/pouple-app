@@ -155,8 +155,9 @@ func (s *Service) describeFiles(refs []AttachmentRef) (string, []string) {
 	return strings.Join(lines, "\n"), images
 }
 
-// maxLookupRounds is how many times the AI may ask a connected service for more before it must answer.
-const maxLookupRounds = 3
+// maxLookupRounds is how many times the AI may ask a connected service for more before it must answer. Reading costs the
+// user nothing but usage, which is shown: the bound is only there so that an AI that never settles ends.
+const maxLookupRounds = 12
 
 // runInvestigation runs the AI until it gives an answer. When it asks for lookups instead, they are run here (the
 // credentials never leave this process) and the results go back into the same conversation.
@@ -167,8 +168,12 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 	asks, writes := 0, 0
 	for round := 0; ; round++ {
 		web := s.webAllowed()
+		silent := isSilent(ctx)
 		s.update(id, func(r *Stored) {
-			r.Status, r.Error = StatusAnalyzing, nil
+			// A quiet read of a thread leaves the conversation as it is until the assistant has something to change.
+			if !silent {
+				r.Status, r.Error = StatusAnalyzing, nil
+			}
 			r.WebUsed = r.WebUsed || web
 		})
 		result, provider, err := s.runProvider(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images, Web: web}, true)
@@ -183,6 +188,14 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 			return err
 		}
 		outcome = outcome.Redact(s.deps.Redact())
+		if outcome.Outcome == NoChange {
+			if silent {
+				s.noteThreadChecked(id)
+				return nil
+			}
+			// Nothing was being reconsidered: there is nothing to leave as it was, so it is an answer like another.
+			outcome.Outcome = Answered
+		}
 		if outcome.Outcome != LookupOutcome {
 			s.noteServiceSources(id, outcome)
 			s.applyOutcome(id, outcome)
