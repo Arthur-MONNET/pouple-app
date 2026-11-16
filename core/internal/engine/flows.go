@@ -167,6 +167,9 @@ const maxLookupRounds = 12
 func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume string, images []string, canAct bool) error {
 	asks, writes := 0, 0
 	for round := 0; ; round++ {
+		// Two levels of trust. What others wrote is investigated read-only. Once the user approved a plan, what they type
+		// themselves is worked on directly, like in their own terminal.
+		direct := canAct && s.trusted(id)
 		web := s.webAllowed()
 		silent := isSilent(ctx)
 		s.update(id, func(r *Stored) {
@@ -175,9 +178,14 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 				r.Status, r.Error = StatusAnalyzing, nil
 			}
 			r.WebUsed = r.WebUsed || web
-			r.ForeignSinceGrant = r.ForeignSinceGrant || web
+			// The web read for the user, at their request, is theirs; the web read for a request of others is not.
+			r.ForeignSinceGrant = r.ForeignSinceGrant || (web && !direct)
 		})
-		result, provider, err := s.runProvider(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images, Web: web}, true)
+		turn := Turn{Prompt: s.clockNote() + prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images, Web: web}
+		if direct {
+			turn.Sandbox = FullAccess
+		}
+		result, provider, err := s.runProvider(ctx, id, turn, true)
 		if err != nil {
 			return err
 		}
@@ -301,7 +309,13 @@ func limitAsks(lookups []Lookup, asked *int) []Lookup {
 // automatically (WebUsed).
 func (s *Service) webAllowed() bool { return s.deps.WebAccess != nil && s.deps.WebAccess() }
 
+// applyOutcome shows what the AI answered, and the reminders it suggested with it.
 func (s *Service) applyOutcome(id string, outcome Outcome) {
+	s.showOutcome(id, outcome)
+	s.attachReminders(id, outcome)
+}
+
+func (s *Service) showOutcome(id string, outcome Outcome) {
 	summary := s.entry("assistant", "text", outcome.Summary)
 	switch outcome.Outcome {
 	case NotARequest:
@@ -522,7 +536,7 @@ func (s *Service) message(id, text string, attachmentIDs []string, allowConfirma
 	s.enqueue(id, Interactive, func(ctx context.Context) error {
 		// A follow-up often names what to look for (a folder, a title): the services are asked again for this message.
 		services := s.gatherServices(ctx, Stored{Request: Request{ID: id, Text: text}})
-		return s.continueWith(ctx, id, s.deps.Persona().FollowUpPrompt(text, files, "", services), images)
+		return s.continueWith(ctx, id, s.deps.Persona().FollowUpPrompt(text, files, "", services, s.trusted(id)), images)
 	})
 	return nil
 }
@@ -596,7 +610,7 @@ func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error
 	}
 	// What git says before: a turn that changed nothing must not be reported as a change.
 	before, beforeErr := s.deps.ChangeSummary(ctx, directory)
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ApplyPrompt(proposal, ""), Dir: directory, Sandbox: WorkspaceWrite, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ApplyPrompt(proposal, ""), Dir: directory, Sandbox: FullAccess, SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		return err
 	}
@@ -672,6 +686,9 @@ func (s *Service) Retry(id string) error {
 	if request.Status != StatusFailed && request.Status != StatusIgnored && request.Status != StatusReady {
 		return i18n.Wrap(ErrState, "only a failed, ignored or finished request can be investigated again")
 	}
+	if request.Source.Origin == OriginReminder {
+		return i18n.Wrap(ErrState, "a reminder is not investigated: it only repeats what you asked to be reminded of")
+	}
 	if err := s.requireActive(); err != nil {
 		return err
 	}
@@ -732,4 +749,13 @@ func (s *Service) Recover() {
 			})
 		}
 	}
+}
+
+// trusted says whether the user is now working with the AI directly in this conversation: they approved a plan in it, and
+// nothing written by strangers has come in since (a message in its Slack thread, a page of the web read for a request
+// of someone else). Their own messages are then carried out without restriction, like in their own terminal; the
+// approval of a new plan restores it.
+func (s *Service) trusted(id string) bool {
+	request, ok := s.deps.Store.Get(id)
+	return ok && len(request.Grants) > 0 && !request.ForeignSinceGrant
 }

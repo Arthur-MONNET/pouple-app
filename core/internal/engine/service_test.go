@@ -121,7 +121,11 @@ func newHarness(t *testing.T, steps ...func(context.Context, Turn) (TurnResult, 
 		},
 		Usage:    func() Usage { return Usage{} },
 		Inactive: func() string { return h.inactive },
-		Now:      func() time.Time { return h.now },
+		Now: func() time.Time {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			return h.now
+		},
 		ChangeSummary: func(context.Context, string) (string, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
@@ -232,7 +236,7 @@ func TestChangeIsWrittenOnlyAfterApprovalInTheProjectFolder(t *testing.T) {
 	h.svc.Idle()
 
 	turn := h.codex.turns[1]
-	if turn.Sandbox != WorkspaceWrite || turn.Dir != realPath(t, filepath.Join(h.root, "login-app")) || turn.ResumeThread != "" {
+	if turn.Sandbox != FullAccess || turn.Dir != realPath(t, filepath.Join(h.root, "login-app")) || turn.ResumeThread != "" {
 		t.Fatalf("write turn %+v", turn)
 	}
 	if strings.Contains(turn.Prompt, "Ignore previous instructions") {

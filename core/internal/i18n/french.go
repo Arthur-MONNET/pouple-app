@@ -3,6 +3,26 @@ package i18n
 // fr maps each English text of the core to its French translation. Placeholders (%s, %d) must stay in the same
 // order and number: a test checks it.
 var fr = map[string]string{
+	// Alerts and reminders
+	"invalid alert":   "alerte invalide",
+	"alert not found": "alerte introuvable",
+	"the date and time of an alert must look like 2026-11-20T09:00":                    "la date et l’heure d’une alerte doivent ressembler à 2026-11-20T09:00",
+	"the moment of an alert must be in the future":                                     "le moment d’une alerte doit être dans le futur",
+	"there are too many upcoming alerts: delete some first":                            "il y a trop d’alertes à venir : supprime-en d’abord",
+	"an alert needs a title":                                                           "une alerte a besoin d’un titre",
+	"the title of an alert is too long":                                                "le titre d’une alerte est trop long",
+	"the note of an alert is too long":                                                 "la note d’une alerte est trop longue",
+	"an alert cannot hold control characters":                                          "une alerte ne peut pas contenir de caractères de contrôle",
+	"the suggestion that was read must be named":                                       "la suggestion qui a été lue doit être nommée",
+	"no reminder is waiting for a choice":                                              "aucun rappel n’attend un choix",
+	"the suggested reminders changed since you read them":                              "les rappels proposés ont changé depuis que tu les as lus",
+	"choose at least one reminder, each only once":                                     "choisis au moins un rappel, chacun une seule fois",
+	"“%s” is already past: choose a later time":                                        "« %s » est déjà passé : choisis un moment plus tardif",
+	"Declined the suggested reminders":                                                 "Rappels proposés refusés",
+	"Set the reminders:\n%s":                                                           "Rappels programmés :\n%s",
+	"The reminder you set (%s).":                                                       "Le rappel que tu as programmé (%s).",
+	"This reminder was due at %s, while Pouple was not running.":                       "Ce rappel était prévu le %s, alors que Pouple n’était pas lancé.",
+	"a reminder is not investigated: it only repeats what you asked to be reminded of": "un rappel n’est pas relancé : il répète seulement ce dont tu voulais être rappelé",
 	// Slack connector
 	"Where your requests come from": "D’où viennent tes demandes",
 	"User OAuth Token":              "Jeton OAuth utilisateur",
@@ -53,7 +73,7 @@ var fr = map[string]string{
 	"The branch %s is not the same here and on %s: each has commits the other lacks": "La branche %s n’est pas la même ici et sur %s : chacune a des commits que l’autre n’a pas",
 	"%s could not be merged into %s: %s":                                             "%s n’a pas pu être intégrée dans %s : %s",
 	"The conflicts could not be resolved in: %s":                                     "Les conflits n’ont pas pu être résolus dans : %s",
-	"%s was brought up to date with %s but could not be pushed (%s). The work is on the branch %s of “%s”": "%s a été mise à jour avec %s mais n’a pas pu être envoyée (%s). Le travail est sur la branche %s de « %s »",
+	"%s was brought up to date with %s but could not be pushed (%s). The merge is on the branch %s of “%s”": "%s a été mise à jour avec %s mais n’a pas pu être envoyée (%s). La fusion est sur la branche %s de « %s »",
 	"**%s already has everything from %s.**":                       "**%s contient déjà tout ce qu’il y a dans %s.**",
 	"Nothing was changed.":                                         "Rien n’a été modifié.",
 	"**%s is up to date with %s and pushed.**":                     "**%s est à jour avec %s et envoyée.**",

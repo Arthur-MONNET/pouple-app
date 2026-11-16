@@ -5,7 +5,9 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
@@ -14,7 +16,7 @@ import (
 const OutcomeSchema = `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["outcome", "summary", "reply", "questions", "proposal", "plan", "sourcesUsed", "lookups"],
+  "required": ["outcome", "summary", "reply", "questions", "proposal", "plan", "reminders", "sourcesUsed", "lookups"],
   "properties": {
     "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
     "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup", "no_change", "proposes_plan"]},
@@ -34,6 +36,15 @@ const OutcomeSchema = `{
       }
     },
     "reply": {"type": ["string", "null"]},
+    "reminders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "note", "at"],
+        "properties": {"label": {"type": "string"}, "note": {"type": "string"}, "at": {"type": "string"}}
+      }
+    },
     "questions": {
       "type": "array",
       "items": {
@@ -120,14 +131,24 @@ type OutcomeQuestion struct {
 	Options  []OutcomeOption `json:"options"`
 }
 
+// OutcomeReminder is one alert the assistant suggests: a short label, an optional note, and the local date and time
+// ("2026-11-20T09:00", on the user's computer clock) it should fire at.
+type OutcomeReminder struct {
+	Label string `json:"label"`
+	Note  string `json:"note"`
+	At    string `json:"at"`
+}
+
 // Outcome is the validated final answer of an analysis turn.
 type Outcome struct {
-	Outcome     string            `json:"outcome"`
-	Summary     string            `json:"summary"`
-	Reply       *string           `json:"reply"`
-	Questions   []OutcomeQuestion `json:"questions"`
-	Proposal    *Proposal         `json:"proposal"`
-	Plan        *Plan             `json:"plan"`
+	Outcome   string            `json:"outcome"`
+	Summary   string            `json:"summary"`
+	Reply     *string           `json:"reply"`
+	Questions []OutcomeQuestion `json:"questions"`
+	Proposal  *Proposal         `json:"proposal"`
+	Plan      *Plan             `json:"plan"`
+	// Reminders are alerts the assistant suggests, for the user to pick from; Pouple sets none by itself.
+	Reminders   []OutcomeReminder `json:"reminders"`
 	SourcesUsed []string          `json:"sourcesUsed"`
 	Lookups     []Lookup          `json:"lookups"`
 }
@@ -139,6 +160,8 @@ var ErrOutcome = errors.New("unexpected answer from the AI")
 const (
 	maxQuestions = 4
 	maxOptions   = 6
+	// maxReminders is how many alerts one answer may suggest.
+	maxReminders = 6
 	// maxLookups is how many lookups one answer may ask for, and maxLookupTarget how long one request may be.
 	maxLookups      = 4
 	maxLookupTarget = 500
@@ -167,7 +190,7 @@ func ParseOutcome(text string) (Outcome, error) {
 	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome, NoChange, ProposesPlan}, raw.Outcome) {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI answered with an unexpected shape")
 	}
-	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}}
+	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}, Reminders: []OutcomeReminder{}}
 	if raw.Reply != nil && strings.TrimSpace(*raw.Reply) != "" {
 		out.Reply = raw.Reply
 	}
@@ -188,6 +211,16 @@ func ParseOutcome(text string) (Outcome, error) {
 	}
 	if raw.Plan != nil {
 		out.Plan = raw.Plan
+	}
+	for _, reminder := range raw.Reminders {
+		label := strings.TrimSpace(reminder.Label)
+		// A suggestion with no label or an unreadable moment is dropped, like a lookup that names nothing: the answer stays usable.
+		if _, err := alerts.ParseWhen(reminder.At, time.UTC); len(out.Reminders) == maxReminders || label == "" || err != nil {
+			continue
+		}
+		out.Reminders = append(out.Reminders, OutcomeReminder{
+			Label: clipRunes(label, alerts.MaxTitle), Note: clipRunes(strings.TrimSpace(reminder.Note), alerts.MaxNote), At: strings.TrimSpace(reminder.At),
+		})
 	}
 	for _, lookup := range raw.Lookups {
 		target := strings.TrimSpace(lookup.Target)
@@ -243,6 +276,10 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 				out.Questions[i].Options[j].Description = ptr(redact(*option.Description))
 			}
 		}
+	}
+	out.Reminders = make([]OutcomeReminder, len(o.Reminders))
+	for i, reminder := range o.Reminders {
+		out.Reminders[i] = OutcomeReminder{Label: redact(reminder.Label), Note: redact(reminder.Note), At: reminder.At}
 	}
 	out.Lookups = make([]Lookup, len(o.Lookups))
 	for i, lookup := range o.Lookups {

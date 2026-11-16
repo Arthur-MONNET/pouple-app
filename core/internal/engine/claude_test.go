@@ -144,7 +144,7 @@ func TestClaudeArgsRefuseWhatCouldBeReadAsAnOption(t *testing.T) {
 		"model with a space":    {Sandbox: ReadOnly, Model: "opus --x"},
 		"session as an option":  {Sandbox: ReadOnly, ResumeThread: "--print"},
 		"short session":         {Sandbox: ReadOnly, ResumeThread: "abc"},
-		"unknown sandbox":       {Sandbox: Sandbox("danger-full-access")},
+		"unknown sandbox":       {Sandbox: Sandbox("everything")},
 		"unreadable schema":     {Sandbox: ReadOnly, SchemaFile: "/does/not/exist.json"},
 		"empty sandbox default": {},
 	} {

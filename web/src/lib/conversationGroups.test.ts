@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AssistantRequest, RequestOrigin } from '../api/types';
+import { requestTitle } from './assistantRequests';
 import { groupBySource, groupKeyOf, itemTitle, showsMessageBelow } from './conversationGroups';
 
 function request(id: string, origin: RequestOrigin, overrides: Partial<AssistantRequest['source']> = {}, status: AssistantRequest['status'] = 'ready'): AssistantRequest {
@@ -66,6 +67,16 @@ describe('groupBySource', () => {
     expect(groups.map((group) => group.kind)).toEqual(['asana', 'mergeRequests']);
     expect(itemTitle(task)).toBe('📌 Assigned to you · Remove the grey mention');
     expect(itemTitle(feedback)).toBe('💬 dating/pay-vue!93 · 2 new comments');
+    expect(showsMessageBelow(groups[0]!)).toBe(false);
+  });
+
+  it('puts the reminders that came due in one group, titled by the alert', () => {
+    const due = request('r', 'reminder', { channelId: 'reminders', channelName: null, senderName: 'Pouple', permalink: null });
+    due.text = 'Confirm your leave to Jocelyn\nFrom the Slack thread';
+    const groups = groupBySource([due]);
+    expect(groups.map((group) => group.kind)).toEqual(['reminders']);
+    expect(itemTitle(due)).toBe('Confirm your leave to Jocelyn');
+    expect(requestTitle(due)).toBe('Confirm your leave to Jocelyn');
     expect(showsMessageBelow(groups[0]!)).toBe(false);
   });
 

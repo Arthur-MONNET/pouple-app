@@ -199,7 +199,7 @@ func (a Action) normalize() (Action, error) {
 }
 
 // checkBranches says whether the branches of an action fit its kind. A SyncBranch names a branch to update and the one to
-// bring in, never the same, and never a trunk that people share (it is pushed). An EditCode names the new branch its work
+// bring in, never the same, and whatever its name (the user reads it in the plan). An EditCode names the new branch its work
 // is committed and pushed on, which reads as a type and a subject ("fix/login-redirect", "feature/offer-layout"), never
 // as a branch of Pouple's own, and the branch it starts from ("" for the project's current one).
 func checkBranches(kind ActionKind, branch, base string) error {
@@ -218,9 +218,6 @@ func checkBranches(kind ActionKind, branch, base string) error {
 		}
 		return nil
 	}
-	if protectedBranch(branch) {
-		return i18n.Wrap(ErrOutcome, "The plan would push a branch that people share: %s", branch)
-	}
 	return nil
 }
 
@@ -235,16 +232,6 @@ func validBranchName(name string) bool {
 	return len(name) <= maxScopeID && branchName.MatchString(name) &&
 		!strings.Contains(name, "..") && !strings.Contains(name, "//") && !strings.Contains(name, "/.") &&
 		!strings.HasSuffix(name, "/") && !strings.HasSuffix(name, ".") && !strings.HasSuffix(name, ".lock")
-}
-
-// protectedBranch is a branch Pouple never pushes to: the trunks and release lines a team shares. A branch of someone's
-// own work is pushed; these are changed through a merge request.
-func protectedBranch(name string) bool {
-	switch name {
-	case "main", "master", "develop", "development", "dev", "staging", "production", "prod", "trunk":
-		return true
-	}
-	return strings.HasPrefix(name, "release/") || strings.HasPrefix(name, "releases/") || strings.HasPrefix(name, "hotfix/")
 }
 
 // planText trims a text of the plan and reports whether it may be shown for approval: not longer than max characters,
@@ -302,9 +289,6 @@ func PlanFingerprint(p Plan) string {
 type Grant struct {
 	Scope Scope        `json:"scope"`
 	Kinds []ActionKind `json:"kinds"`
-	// Branches are the branches the user agreed to see updated and pushed (SyncBranch): an approval for one branch never
-	// covers another, which may be someone else's.
-	Branches []string `json:"branches,omitempty"`
 }
 
 // Grants are the write approvals of one conversation.
@@ -323,7 +307,7 @@ func (g Grants) With(p Plan) (Grants, error) {
 	}
 	out := make(Grants, len(g))
 	for i, grant := range g {
-		out[i] = Grant{Scope: grant.Scope, Kinds: slices.Clone(grant.Kinds), Branches: slices.Clone(grant.Branches)}
+		out[i] = Grant{Scope: grant.Scope, Kinds: slices.Clone(grant.Kinds)}
 	}
 	for _, action := range p.Actions {
 		index := slices.IndexFunc(out, func(grant Grant) bool { return grant.Scope.same(action.Scope) })
@@ -334,9 +318,6 @@ func (g Grants) With(p Plan) (Grants, error) {
 		if !slices.Contains(out[index].Kinds, action.Kind) {
 			out[index].Kinds = append(out[index].Kinds, action.Kind)
 			slices.Sort(out[index].Kinds)
-		}
-		if action.Kind == SyncBranch && !slices.Contains(out[index].Branches, action.Branch) {
-			out[index].Branches = append(out[index].Branches, action.Branch)
 		}
 	}
 	return out, nil
@@ -349,8 +330,7 @@ func (g Grants) Covers(action Action) bool {
 		return false
 	}
 	return slices.ContainsFunc(g, func(grant Grant) bool {
-		return grant.Scope.same(action.Scope) && slices.Contains(grant.Kinds, action.Kind) &&
-			(action.Kind != SyncBranch || slices.Contains(grant.Branches, action.Branch))
+		return grant.Scope.same(action.Scope) && slices.Contains(grant.Kinds, action.Kind)
 	})
 }
 

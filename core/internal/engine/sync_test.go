@@ -78,12 +78,15 @@ func TestABranchAbsentFromTheProjectIsFetchedMergedAndPushed(t *testing.T) {
 			t.Errorf("the pushed branch must hold %s", file)
 		}
 	}
+	if subject := gitIn(t, other, "log", "-1", "--format=%s", "origin/feat/offer"); subject != "Merge branch 'main' into feat/offer" {
+		t.Errorf("the merge reads like any merge: %q", subject)
+	}
 	// The user's checkout and branch are untouched, and nothing is left behind.
 	if status := gitIn(t, project, "status", "--porcelain"); status != "" || gitIn(t, project, "rev-parse", "--abbrev-ref", "HEAD") != "main" {
 		t.Errorf("the checkout must stay as it was: %q", status)
 	}
-	if left := gitIn(t, project, "branch", "--list", "pouple/*"); left != "" {
-		t.Errorf("the work branch must go: %q", left)
+	if all := gitIn(t, project, "branch", "-a"); strings.Contains(all, "pouple") {
+		t.Errorf("no branch carries Pouple's name: %q", all)
 	}
 	if worktrees := gitIn(t, project, "worktree", "list"); strings.Count(worktrees, "\n") != 0 {
 		t.Errorf("the worktree must go: %q", worktrees)
@@ -110,7 +113,7 @@ func TestTheLocalCopyOfTheBranchIsBroughtForward(t *testing.T) {
 
 func TestAConflictIsSettledByTheAIThatWritesThenPushed(t *testing.T) {
 	settle := func(ctx context.Context, turn Turn) (TurnResult, error) {
-		if !strings.Contains(turn.Prompt, "conflict.txt") || turn.Sandbox != WorkspaceWrite {
+		if !strings.Contains(turn.Prompt, "conflict.txt") || turn.Sandbox != FullAccess {
 			t.Errorf("the writing turn names the files in conflict:\n%s", turn.Prompt)
 		}
 		if err := os.WriteFile(filepath.Join(turn.Dir, "conflict.txt"), []byte("both\n"), 0o644); err != nil {
@@ -193,8 +196,9 @@ func TestABranchThatHasEverythingAlreadyIsLeftAlone(t *testing.T) {
 	}
 }
 
-// The user approves once, at the start: the branch they read is then covered, and no other branch is.
-func TestTheApprovalOfABranchCoversThatBranchOnly(t *testing.T) {
+// The user approves once, at the start: updates in that project are then covered, whichever branch (they are read in
+// the plan they validate, and strangers' text revokes the cover: see ForeignSinceGrant).
+func TestTheApprovalOfABranchUpdateCoversTheProjectForTheConversation(t *testing.T) {
 	action := func(branch string) Action {
 		return Action{Kind: SyncBranch, Scope: Scope{Service: ScopeCode, ID: "login-app"}, Summary: "s", Branch: branch, Base: "main"}
 	}
@@ -203,11 +207,11 @@ func TestTheApprovalOfABranchCoversThatBranchOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !grants.Covers(action("feat/offer")) {
-		t.Error("the branch the user read is covered")
+	if !grants.Covers(action("feat/offer")) || !grants.Covers(action("feat/other")) {
+		t.Error("the project is covered")
 	}
-	if grants.Covers(action("feat/someone-elses")) {
-		t.Error("another branch may be someone else's: it is read first")
+	if grants.Covers(Action{Kind: SyncBranch, Scope: Scope{Service: ScopeCode, ID: "other-app"}, Summary: "s", Branch: "feat/offer", Base: "main"}) {
+		t.Error("another project is read first")
 	}
 }
 
@@ -240,14 +244,12 @@ func TestAfterTheFirstApprovalTheNextUpdateOfThatBranchRunsByItself(t *testing.T
 	}
 }
 
-func TestPlansThatPushASharedBranchOrNameBranchesWronglyAreRefused(t *testing.T) {
+func TestPlansThatNameBranchesWronglyAreRefused(t *testing.T) {
 	base := Plan{Goal: "g", Brief: "b", Status: PlanProposed}
 	action := func(kind ActionKind, branch, base string) Action {
 		return Action{Kind: kind, Scope: Scope{Service: ScopeCode, ID: "login-app"}, Summary: "s", Branch: branch, Base: base}
 	}
 	for name, a := range map[string]Action{
-		"a trunk":                      action(SyncBranch, "master", "feat/x"),
-		"a release line":               action(SyncBranch, "release/1.2", "main"),
 		"the same branch":              action(SyncBranch, "feat/x", "feat/x"),
 		"an option":                    action(SyncBranch, "--force", "main"),
 		"a parent folder":              action(SyncBranch, "feat/../x", "main"),
@@ -262,10 +264,13 @@ func TestPlansThatPushASharedBranchOrNameBranchesWronglyAreRefused(t *testing.T)
 			t.Errorf("%s must be refused", name)
 		}
 	}
-	plan := base
-	plan.Actions = []Action{action(SyncBranch, "feat/premium-offer-layout", "master")}
-	if _, err := plan.Normalize(); err != nil {
-		t.Errorf("a feature branch is fine: %v", err)
+	// What branch to update is the user's call, read in the plan: main included.
+	for _, branch := range []string{"feat/premium-offer-layout", "main", "release/1.2"} {
+		plan := base
+		plan.Actions = []Action{action(SyncBranch, branch, "develop")}
+		if _, err := plan.Normalize(); err != nil {
+			t.Errorf("%s is the user's to choose: %v", branch, err)
+		}
 	}
 }
 
@@ -353,8 +358,8 @@ func TestNewWorkStartsFromTheBaseTheUserNames(t *testing.T) {
 	}
 }
 
-func TestNewWorkNamedLikeABranchOfPouplesOwnOrASharedOneIsRefused(t *testing.T) {
-	for _, branch := range []string{"pouple/fix-it", "master", "fix", "Fix/It", "fix/it with space", ""} {
+func TestNewWorkNamedLikeABranchOfPouplesOwnOrWithoutATypeIsRefused(t *testing.T) {
+	for _, branch := range []string{"pouple/fix-it", "fix", "Fix/It", "fix/it with space", ""} {
 		plan := Plan{Goal: "g", Brief: "b", Actions: []Action{{Kind: EditCode, Scope: Scope{Service: ScopeCode, ID: "login-app"}, Summary: "s", Branch: branch}}}
 		if _, err := plan.Normalize(); err == nil {
 			t.Errorf("%q must be refused", branch)
@@ -398,5 +403,32 @@ func TestOnlyTheTickedActionsOfAPlanAreApprovedAndCarriedOut(t *testing.T) {
 	gitIn(t, project, "fetch", "-q", "origin")
 	if out, err := exec.Command("git", "-C", project, "rev-parse", "--verify", "--quiet", "origin/fix/login-redirect").CombinedOutput(); err == nil {
 		t.Errorf("the unticked action must not run: %s", out)
+	}
+}
+
+// A push that origin refuses loses nothing: the merge is kept on a branch named after what it joins, never after Pouple.
+func TestARefusedPushKeepsTheMergeOnANamedBranch(t *testing.T) {
+	h, project, _ := syncHarness(t, reply(syncPlan("feat/offer", "main")))
+	origin := gitIn(t, project, "remote", "get-url", "origin")
+	hook := filepath.Join(origin, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho refused by the test >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.receive(message("update feat/offer with main"))
+	final := approve(t, h)
+	if final.Status == StatusDone {
+		t.Fatalf("a refused push is not a success: %s", journalOf(final))
+	}
+	if kept := gitIn(t, project, "branch", "--list", "feat/offer-merge-main"); kept == "" {
+		t.Fatalf("the merge must be kept: %s", gitIn(t, project, "branch", "-a"))
+	}
+	if subject := gitIn(t, project, "log", "-1", "--format=%s", "feat/offer-merge-main"); subject != "Merge branch 'main' into feat/offer" {
+		t.Errorf("the kept merge: %q", subject)
+	}
+	if all := gitIn(t, project, "branch", "-a"); strings.Contains(all, "pouple") {
+		t.Errorf("no branch carries Pouple's name: %q", all)
+	}
+	if worktrees := gitIn(t, project, "worktree", "list"); strings.Count(worktrees, "\n") != 0 {
+		t.Errorf("the worktree must go: %q", worktrees)
 	}
 }

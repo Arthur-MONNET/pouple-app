@@ -211,7 +211,7 @@ func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action 
 	s.update(id, func(r *Stored) {
 		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Working on the branch %s", wt.Branch)))
 	})
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().PlanApplyPrompt(plan, action), Dir: wt.Path, Sandbox: WorkspaceWrite, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().PlanApplyPrompt(plan, action), Dir: wt.Path, Sandbox: FullAccess, SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		s.discardWorktree(ctx, wt)
 		return "", err

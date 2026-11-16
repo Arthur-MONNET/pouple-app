@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -10,7 +11,7 @@ import (
 
 // Bringing a branch up to date is one action of a plan (SyncBranch) that Pouple carries out from end to end: it fetches the
 // remote, merges the other branch into the branch in a worktree of its own, has the AI resolve the conflicts when there are
-// some, commits, and pushes the branch (never forced, never a branch people share: see protectedBranch). Without conflicts
+// some, commits, and pushes the branch (never forced). Without conflicts
 // no AI is involved at all. The user's checkout is only moved forward when that cannot touch their work.
 
 const origin = "origin"
@@ -44,14 +45,14 @@ func (s *Service) runBranchSync(ctx context.Context, id string, plan Plan, actio
 		return "", err
 	}
 
-	branchName, path := s.freeSpot(ctx, directory, project, "pouple/"+branchSlug("sync "+branch), PlanFingerprint(plan)[:6])
-	wt, err := s.addWorktree(ctx, directory, project, branchName, path, start)
+	// The work is done on a detached head: no branch carries Pouple's name, and the branch is only ever written by the push.
+	wt, err := s.addWorktree(ctx, directory, project, "", s.freeFolder(project, PlanFingerprint(plan)[:6]), start)
 	if err != nil {
 		return "", err
 	}
 	step(s.text("Merging %s into %s", base, branch))
 	var conflicted []string
-	if out, err := s.git(ctx, wt.Path, wt.gitArgs("merge", "--no-edit", baseSHA)...); err != nil {
+	if out, err := s.git(ctx, wt.Path, wt.gitArgs("merge", "--no-edit", "-m", fmt.Sprintf("Merge branch '%s' into %s", base, branch), baseSHA)...); err != nil {
 		if conflicted = s.unmergedFiles(ctx, wt); len(conflicted) == 0 {
 			s.discardWorktree(ctx, wt)
 			return "", i18n.NewError("%s could not be merged into %s: %s", base, branch, clipRunes(out, 300))
@@ -79,10 +80,11 @@ func (s *Service) runBranchSync(ctx context.Context, id string, plan Plan, actio
 	}
 
 	step(s.text("Pushing %s to %s", branch, origin))
-	if out, err := s.git(ctx, wt.Path, wt.gitArgs("push", origin, "refs/heads/"+wt.Branch+":refs/heads/"+branch)...); err != nil {
-		// The merge is done and committed: it stays on a branch of its own, so nothing is lost.
-		_, _ = s.git(ctx, directory, "worktree", "remove", "--force", wt.Path)
-		return "", i18n.NewError("%s was brought up to date with %s but could not be pushed (%s). The work is on the branch %s of “%s”", branch, base, clipRunes(out, 300), wt.Branch, project)
+	if out, err := s.git(ctx, wt.Path, wt.gitArgs("push", origin, "HEAD:refs/heads/"+branch)...); err != nil {
+		// The merge is done and committed: it is kept on a branch named after the two it joins, so nothing is lost.
+		kept := s.keepMerge(ctx, directory, branch, base, head)
+		s.discardWorktree(ctx, wt)
+		return "", i18n.NewError("%s was brought up to date with %s but could not be pushed (%s). The merge is on the branch %s of “%s”", branch, base, clipRunes(out, 300), kept, project)
 	}
 	subject, _ := s.git(ctx, directory, "log", "-1", "--format=%h %s", head)
 	note := s.moveLocalBranch(ctx, directory, branch, localSHA, head)
@@ -153,7 +155,7 @@ func (s *Service) unmergedFiles(ctx context.Context, w Worktree) []string {
 // fails, leaving nothing behind to clean, when a conflict is left or the merge cannot be committed.
 func (s *Service) resolveConflicts(ctx context.Context, id string, plan Plan, action Action, w Worktree, files []string, step func(string)) error {
 	step(s.text("Resolving the conflicts in %d file(s)", len(files)))
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ConflictPrompt(plan, action, files), Dir: w.Path, Sandbox: WorkspaceWrite, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ConflictPrompt(plan, action, files), Dir: w.Path, Sandbox: FullAccess, SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		return err
 	}
@@ -245,4 +247,15 @@ func sameFolder(a, b string) bool {
 		return filepath.Clean(path)
 	}
 	return resolve(a) == resolve(b)
+}
+
+// keepMerge keeps a merge that could not be pushed on a branch named after what it joins ("feat/x-merge-master"), and
+// returns that name.
+func (s *Service) keepMerge(ctx context.Context, directory, branch, base, head string) string {
+	name := branch + "-merge-" + base
+	for n := 2; s.branchTaken(ctx, directory, name); n++ {
+		name = fmt.Sprintf("%s-merge-%s-%d", branch, base, n)
+	}
+	_, _ = s.git(ctx, directory, "branch", name, head)
+	return name
 }

@@ -107,4 +107,69 @@ describe('assistant store', () => {
     expect(store.stopped.value).not.toContain(working?.id);
     store.stop();
   });
+  it('lists the upcoming alerts, and sets the ones the user ticked in a suggestion', async () => {
+    const api = createMockApi({ latency: 0 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const before = store.alerts.value.length;
+    const stamps = store.alerts.value.map((alert) => alert.at);
+    expect(stamps).toEqual([...stamps].sort());
+
+    const suggesting = store.requests.value.find((r) => r.reminders?.status === 'proposed');
+    const offer = suggesting?.reminders;
+    expect(offer?.items.length).toBeGreaterThan(1);
+    await store.decideReminders(suggesting?.id ?? '', 'approve', offer?.id ?? '', [{ id: offer?.items[0]?.id ?? '' }, { id: offer?.items[2]?.id ?? '' }]);
+    await tick();
+    expect(store.alerts.value).toHaveLength(before + 2);
+    expect(store.alerts.value.filter((alert) => alert.requestId === suggesting?.id).map((alert) => alert.title)).toEqual([offer?.items[0]?.label, offer?.items[2]?.label]);
+    expect(store.byId(suggesting?.id)?.reminders?.status).toBe('accepted');
+    store.stop();
+  });
+
+  it('refuses to set a reminder twice, or one the user never read', async () => {
+    const api = createMockApi({ latency: 0 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const suggesting = store.requests.value.find((r) => r.reminders?.status === 'proposed');
+    const id = suggesting?.id ?? '';
+    const pick = [{ id: suggesting?.reminders?.items[0]?.id ?? '' }];
+    await expect(store.decideReminders(id, 'approve', 'another-offer', pick)).rejects.toBeInstanceOf(ApiError);
+    await store.decideReminders(id, 'decline', suggesting?.reminders?.id ?? '');
+    await tick();
+    expect(store.byId(id)?.reminders?.status).toBe('declined');
+    await expect(store.decideReminders(id, 'approve', suggesting?.reminders?.id ?? '', pick)).rejects.toBeInstanceOf(ApiError);
+    store.stop();
+  });
+
+  it('makes, moves and deletes an alert by hand, refusing a past moment or an empty title', async () => {
+    const api = createMockApi({ latency: 0 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const before = store.alerts.value.length;
+    const day = new Date(Date.now() + 2 * 86400_000);
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const at = (hour: number): string => `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}T${pad(hour)}:00`;
+
+    await expect(store.createAlert({ title: '  ', at: at(9) })).rejects.toBeInstanceOf(ApiError);
+    await expect(store.createAlert({ title: 'Call back', at: '2020-01-01T09:00' })).rejects.toBeInstanceOf(ApiError);
+    await store.createAlert({ title: 'Call back', at: at(9) });
+    await tick();
+    expect(store.alerts.value).toHaveLength(before + 1);
+    const made = store.alerts.value.find((alert) => alert.title === 'Call back');
+    expect(made).toBeDefined();
+
+    await store.updateAlert(made?.id ?? '', { at: at(18) });
+    await tick();
+    expect(new Date(store.alerts.value.find((alert) => alert.id === made?.id)?.at ?? '').getHours()).toBe(18);
+    await expect(store.updateAlert(made?.id ?? '', { at: '2020-01-01T09:00' })).rejects.toBeInstanceOf(ApiError);
+
+    await store.deleteAlert(made?.id ?? '');
+    await tick();
+    expect(store.alerts.value).toHaveLength(before);
+    await expect(store.deleteAlert(made?.id ?? '')).rejects.toBeInstanceOf(ApiError);
+    store.stop();
+  });
 });

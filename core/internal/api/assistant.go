@@ -24,6 +24,8 @@ type Assistant interface {
 	// DecidePlanActions approves or declines the plan that waits for an answer; planID names the plan the user read, and
 	// actions (when not nil) the positions of the actions that were ticked.
 	DecidePlanActions(id string, approve bool, planID string, actions []int) error
+	// DecideReminders sets the alerts the user ticked in the suggestion they read (offerID), or declines it.
+	DecideReminders(id string, approve bool, offerID string, picks []engine.ReminderPick) error
 	Ignore(id string) error
 	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
 	Close(id, seen string) error
@@ -135,6 +137,22 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 				return i18n.Wrap(engine.ErrInput, `"planId" is required`)
 			}
 			return accepted(w, assistant.DecidePlanActions(r.PathValue("id"), body.Decision == "approve", body.PlanID, body.Actions))
+		})
+		handle("POST /api/assistant/requests/{id}/reminders", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Decision string `json:"decision"`
+				OfferID  string `json:"offerId"`
+				// Items are the ticked reminders, each with the moment the user wants for it.
+				Items []engine.ReminderPick `json:"items"`
+			}
+			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
+				return i18n.Wrap(engine.ErrInput, `"decision" must be "approve" or "decline"`)
+			}
+			// A decision names the suggestion that was read: it can never answer one that changed meanwhile.
+			if body.OfferID == "" {
+				return i18n.Wrap(engine.ErrInput, `"offerId" is required`)
+			}
+			return accepted(w, assistant.DecideReminders(r.PathValue("id"), body.Decision == "approve", body.OfferID, body.Items))
 		})
 		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
 			return noContent(w, assistant.Ignore(r.PathValue("id")))

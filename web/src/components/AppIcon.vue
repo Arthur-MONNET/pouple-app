@@ -19,7 +19,8 @@ export type IconName =
   | 'send'
   | 'stop'
   | 'info'
-  | 'inbox';
+  | 'inbox'
+  | 'bell';
 
 const PATHS: Record<IconName, string[]> = {
   logo: ['M8 3h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5z', 'M8 15a4 4 0 0 1 8 0', 'M12 15l2.5-3'],
@@ -42,6 +43,7 @@ const PATHS: Record<IconName, string[]> = {
   stop: ['M7 7h10v10H7z'],
   info: ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M12 11v5', 'M12 8h.01'],
   inbox: ['M4 13l2-7h12l2 7', 'M4 13v5h16v-5h-5l-1 2h-4l-1-2z'],
+  bell: ['M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z', 'M10 21h4'],
 };
 
 withDefaults(defineProps<{ name: IconName; size?: 'sm' | 'md' | 'lg' }>(), { size: 'md' });

@@ -40,6 +40,7 @@ web page cannot drive the assistant.
 |---|---|
 | `config.json` | Non-secret settings (poll interval, daily limit, which connectors are on). |
 | `requests.json` | Conversations. |
+| `alerts.json` | The upcoming alerts (reminders the user set). |
 | `attachments/` | Files that came with messages. |
 | `codex/` | Dedicated `CODEX_HOME`: Pouple uses its own Codex login. |
 | `install.json` | Written by `scripts/install-local.sh`: where the source checkout is, and which commit was built. |
@@ -252,6 +253,30 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   the journal records each lookup and which services the answer relied on. The connectors' tokens are given to the
   model-output redactor.
 - Concise answers, small-talk skipping, burst merging, attachments (photos analysed), linked docs.
+
+### Alerts and reminders
+
+- `core/internal/alerts` is the store of upcoming alerts (`alerts.json`, written atomically at each change): an `Alert` is a
+  title (120 characters at most), a note (1000), a moment with its zone offset and, when it came from a conversation, that
+  conversation's id. It validates (a title is required, no control or format character, a moment strictly in the future when
+  an alert is made or moved, 200 alerts at most) and knows nothing of conversations. `ParseWhen` reads a client's moment:
+  RFC 3339, or a local `2026-11-20T09:00` read in the zone of the clock the service runs on.
+- The AI suggests alerts in the answer's `reminders` field (`{label, note, at}`, `at` being a local date and time, six at most;
+  an unreadable one is dropped by `ParseOutcome`). Every investigation turn starts with the current date, time and zone
+  (`Persona.clockNote`), so a resumed conversation still knows what "tomorrow" is. `attachReminders` turns them into
+  `Request.reminders`, a `ReminderOffer` with a fingerprint id and options `r1`, `r2`… (past and repeated suggestions are
+  dropped); a later answer without suggestions removes an offer nobody picked from, never one that was accepted.
+- `POST /api/assistant/requests/{id}/reminders` (`{"decision":"approve"|"decline","offerId","items":[{"id","at"}]}`) names the
+  offer that was read (409 for another one). `DecideReminders` checks every pick before setting any (unknown or repeated
+  option, moment in the past: 400) and sets all of them or none; each alert keeps the conversation it came from.
+- Alerts made by hand: `POST /api/alerts` (`{title, note, at}`), `PATCH /api/alerts/{id}` (only the fields present) and
+  `DELETE /api/alerts/{id}`, on the web server only (not on the local socket). The list is `alerts` in the assistant snapshot
+  and in its stream, so every window sees a change at once.
+- `Service.watchAlerts` (started by `Run`) fires the alerts that come due: it looks at the wall clock at least every 20 s
+  (timers stop while the Mac sleeps) and at once when the alerts change. A due alert becomes a ready, engaged conversation
+  of origin `reminder` (an event: `IsEvent`), id `reminder-<alert id>`, with `Source.relatedRequestId` pointing at the
+  conversation it came from, then the alert is removed. The deterministic id means a crash between the two steps cannot open
+  a second conversation. The macOS shell shows it as any bubble. `Retry` refuses a reminder.
 
 ### Plans and grants (being built)
 

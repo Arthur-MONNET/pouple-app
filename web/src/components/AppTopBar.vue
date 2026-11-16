@@ -23,6 +23,13 @@ const { available } = useUpdate();
         <span v-if="attention > 0" class="ml-1 rounded bg-accent/20 px-1 text-2xs text-accent">{{ attention }}</span>
       </RouterLink>
       <RouterLink
+        to="/alerts"
+        class="rounded-md px-2.5 py-1 text-sm text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
+        active-class="bg-raised !text-ink"
+      >
+        {{ $t('nav.alerts') }}
+      </RouterLink>
+      <RouterLink
         to="/connectors"
         class="rounded-md px-2.5 py-1 text-sm text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
         active-class="bg-raised !text-ink"

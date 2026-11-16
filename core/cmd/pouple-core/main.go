@@ -145,6 +145,7 @@ func run() error {
 		return err
 	}
 	mountAssistant := api.MountAssistant(service, attachments)
+	mountAlerts := api.MountAlerts(service)
 	mountSettings := api.MountSettings(settings)
 	updateChecker := updates.New(updates.Options{DataDir: dir})
 	mountUpdates := api.MountUpdates(updateChecker)
@@ -160,6 +161,7 @@ func run() error {
 		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
 		Mount: func(mux *http.ServeMux) {
 			mountAssistant(mux)
+			mountAlerts(mux)
 			mountSettings(mux)
 			mountProviders(mux)
 			mountUpdates(mux)

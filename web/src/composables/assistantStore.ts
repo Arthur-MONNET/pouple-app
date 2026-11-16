@@ -1,6 +1,16 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, type InjectionKey } from 'vue';
 import { ApiError, errorMessage, type PoupleApi } from '../api/client';
-import type { AssistantRequest, AssistantSnapshot, PlanDecision, ProposalDecision, QuestionAnswer } from '../api/types';
+import type {
+  AlertInput,
+  AlertPatch,
+  AssistantAlert,
+  AssistantRequest,
+  AssistantSnapshot,
+  PlanDecision,
+  ProposalDecision,
+  QuestionAnswer,
+  ReminderPick,
+} from '../api/types';
 import { attentionCount, byRecentActivity } from '../lib/assistantRequests';
 
 const RETRY_MS = [1000, 2000, 5000, 10_000];
@@ -31,6 +41,8 @@ export function createAssistantStore(api: PoupleApi) {
   const status = computed(() => snapshot.value?.status ?? null);
   const attention = computed(() => attentionCount(requests.value));
   const loaded = computed(() => snapshot.value !== null);
+  /** Soonest first, as the core sends them. */
+  const alerts = computed<AssistantAlert[]>(() => snapshot.value?.alerts ?? []);
 
   const byId = (id: string | null | undefined): AssistantRequest | null => (id ? (requests.value.find((r) => r.id === id) ?? null) : null);
 
@@ -101,6 +113,7 @@ export function createAssistantStore(api: PoupleApi) {
     requests,
     status,
     attention,
+    alerts,
     loaded,
     error,
     live,
@@ -113,6 +126,11 @@ export function createAssistantStore(api: PoupleApi) {
     decide: (id: string, decision: ProposalDecision) => (forgetStopped(id), act(() => api.decideProposal(id, decision))),
     decidePlan: (id: string, decision: PlanDecision, planId: string, actions?: number[]) =>
       (forgetStopped(id), act(() => api.decidePlan(id, decision, planId, actions))),
+    decideReminders: (id: string, decision: ProposalDecision, offerId: string, items?: ReminderPick[]) =>
+      act(() => api.decideReminders(id, decision, offerId, items)),
+    createAlert: (input: AlertInput) => act(() => api.createAlert(input)),
+    updateAlert: (id: string, patch: AlertPatch) => act(() => api.updateAlert(id, patch)),
+    deleteAlert: (id: string) => act(() => api.deleteAlert(id)),
     send: (id: string, text: string, attachmentIds: string[] = []) => (forgetStopped(id), act(() => api.sendMessage(id, text, attachmentIds))),
     ignore: (id: string) => act(() => api.ignore(id)),
     retry: (id: string) => (forgetStopped(id), act(() => api.retry(id))),

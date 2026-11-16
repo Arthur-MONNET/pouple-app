@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AssistantQuestion, AssistantRequest, PlanAction, QuestionAnswer } from '../api/types';
+import type { AssistantQuestion, AssistantRequest, PlanAction, QuestionAnswer, ReminderPick } from '../api/types';
 import { errorMessage } from '../api/client';
 import { useAssistantStore } from '../composables/assistantStore';
 import { t } from '../i18n';
@@ -17,6 +17,7 @@ import MarkdownText from './MarkdownText.vue';
 import InlineError from './InlineError.vue';
 import MascotStage from './MascotStage.vue';
 import PlanSummary from './PlanSummary.vue';
+import ReminderOfferCard from './ReminderOfferCard.vue';
 
 const props = defineProps<{ request: AssistantRequest }>();
 const store = useAssistantStore();
@@ -33,6 +34,11 @@ const ignored = computed(() => props.request.status === 'ignored');
 /** More detail goes back to Codex in the same conversation: only a finished analysis has one to continue. */
 const canElaborate = computed(() => (props.request.status === 'ready' || props.request.status === 'done') && props.request.continuable === true);
 const groups = computed(() => groupEntries(props.request.entries));
+/** A reminder is what the user asked to be reminded of: there is nothing to investigate again. */
+const isReminder = computed(() => props.request.source.origin === 'reminder');
+const originId = computed(() => props.request.source.relatedRequestId ?? null);
+const remindersWaiting = computed(() => props.request.reminders?.status === 'proposed');
+const remindersSet = computed(() => props.request.reminders?.status === 'accepted');
 
 /** Approving a change is asked like any other question, so it looks and behaves the same. */
 const proposalQuestion = computed<AssistantQuestion[]>(() => {
@@ -113,6 +119,10 @@ const submitPlan = (answers: QuestionAnswer[]): Promise<void> => {
 };
 const submitProposal = (answers: QuestionAnswer[]): Promise<void> =>
   guard(() => store.decide(props.request.id, answers[0]?.optionId === 'approve' ? 'approve' : 'decline'));
+
+const confirmReminders = (items: ReminderPick[]): Promise<void> =>
+  guard(() => store.decideReminders(props.request.id, 'approve', props.request.reminders?.id ?? '', items));
+const skipReminders = (): Promise<void> => guard(() => store.decideReminders(props.request.id, 'decline', props.request.reminders?.id ?? ''));
 
 async function remove(): Promise<void> {
   await guard(() => store.remove(props.request.id));
@@ -242,6 +252,20 @@ watch(
       @submit="submitProposal"
     />
 
+    <ReminderOfferCard
+      v-if="request.reminders && remindersWaiting"
+      :title="title"
+      :offer="request.reminders"
+      :busy="busy"
+      @confirm="confirmReminders"
+      @skip="skipReminders"
+    />
+    <p v-else-if="remindersSet" class="flex items-center gap-2 text-xs text-ink-muted" data-testid="reminders-set">
+      <AppIcon name="bell" size="sm" />
+      {{ $t('chat.reminders.done') }}
+      <RouterLink to="/alerts" class="underline decoration-line-bright underline-offset-2 hover:text-ink">{{ $t('chat.reminders.seeAlerts') }}</RouterLink>
+    </p>
+
     <div v-if="request.status === 'failed'" class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-2.5" data-testid="failed-note">
       <MascotStage pose="oops" />
       <InlineError class="min-w-0 flex-1">{{ request.error ?? $t('chat.failedFallback') }}</InlineError>
@@ -263,8 +287,9 @@ watch(
     <InlineError v-if="actionError">{{ actionError }}</InlineError>
 
     <div v-if="!working && request.status !== 'awaiting-user'" class="flex gap-1.5">
-      <AppButton v-if="canElaborate" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.send(request.id, $t('chat.moreDetailMessage')))">{{ $t('chat.moreDetail') }}</AppButton>
-      <AppButton variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.retry(request.id))">{{ $t('chat.again') }}</AppButton>
+      <RouterLink v-if="isReminder && originId && store.byId(originId)" :to="{ name: 'conversation', params: { id: originId } }" class="inline-flex h-7 items-center rounded-md px-2.5 text-xs text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none">{{ $t('chat.openOrigin') }}</RouterLink>
+      <AppButton v-if="canElaborate && !isReminder" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.send(request.id, $t('chat.moreDetailMessage')))">{{ $t('chat.moreDetail') }}</AppButton>
+      <AppButton v-if="!isReminder" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.retry(request.id))">{{ $t('chat.again') }}</AppButton>
       <AppButton v-if="request.status === 'ready' || request.status === 'done'" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.ignore(request.id))">{{ $t('chat.dismiss') }}</AppButton>
       <AppButton variant="ghost" size="sm" :disabled="busy" @click="remove">{{ $t('chat.delete') }}</AppButton>
     </div>

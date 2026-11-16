@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
@@ -72,7 +73,9 @@ type PollResult struct {
 // Deps is everything the service needs from the outside.
 type Deps struct {
 	Store *Store
-	Inbox Inbox
+	// Alerts keeps the reminders the user set; in memory only when nil.
+	Alerts *alerts.Store
+	Inbox  Inbox
 	// Pipelines reports the finished GitLab pipelines of the user; nil when there is no such source.
 	Pipelines Pipelines
 	// Events are the other event sources (Asana, GitLab merge requests); none when there is no such source.
@@ -158,6 +161,11 @@ type Service struct {
 	deps  Deps
 	queue *Queue
 
+	// reminderMu serializes the decisions on suggested reminders.
+	reminderMu sync.Mutex
+	// alertWake tells watchAlerts that the alerts changed, so it looks at the clock again.
+	alertWake chan struct{}
+
 	mu      sync.Mutex
 	notices []i18n.Message
 	// pipelineNotice is why the pipelines could not be read; "" when they can. Kept apart from notices, which every
@@ -204,11 +212,22 @@ func NewService(deps Deps) *Service {
 	if deps.Selection == nil {
 		deps.Selection = func() providers.Selection { return providers.Selection{Provider: providers.Codex} }
 	}
+	if deps.Alerts == nil {
+		deps.Alerts, _ = alerts.Open("", nil)
+	}
 	s := &Service{
-		deps: deps, queue: NewQueue(), running: map[string]context.CancelFunc{}, stops: map[string]int{}, subscribers: map[chan struct{}]struct{}{},
+		alertWake: make(chan struct{}, 1),
+		deps:      deps, queue: NewQueue(), running: map[string]context.CancelFunc{}, stops: map[string]int{}, subscribers: map[chan struct{}]struct{}{},
 		pausedUntil: map[providers.ID]time.Time{}, loginProblem: map[providers.ID]bool{},
 	}
 	deps.Store.OnChange(s.broadcast)
+	deps.Alerts.OnChange(func() {
+		select {
+		case s.alertWake <- struct{}{}:
+		default:
+		}
+		s.broadcast()
+	})
 	return s
 }
 
@@ -376,7 +395,11 @@ func (s *Service) Snapshot() Snapshot {
 		}
 		requests[i] = view
 	}
-	return Snapshot{Status: status, Requests: requests}
+	upcoming := s.deps.Alerts.List()
+	if upcoming == nil {
+		upcoming = []alerts.Alert{}
+	}
+	return Snapshot{Status: status, Requests: requests, Alerts: upcoming}
 }
 
 func (s *Service) standingNoticesLocked(lang i18n.Lang) []string {
@@ -401,6 +424,7 @@ func (s *Service) Run(ctx context.Context, intervals func() (period, cooldown ti
 	for _, task := range s.deps.Background {
 		go task(ctx)
 	}
+	go s.watchAlerts(ctx)
 	for ctx.Err() == nil {
 		s.Poll(ctx)
 		period, cooldown := intervals()

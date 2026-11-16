@@ -58,6 +58,23 @@ At any time, **Ignore** closes the request in one click from the bubble, on a qu
 - Ignoring only closes this request. A new message in the same thread opens a new request.
 - The window gives the full conversation and the history, and can be used at any time.
 
+## Alerts
+
+Pouple can remind you of something later, at a time and day you choose. An alert is a title, an optional note and a moment.
+
+- **Suggested by Pouple.** When a request leaves you something to do or to remember later (a deadline, an answer promised
+  by a date, a meeting), the investigating AI may suggest alerts with its answer. The conversation then shows a list with a
+  tick for each one and the time proposed beside it, which you can change. **Nothing is set until you confirm**: ticking
+  and confirming sets exactly the ticked alerts, at the times shown; "No thanks" sets none. The AI is told the current date
+  and time at the start of every turn, and a suggestion in the past is dropped.
+- **Made by hand.** The **Upcoming alerts** menu lists every alert still to come, grouped by day, and lets you make one
+  (title, optional note, date and time), move it or delete it. An alert is always in the future when it is made or moved.
+- **When it comes due.** The alert becomes a conversation of its own with a bubble, which stays until you press **Done**,
+  like a ready answer. It names the conversation it was set from, when there is one. No AI is involved, and a reminder is
+  never investigated again. An alert that came due while Pouple was closed fires when Pouple starts, and the conversation
+  says it was late. The clock is the one of your Mac: times are read in its time zone.
+- **Where they live.** On your computer only, in `alerts.json`, next to the conversations.
+
 ## Writing
 
 Reading is free. **Every write needs your approval first**, and the approval is for a **scope**.
@@ -79,6 +96,22 @@ Reading is free. **Every write needs your approval first**, and the approval is 
   fixes after a failed pipeline or a reviewer's comments. It does not merge into a shared branch (it can merge one into
   your own branch to bring it up to date).
 - Replies to people are never sent by Pouple: you copy the text and paste it in the conversation yourself.
+
+### Two levels of trust
+
+- **Level 1, what others wrote** (a Slack message, an Asana or GitLab event, a pipeline): strict. The AI investigates
+  read-only, the connectors are read-only, and it ends by proposing what it could do: one action per reasonable course, which
+  you tick (see below). Nothing is written, installed or pushed before you validate.
+- **Level 2, once you validated**: you work with the AI directly, as in your own terminal, with no restriction. The AI that
+  writes has **full access** (network, installing dependencies, running tests and tools, any command), in its own copy of the
+  project; Pouple commits what it leaves and pushes the branch, or keeps the commits the AI made itself. Your own messages in
+  the conversation are then carried out directly, in your projects, without a plan or a question, git included
+  (`danger-full-access` for Codex, bypassed permissions for Claude Code). Only Pouple's own data folder stays unreadable to the
+  file tools.
+- Level 2 ends, and the next plan is shown again, as soon as text written by strangers reaches the conversation after your
+  approval (a new message in its Slack thread, a web page read for a request of someone else): their text could steer a
+  tool that is no longer restricted. Validating a new plan restores level 2. A plan for another project than the ones you
+  validated is a question too: "I intend to do this, do you accept?".
 
 ### Approved by a frozen plan
 

@@ -2,7 +2,10 @@ import { t } from '../i18n';
 import { readSse } from './sse';
 import type {
   ActionEvent,
+  AlertInput,
+  AlertPatch,
   AppState,
+  AssistantAlert,
   AssistantSnapshot,
   AttachmentRef,
   ConnectorStatus,
@@ -10,6 +13,7 @@ import type {
   Profile,
   PlanDecision,
   ProposalDecision,
+  ReminderPick,
   QuestionAnswer,
   ProviderModels,
   ProviderTestResult,
@@ -67,6 +71,12 @@ export interface PoupleApi {
   decideProposal(requestId: string, decision: ProposalDecision): Promise<void>;
   /** Approves or declines the plan that waits; planId names the plan the user read, actions the positions of those ticked (all when absent). */
   decidePlan(requestId: string, decision: PlanDecision, planId: string, actions?: number[]): Promise<void>;
+  /** Sets the alerts the user ticked in the suggestion they read (offerId), or declines it (no items). */
+  decideReminders(requestId: string, decision: ProposalDecision, offerId: string, items?: ReminderPick[]): Promise<void>;
+  /** Makes an alert by hand. Rejects with an ApiError (400) when the title is empty or the moment is not in the future. */
+  createAlert(input: AlertInput): Promise<AssistantAlert>;
+  updateAlert(id: string, patch: AlertPatch): Promise<AssistantAlert>;
+  deleteAlert(id: string): Promise<void>;
   sendMessage(requestId: string, text: string, attachmentIds: string[]): Promise<void>;
   ignore(requestId: string): Promise<void>;
   retry(requestId: string): Promise<void>;
@@ -176,6 +186,10 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     answer: (requestId, answers) => post(assistant(requestId, '/answers'), { answers }),
     decideProposal: (requestId, decision) => post(assistant(requestId, '/proposal'), { decision }),
     decidePlan: (requestId, decision, planId, actions) => post(assistant(requestId, '/plan'), { decision, planId, ...(actions && { actions }) }),
+    decideReminders: (requestId, decision, offerId, items) => post(assistant(requestId, '/reminders'), { decision, offerId, ...(items && { items }) }),
+    createAlert: (input) => read<AssistantAlert>('/api/alerts', { method: 'POST' }, input),
+    updateAlert: (id, patch) => read<AssistantAlert>(`/api/alerts/${enc(id)}`, { method: 'PATCH' }, patch),
+    deleteAlert: async (id) => void (await send(`/api/alerts/${enc(id)}`, { method: 'DELETE' })),
     sendMessage: (requestId, text, attachmentIds) =>
       post(assistant(requestId, '/messages'), { text, ...(attachmentIds.length > 0 && { attachmentIds }) }),
     ignore: (requestId) => post(assistant(requestId, '/ignore')),

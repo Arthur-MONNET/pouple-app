@@ -122,6 +122,28 @@ describe('http api', () => {
     expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'approve', planId: 'p1' });
   });
 
+  it('names the suggestion that was read, and the ticked reminders with their moment, when deciding on reminders', async () => {
+    const { fetch, calls } = recorder(() => new Response(null, { status: 202 }));
+    const api = createHttpApi(fetch);
+    await api.decideReminders('r1', 'approve', 'o1', [{ id: 'r1', at: '2026-11-20T09:00' }, { id: 'r2' }]);
+    await api.decideReminders('r1', 'decline', 'o1');
+    expect(calls.map((c) => c.path)).toEqual(['/api/assistant/requests/r1/reminders', '/api/assistant/requests/r1/reminders']);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ decision: 'approve', offerId: 'o1', items: [{ id: 'r1', at: '2026-11-20T09:00' }, { id: 'r2' }] });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'decline', offerId: 'o1' });
+  });
+
+  it('makes an alert with POST, moves it with PATCH and deletes it with DELETE (204 has no body)', async () => {
+    const alert = { id: 'a1', title: 'Call', at: '2026-11-20T09:00:00+01:00', createdAt: '2026-11-16T10:00:00+01:00' };
+    const { fetch, calls } = recorder((_path, init) => (init.method === 'DELETE' ? new Response(null, { status: 204 }) : json(init.method === 'POST' ? 201 : 200, alert)));
+    const api = createHttpApi(fetch);
+    expect(await api.createAlert({ title: 'Call', at: '2026-11-20T09:00' })).toEqual(alert);
+    expect(await api.updateAlert('a/1', { at: '2026-11-21T09:00' })).toEqual(alert);
+    await api.deleteAlert('a1');
+    expect(calls.map((c) => `${c.init.method} ${c.path}`)).toEqual(['POST /api/alerts', 'PATCH /api/alerts/a%2F1', 'DELETE /api/alerts/a1']);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ title: 'Call', at: '2026-11-20T09:00' });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ at: '2026-11-21T09:00' });
+  });
+
   it('posts conversation actions to the assistant routes', async () => {
     const { fetch, calls } = recorder(() => new Response(null, { status: 204 }));
     const api = createHttpApi(fetch);

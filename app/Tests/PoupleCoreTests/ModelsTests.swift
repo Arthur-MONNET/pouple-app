@@ -70,6 +70,21 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(request.title, "❌ dating/vision · feat")
     }
 
+    func testAReminderThatCameDueIsTitledByItsAlertAndIgnoresWhatThisBuildDoesNotKnow() throws {
+        let json = """
+        {
+          "id": "reminder-1", "source": { "origin": "reminder", "channelId": "reminders", "channelName": null, "senderId": "pouple", "senderName": "Pouple", "ts": "", "permalink": null, "relatedRequestId": "a" },
+          "text": "Confirm your leave to Jocelyn\\nFrom the Slack thread", "context": "", "receivedAt": "2026-11-05T14:00:00Z", "updatedAt": "2026-11-05T14:00:00Z",
+          "status": "ready", "summary": "From the Slack thread", "draftReply": null, "questions": [], "proposal": null, "entries": [], "error": null, "engaged": true,
+          "reminders": { "id": "o1", "status": "accepted", "items": [] }
+        }
+        """
+        let request = try SnapshotDecoder.make().decode(AssistantRequest.self, from: Data(json.utf8))
+        XCTAssertEqual(request.source.origin, .reminder)
+        XCTAssertEqual(request.title, "Confirm your leave to Jocelyn")
+        XCTAssertTrue(request.isEngaged)
+    }
+
     func testDatesWithAndWithoutMillisecondsBothDecode() throws {
         let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(Self.snapshotJSON.utf8))
         let first = try XCTUnwrap(snapshot.requests.first)

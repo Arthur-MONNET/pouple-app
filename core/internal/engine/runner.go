@@ -19,6 +19,9 @@ type Sandbox string
 const (
 	ReadOnly       Sandbox = "read-only"
 	WorkspaceWrite Sandbox = "workspace-write"
+	// FullAccess is the user working with their AI directly, as in their own terminal: the network, installs, git, any
+	// command. It is only for work the user approved or asked for themselves (see Service.trusted).
+	FullAccess Sandbox = "danger-full-access"
 )
 
 // Event is what an AI CLI reports while it works, reduced to what the chat shows.
@@ -153,9 +156,9 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 		// Codex ships a built-in "apps" connector whose search tool reads any web page, whatever web_search says: found
 		// by testing with web_search="disabled". The web is opened only through web_search, and only when allowed.
 		"-c", "features.apps=false",
-		"-c", fmt.Sprintf(`web_search="%s"`, webSearchMode(turn.Web)),
+		"-c", fmt.Sprintf(`web_search="%s"`, webSearchMode(turn.Web || turn.Sandbox == FullAccess)),
 		"-c", "sandbox_workspace_write.network_access=false",
-		"-c", `shell_environment_policy.inherit="core"`,
+		"-c", fmt.Sprintf(`shell_environment_policy.inherit="%s"`, shellEnvironment(turn.Sandbox)),
 	)
 	if model := firstNonEmpty(turn.Model, r.opts.Model); model != "" {
 		shared = append(shared, "-m", model)
@@ -164,6 +167,16 @@ func (r *Runner) BuildArgs(turn Turn) []string {
 		return append(append([]string{"exec", "resume"}, shared...), turn.ResumeThread, "-")
 	}
 	return append(append([]string{"exec", "--sandbox", string(turn.Sandbox)}, shared...), "-")
+}
+
+// shellEnvironment is what the commands of a turn inherit from Pouple's environment (already without Pouple's own
+// variables): the basics for a turn that only reads, all of it for the user's own work, whose tools (a registry token, an
+// agent for git) need it.
+func shellEnvironment(sandbox Sandbox) string {
+	if sandbox == FullAccess {
+		return "all"
+	}
+	return "core"
 }
 
 // webSearchMode is Codex's own web search tool: "live" searches and reads pages as they are now. It runs on OpenAI's

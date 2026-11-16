@@ -1,6 +1,6 @@
 import { ApiError, type PoupleApi } from './client';
 import { lang as activeLang, type Lang } from '../i18n';
-import { codexConnector, codexProfile, createFixtures, slackConnector, slackProfile } from './mockFixtures';
+import { codexConnector, codexProfile, createAlerts, createFixtures, slackConnector, slackProfile } from './mockFixtures';
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
 import { mockProviderModels, mockProviderTest, mockProviders } from './mockProviders';
@@ -8,6 +8,7 @@ import { mockCheckResult, mockUpdateInfo, type UpdateScenario } from './mockUpda
 import type {
   ActionEvent,
   AppState,
+  AssistantAlert,
   AssistantRequest,
   AssistantSnapshot,
   AttachmentRef,
@@ -58,6 +59,8 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     for (const status of connectors.filter((c) => c.descriptor.required)) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
   }
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
+  let alerts: AssistantAlert[] = options.view === 'empty' ? [] : createAlerts(lang);
+  let alertCounter = 0;
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
   const style = { learned: true };
@@ -75,7 +78,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       status.descriptor = replacement.descriptor;
       if (status.connected) status.profile = profileOf(status.descriptor.id);
     }
-    if (options.view !== 'empty') requests = createFixtures(lang);
+    if (options.view !== 'empty') {
+      requests = createFixtures(lang);
+      alerts = createAlerts(lang);
+    }
     publish();
   }
 
@@ -102,6 +108,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       },
     },
     requests: structuredClone(requests),
+    alerts: structuredClone(alerts),
   });
 
   const publish = (): void => {
@@ -284,6 +291,58 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       const request = find(requestId);
       const kept = request.plan && actions ? request.plan.actions.filter((_, index) => actions.includes(index)) : request.plan?.actions;
       touch(request, { status: decision === 'approve' ? 'done' : 'ready', ...(request.plan && { plan: { ...request.plan, ...(kept && { actions: kept }), status: decision === 'approve' ? 'approved' : 'declined' } }) });
+    },
+    async decideReminders(requestId, decision, offerId, items = []) {
+      await wait();
+      const request = find(requestId);
+      const offer = request.reminders;
+      if (!offer || offer.status !== 'proposed' || offer.id !== offerId) throw new ApiError(409, 'no reminder is waiting for a choice');
+      if (decision === 'decline') {
+        touch(request, { reminders: { ...offer, status: 'declined' } });
+        return;
+      }
+      const made = items.map((pick) => {
+        const option = offer.items.find((item) => item.id === pick.id);
+        if (!option) throw new ApiError(400, 'unknown reminder');
+        const at = new Date(pick.at ?? option.at);
+        if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) throw new ApiError(400, text().errors.alertPast);
+        return { id: `alert-${++alertCounter + 100}`, title: option.label, ...(option.note && { note: option.note }), at: at.toISOString(), requestId, createdAt: nowIso() };
+      });
+      if (made.length === 0) throw new ApiError(400, 'choose at least one reminder');
+      alerts = [...alerts, ...made].sort((a, b) => a.at.localeCompare(b.at));
+      request.entries.push({ id: `u${Date.now()}`, at: nowIso(), role: 'user', kind: 'text', text: made.map((alert) => `- ${alert.title}`).join('\n') });
+      touch(request, { reminders: { ...offer, status: 'accepted', chosen: items.map((pick) => pick.id) } });
+    },
+    async createAlert(input) {
+      await wait();
+      if (input.title.trim() === '') throw new ApiError(400, text().errors.alertTitle);
+      const at = new Date(input.at);
+      if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) throw new ApiError(400, text().errors.alertPast);
+      const alert: AssistantAlert = { id: `alert-${++alertCounter + 100}`, title: input.title.trim(), ...(input.note && { note: input.note }), at: at.toISOString(), createdAt: nowIso() };
+      alerts = [...alerts, alert].sort((a, b) => a.at.localeCompare(b.at));
+      publish();
+      return alert;
+    },
+    async updateAlert(id, patch) {
+      await wait();
+      const alert = alerts.find((item) => item.id === id);
+      if (!alert) throw new ApiError(404, 'unknown alert');
+      if (patch.title !== undefined && patch.title.trim() === '') throw new ApiError(400, text().errors.alertTitle);
+      if (patch.at !== undefined) {
+        const at = new Date(patch.at);
+        if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) throw new ApiError(400, text().errors.alertPast);
+        alert.at = at.toISOString();
+      }
+      if (patch.title !== undefined) alert.title = patch.title.trim();
+      alerts.sort((a, b) => a.at.localeCompare(b.at));
+      publish();
+      return structuredClone(alert);
+    },
+    async deleteAlert(id) {
+      await wait();
+      if (!alerts.some((item) => item.id === id)) throw new ApiError(404, 'unknown alert');
+      alerts = alerts.filter((item) => item.id !== id);
+      publish();
     },
     async decideProposal(requestId, decision) {
       await wait();

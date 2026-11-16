@@ -60,6 +60,8 @@ const (
 	readTools = "Read,Glob,Grep"
 	// writeTools is what an approved change adds: edit files, in the project folder only (see permissionMode).
 	writeTools = readTools + ",Edit,Write"
+	// fullTools is everything a turn of the user's own work may use.
+	fullTools = "Bash,BashOutput,KillShell,Read,Glob,Grep,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Task"
 	// deniedTools is defence in depth: --tools already leaves these out, and a tool that is not offered cannot be
 	// called, but a deny rule survives a change in the CLI's defaults.
 	deniedTools = "Bash,BashOutput,KillShell,WebFetch,WebSearch,Task,Agent,NotebookEdit,Skill,SlashCommand"
@@ -107,6 +109,10 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 		tools, mode = writeTools, "acceptEdits"
 		denied = []string{deniedTools}
 		addDirs = append(addDirs, turn.Dir)
+	case FullAccess:
+		// The user's own terminal: every tool, no question. Only Pouple's own data folder stays unreadable (below).
+		tools, mode = fullTools, "bypassPermissions"
+		addDirs = append(addDirs, turn.Dir)
 	default:
 		return nil, i18n.NewError("Unknown sandbox “%s”", string(turn.Sandbox))
 	}
@@ -120,7 +126,10 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 		return nil, i18n.NewError("The saved conversation id is not valid")
 	}
 
-	rules := append([]string{}, secretReads...)
+	var rules []string
+	if turn.Sandbox != FullAccess {
+		rules = append(rules, secretReads...)
+	}
 	if turn.Sandbox == WorkspaceWrite {
 		rules = append(rules, secretWrites...)
 	}
@@ -143,7 +152,11 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 		"-p", "--output-format", "stream-json", "--verbose",
 		"--permission-mode", mode,
 		"--tools", tools,
-		"--disallowedTools", strings.Join(denied, ","),
+	}
+	if len(denied) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(denied, ","))
+	}
+	args = append(args,
 		// No MCP server from anywhere: none is configured here, and --strict-mcp-config ignores every other source,
 		// the project's .mcp.json included.
 		"--strict-mcp-config",
@@ -151,6 +164,9 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 		// The rules above come through --settings, which is not one of those sources.
 		"--setting-sources", "",
 		"--settings", string(settings),
+	)
+	if turn.Sandbox == FullAccess {
+		args = append(args, "--dangerously-skip-permissions")
 	}
 	for _, dir := range addDirs {
 		args = append(args, "--add-dir", dir)

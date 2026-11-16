@@ -95,6 +95,8 @@ type Worktree struct {
 	// file at that time. The AI that writes can edit `.git` (it is a file inside its folder): Pouple never reads the git
 	// folder from it, and refuses to commit if it changed.
 	gitDir, gitFile string
+	// start is the commit the work started from.
+	start string
 }
 
 // pointerIntact says whether the `.git` file of the worktree is still what git wrote.
@@ -164,16 +166,31 @@ func (s *Service) freeSpot(ctx context.Context, directory, project, wanted, shor
 	return branch, path
 }
 
+// freeFolder picks the folder of a worktree that needs no branch of its own.
+func (s *Service) freeFolder(project, short string) string {
+	root := s.deps.WorktreesRoot()
+	path := filepath.Join(root, project+"-"+short)
+	for n := 2; pathExists(path); n++ {
+		path = filepath.Join(root, project+"-"+short+"-"+strconv.Itoa(n))
+	}
+	return path
+}
+
 func (s *Service) branchTaken(ctx context.Context, directory, branch string) bool {
 	return s.branchExists(ctx, directory, branch) || s.commitOf(ctx, directory, "refs/remotes/"+origin+"/"+branch) != ""
 }
 
-// addWorktree makes a worktree of a project at path, on a new branch that starts at start.
+// addWorktree makes a worktree of a project at path, on a new branch that starts at start; with no branch it is detached
+// at start, so that nothing is named after it.
 func (s *Service) addWorktree(ctx context.Context, directory, project, branch, path, start string) (Worktree, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Worktree{}, err
 	}
-	if out, err := s.git(ctx, directory, "worktree", "add", "-q", "-b", branch, path, start); err != nil {
+	add := []string{"worktree", "add", "-q", "--detach", path, start}
+	if branch != "" {
+		add = []string{"worktree", "add", "-q", "-b", branch, path, start}
+	}
+	if out, err := s.git(ctx, directory, add...); err != nil {
 		return Worktree{}, i18n.NewError("The branch for this work could not be created: %s", clipRunes(out, 300))
 	}
 	w := Worktree{Path: path, Branch: branch, Project: project}
@@ -185,11 +202,8 @@ func (s *Service) addWorktree(ctx context.Context, directory, project, branch, p
 	}
 	w.gitFile = string(content)
 	w.gitDir = strings.TrimSpace(strings.TrimPrefix(w.gitFile, "gitdir: "))
-	// The project's dependencies are read from the project itself: a link, never committed (see commitWorktree) and never
-	// written through (the AI's sandbox forbids writing outside its folder).
-	if info, err := os.Stat(filepath.Join(directory, "node_modules")); err == nil && info.IsDir() {
-		_ = os.Symlink(filepath.Join(directory, "node_modules"), filepath.Join(path, "node_modules"))
-	}
+	// Where the work starts: what the AI commits itself (it may) counts as written too.
+	w.start, _ = s.git(ctx, path, w.gitArgs("rev-parse", "HEAD")...)
 	return w, nil
 }
 
@@ -217,16 +231,19 @@ func (s *Service) commitWorktree(ctx context.Context, w Worktree, goal string) (
 	if err != nil {
 		return "", i18n.NewError("What was written could not be read: %s", clipRunes(changes, 300))
 	}
-	if changes == "" {
+	head, _ := s.git(ctx, w.Path, w.gitArgs("rev-parse", "HEAD")...)
+	if changes == "" && head == w.start {
 		s.discardWorktree(ctx, w)
 		return "", nil
 	}
-	if out, err := s.git(ctx, w.Path, w.gitArgs(append([]string{"add", "-A"}, withoutDependencies...)...)...); err != nil {
-		return "", i18n.NewError("What was written could not be prepared for a commit: %s", clipRunes(out, 300))
-	}
-	message := clipRunes(oneLine(goal, 72), 72) + "\n\nWritten by Pouple from a plan the user approved."
-	if out, err := s.git(ctx, w.Path, w.gitArgs("commit", "-q", "-m", message)...); err != nil {
-		return "", i18n.NewError("The commit could not be made: %s", clipRunes(out, 300))
+	if changes != "" {
+		if out, err := s.git(ctx, w.Path, w.gitArgs(append([]string{"add", "-A"}, withoutDependencies...)...)...); err != nil {
+			return "", i18n.NewError("What was written could not be prepared for a commit: %s", clipRunes(out, 300))
+		}
+		message := clipRunes(oneLine(goal, 72), 72) + "\n\nWritten by Pouple from a plan the user approved."
+		if out, err := s.git(ctx, w.Path, w.gitArgs("commit", "-q", "-m", message)...); err != nil {
+			return "", i18n.NewError("The commit could not be made: %s", clipRunes(out, 300))
+		}
 	}
 	summary, _ := s.git(ctx, w.Path, w.gitArgs("show", "--stat", "--format=%h %s", "HEAD")...)
 	return summary, nil
@@ -241,5 +258,7 @@ func (s *Service) discardWorktree(ctx context.Context, w Worktree) {
 	// Cleaning up is wanted most when the work was stopped: the stop must not stop it too.
 	ctx = context.WithoutCancel(ctx)
 	_, _ = s.git(ctx, directory, "worktree", "remove", "--force", w.Path)
-	_, _ = s.git(ctx, directory, "branch", "-D", w.Branch)
+	if w.Branch != "" {
+		_, _ = s.git(ctx, directory, "branch", "-D", w.Branch)
+	}
 }

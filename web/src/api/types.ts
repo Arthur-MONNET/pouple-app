@@ -128,7 +128,9 @@ export type RequestOrigin =
   /** Something happened on a task of the user in Asana (assigned, mentioned): the text is what Asana reports. */
   | 'asana'
   /** A reviewer wrote on a merge request of the user: the text is what GitLab reports. */
-  | 'merge-request';
+  | 'merge-request'
+  /** An alert the user set came due: the text is its title, which the user wrote. */
+  | 'reminder';
 
 export interface RequestSource {
   origin: RequestOrigin;
@@ -140,6 +142,8 @@ export interface RequestSource {
   /** Slack message timestamp, e.g. "1730812345.000100". */
   ts: string;
   permalink: string | null;
+  /** For a reminder: the conversation it was set from, when it came from one. */
+  relatedRequestId?: string;
 }
 
 export type AssistantStatus =
@@ -204,6 +208,53 @@ export interface AssistantPlan {
   status: 'proposed' | 'approved' | 'declined';
 }
 
+/** One alert the assistant suggests. Nothing is set until the user ticks it. */
+export interface ReminderOption {
+  id: string;
+  label: string;
+  note?: string;
+  /** The suggested moment, RFC 3339 with the zone of the user's computer. */
+  at: string;
+}
+
+/** What the assistant suggests to be reminded of, waiting for the user's pick or already decided. */
+export interface ReminderOffer {
+  /** Names this exact suggestion: a decision carries it, so it can only answer the suggestion that was read. */
+  id: string;
+  status: 'proposed' | 'accepted' | 'declined';
+  items: ReminderOption[];
+  /** Once accepted: the ids of the options that became alerts. */
+  chosen?: string[];
+}
+
+/** An option the user ticked, with the local moment ("2026-11-20T09:00") they want for it; absent keeps the suggested one. */
+export interface ReminderPick {
+  id: string;
+  at?: string;
+}
+
+/** An upcoming alert. When it comes due it becomes a conversation with a bubble. */
+export interface AssistantAlert {
+  id: string;
+  title: string;
+  note?: string;
+  /** RFC 3339 with the zone offset of the computer the core runs on. */
+  at: string;
+  /** The conversation the alert was set from; absent for an alert made by hand. */
+  requestId?: string;
+  createdAt: string;
+}
+
+/** What the user types to make an alert; `at` is a local date and time, "2026-11-20T09:00". */
+export interface AlertInput {
+  title: string;
+  note?: string;
+  at: string;
+}
+
+/** What the user changes of an alert; a field left out stays as it is. */
+export type AlertPatch = Partial<AlertInput>;
+
 /** A file that came with a message. The bytes stay on the core. */
 export interface AttachmentRef {
   id: string;
@@ -244,6 +295,8 @@ export interface AssistantRequest {
   browser?: BrowserState;
   /** The writes the assistant asks to make, waiting for approval or approved. */
   plan?: AssistantPlan;
+  /** The alerts the assistant suggests, waiting for the user's pick or already decided. */
+  reminders?: ReminderOffer;
   source: RequestSource;
   /** The Slack message, as received. Untrusted content. */
   text: string;
@@ -319,6 +372,8 @@ export interface Usage {
 export interface AssistantSnapshot {
   status: AssistantStatusInfo;
   requests: AssistantRequest[];
+  /** The upcoming alerts, soonest first. */
+  alerts: AssistantAlert[];
 }
 
 export interface QuestionAnswer {

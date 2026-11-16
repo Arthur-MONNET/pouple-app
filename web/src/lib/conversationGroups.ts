@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { headlineOf, needsAttention } from './assistantRequests';
 
 /** What kind of place the requests of a group come from. */
-export type GroupKind = 'notes' | 'pipelines' | 'asana' | 'mergeRequests' | 'channel' | 'direct' | 'group';
+export type GroupKind = 'notes' | 'pipelines' | 'asana' | 'mergeRequests' | 'reminders' | 'channel' | 'direct' | 'group';
 
 export interface ConversationGroup {
   /** Stable across refreshes: what keeps a collapsed group collapsed. */
@@ -17,10 +17,10 @@ export interface ConversationGroup {
 }
 
 /** Notes, pipelines, Asana and merge requests each form one group, whatever the channel id they carry. */
-const SINGLE_GROUPS: Partial<Record<GroupKind, string>> = { notes: 'notes', pipelines: 'pipelines', asana: 'asana', mergeRequests: 'merge-requests' };
+const SINGLE_GROUPS: Partial<Record<GroupKind, string>> = { notes: 'notes', pipelines: 'pipelines', asana: 'asana', mergeRequests: 'merge-requests', reminders: 'reminders' };
 
 /** The groups whose requests are events of a service: nobody wrote, so the title is the headline of the event. */
-const EVENT_GROUPS: readonly GroupKind[] = ['pipelines', 'asana', 'mergeRequests'];
+const EVENT_GROUPS: readonly GroupKind[] = ['pipelines', 'asana', 'mergeRequests', 'reminders'];
 
 function kindOf(request: AssistantRequest): GroupKind {
   switch (request.source.origin) {
@@ -32,6 +32,8 @@ function kindOf(request: AssistantRequest): GroupKind {
       return 'asana';
     case 'merge-request':
       return 'mergeRequests';
+    case 'reminder':
+      return 'reminders';
     case 'direct-message':
       return 'direct';
     case 'group-message':
@@ -54,6 +56,8 @@ function labelOf(request: AssistantRequest): string {
       return t('groups.asana');
     case 'mergeRequests':
       return t('groups.mergeRequests');
+    case 'reminders':
+      return t('groups.reminders');
     case 'direct':
       return source.senderName;
     case 'group':

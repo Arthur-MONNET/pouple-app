@@ -95,7 +95,7 @@ func TestAPlanWaitsForApprovalThenIsWrittenOnABranchOfItsOwn(t *testing.T) {
 	if !strings.Contains(write.Prompt, "users land on /home") || strings.Contains(write.Prompt, "when I log in from a link") {
 		t.Fatalf("the writing turn must get the plan only:\n%s", write.Prompt)
 	}
-	if write.Sandbox != WorkspaceWrite || !strings.HasPrefix(write.Dir, worktrees) || write.Dir == project {
+	if write.Sandbox != FullAccess || !strings.HasPrefix(write.Dir, worktrees) || write.Dir == project {
 		t.Fatalf("dir %q sandbox %s", write.Dir, write.Sandbox)
 	}
 	// The user's checkout and branch are untouched; the work is one commit on a branch of its own.
@@ -262,12 +262,20 @@ func TestAWorktreeWhoseGitPointerWasRewrittenIsNotCommittedFrom(t *testing.T) {
 	}
 }
 
-func TestTheLinkToTheProjectsDependenciesIsNeverCommitted(t *testing.T) {
-	h, project, _ := planHarness(t, reply(samplePlan()), writes("redirect.txt", "keep the page\n"))
-	if err := os.MkdirAll(filepath.Join(project, "node_modules", "left-pad"), 0o755); err != nil {
-		t.Fatal(err)
+// The AI that writes installs what it needs in its own copy: the project's dependencies are never linked to it, and what it
+// installed is never committed.
+func TestWhatTheWritingAIInstallsStaysInItsOwnCopyAndIsNeverCommitted(t *testing.T) {
+	install := func(ctx context.Context, turn Turn) (TurnResult, error) {
+		if err := os.MkdirAll(filepath.Join(turn.Dir, "node_modules", "left-pad"), 0o755); err != nil {
+			return TurnResult{}, err
+		}
+		if err := os.WriteFile(filepath.Join(turn.Dir, "node_modules", "left-pad", "index.js"), []byte("module.exports = 1\n"), 0o644); err != nil {
+			return TurnResult{}, err
+		}
+		return writes("redirect.txt", "keep the page\n")(ctx, turn)
 	}
-	if err := os.WriteFile(filepath.Join(project, "node_modules", "left-pad", "index.js"), []byte("module.exports = 1\n"), 0o644); err != nil {
+	h, project, _ := planHarness(t, reply(samplePlan()), install)
+	if err := os.MkdirAll(filepath.Join(project, "node_modules", "left-pad"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	h.receive(message("fix the login redirect"))
@@ -277,14 +285,38 @@ func TestTheLinkToTheProjectsDependenciesIsNeverCommitted(t *testing.T) {
 	}
 	h.svc.Idle()
 	dir := h.codex.turns[1].Dir
-	if link, err := os.Readlink(filepath.Join(dir, "node_modules")); err != nil || link != filepath.Join(h.projectDir(t), "node_modules") {
-		t.Fatalf("the AI reads the project's dependencies through a link: %q %v", link, err)
+	if _, err := os.Readlink(filepath.Join(dir, "node_modules")); err == nil {
+		t.Fatal("the project's dependencies must not be linked into the copy: an install would write through the link")
 	}
 	if files := gitIn(t, dir, "show", "--name-only", "--format=", "HEAD"); files != "redirect.txt" {
 		t.Errorf("only what was written is committed: %q", files)
 	}
-	if status := gitIn(t, project, "status", "--porcelain"); !strings.Contains(status, "node_modules") || strings.Contains(status, "redirect") {
-		t.Errorf("the user's checkout is untouched: %q", status)
+}
+
+// The AI is free to commit itself, like in a terminal: what it committed is kept and pushed, not thrown away as "nothing
+// changed".
+func TestACommitTheWritingAIMadeItselfIsKept(t *testing.T) {
+	commits := func(ctx context.Context, turn Turn) (TurnResult, error) {
+		if err := os.WriteFile(filepath.Join(turn.Dir, "redirect.txt"), []byte("keep the page\n"), 0o644); err != nil {
+			return TurnResult{}, err
+		}
+		gitIn(t, turn.Dir, "add", "-A")
+		gitIn(t, turn.Dir, "commit", "-qm", "the AI's own commit")
+		return reply(map[string]any{"summary": "**Done**"})(ctx, turn)
+	}
+	h, project, _ := planHarness(t, reply(samplePlan()), commits)
+	h.receive(message("fix the login redirect"))
+	got := waitingPlan(t, h)
+	if err := h.svc.DecidePlan(got.ID, true, got.Plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+	final := h.svc.Snapshot().Requests[0]
+	if final.Status != StatusDone {
+		t.Fatalf("a commit made by the AI is work done: %s: %s", final.Status, journalOf(final))
+	}
+	if subject := gitIn(t, project, "log", "-1", "--format=%s", "fix/login-redirect"); subject != "the AI's own commit" {
+		t.Errorf("the branch keeps it: %q", subject)
 	}
 }
 

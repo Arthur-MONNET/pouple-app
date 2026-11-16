@@ -27,6 +27,8 @@ export interface MockText {
     notSignedIn: string;
     notFolder: (path: string) => string;
     negativeLimit: string;
+    alertTitle: string;
+    alertPast: string;
   };
   logs: { install: [string, string]; login1: [string, string]; login2: string };
   paused: string;
@@ -45,6 +47,8 @@ export interface MockText {
     rename: string;
     noteDone: string;
     limit: string;
+    /** A Slack message that leaves something to do by a date: the assistant suggests reminders for it. */
+    leave: { message: string; summary: string; reminders: [string, string, string] };
   };
 }
 
@@ -144,6 +148,8 @@ const fr: MockText = {
     notSignedIn: 'Pas encore connecté. Clique sur « Se connecter avec ChatGPT ».',
     notFolder: (path) => `« ${path} » n’est pas un dossier`,
     negativeLimit: 'La limite quotidienne ne peut pas être négative (0 : pas de limite)',
+    alertTitle: 'Une alerte a besoin d’un titre',
+    alertPast: 'Le moment d’une alerte doit être dans le futur',
   },
   logs: {
     install: ['Téléchargement de Codex depuis OpenAI…', 'Codex est installé. Tu peux maintenant te connecter.'],
@@ -197,6 +203,11 @@ const fr: MockText = {
     rename: 'J’ai trouvé 6 occurrences dans `settings/`. J’applique le renommage.',
     noteDone: 'C’est fait : `.github/workflows/ci.yml` utilise maintenant Node 22. Le changement est commité sur une branche locale, rien n’est poussé.',
     limit: 'Codex a besoin d’une pause. On reprend à 18:30.',
+    leave: {
+      message: 'Dac, tu peux me tenir au courant d’ici fin de semaine ?',
+      summary: '**Tu confirmeras tes congés à Jocelyn d’ici vendredi.**\n- Tu envisages de prendre uniquement le 31 décembre.',
+      reminders: ['Confirmer tes congés à Jocelyn', 'Dernier rappel : congés à confirmer', 'Relancer Jocelyn si pas de retour'],
+    },
   },
 };
 
@@ -254,6 +265,8 @@ const en: MockText = {
     notSignedIn: 'Not signed in yet. Click “Sign in with ChatGPT”.',
     notFolder: (path) => `“${path}” is not a folder`,
     negativeLimit: 'The daily limit cannot be negative (0 means no limit)',
+    alertTitle: 'An alert needs a title',
+    alertPast: 'The moment of an alert must be in the future',
   },
   logs: {
     install: ['Downloading Codex from OpenAI…', 'Codex is installed. You can now sign in.'],
@@ -307,6 +320,11 @@ const en: MockText = {
     rename: 'Found 6 occurrences in `settings/`. Applying the rename.',
     noteDone: 'Done: `.github/workflows/ci.yml` now uses Node 22. The change is committed on a local branch, nothing is pushed.',
     limit: 'Codex needs a breather. Back at 18:30.',
+    leave: {
+      message: 'Ok, can you keep me posted by the end of the week?',
+      summary: '**You will confirm your leave to Jocelyn by Friday.**\n- You plan to take only December 31.',
+      reminders: ['Confirm your leave to Jocelyn', 'Last call: leave to confirm', 'Follow up with Jocelyn if no answer'],
+    },
   },
 };
 

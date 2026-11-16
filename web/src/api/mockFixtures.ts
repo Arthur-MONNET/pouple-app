@@ -1,6 +1,6 @@
 import type { Lang } from '../i18n';
 import { mockText } from './mockText';
-import type { AssistantRequest, AssistantStatus, ConnectorStatus, Profile, RequestSource } from './types';
+import type { AssistantAlert, AssistantRequest, AssistantStatus, ConnectorStatus, Profile, RequestSource } from './types';
 
 const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -158,6 +158,23 @@ const reply = (id: string, text: string, minutes: number): AssistantRequest['ent
   text,
 });
 
+/** A local moment `days` from now at `hour`:00, as the core would send it (RFC 3339). */
+export function momentAt(days: number, hour: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(hour, 0, 0, 0);
+  return date.toISOString();
+}
+
+/** The alerts the mock starts with: two to come, one of them from a conversation. */
+export function createAlerts(lang: Lang): AssistantAlert[] {
+  const f = mockText(lang).fixtures.leave;
+  return [
+    { id: 'alert-1', title: lang === 'fr' ? 'Relire la proposition du client' : 'Review the customer proposal', at: momentAt(1, 11), createdAt: minutesAgo(30) },
+    { id: 'alert-2', title: lang === 'fr' ? 'Point hebdo avec l’équipe' : 'Weekly sync with the team', note: lang === 'fr' ? 'Préparer l’état des merge requests' : 'Prepare the merge request status', at: momentAt(3, 14), createdAt: minutesAgo(600) },
+  ];
+}
+
 /** One request in every status, so each state of the interface can be looked at, in the interface language. */
 export function createFixtures(lang: Lang): AssistantRequest[] {
   const f = mockText(lang).fixtures;
@@ -248,6 +265,25 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       text: q(7),
       source: { origin: 'keyword', channelName: 'ops', senderName: 'Hugo' },
       patch: { error: f.limit },
+    }),
+    build({
+      status: 'ready',
+      minutes: 5,
+      text: f.leave.message,
+      source: { origin: 'direct-message', channelName: null, channelId: 'D0JOCE', senderName: 'Jocelyn Lebaad', permalink: null },
+      patch: {
+        summary: f.leave.summary,
+        entries: [reply('e1', f.leave.summary, 4)],
+        reminders: {
+          id: 'offer-1',
+          status: 'proposed',
+          items: [
+            { id: 'r1', label: f.leave.reminders[0], at: momentAt(1, 9) },
+            { id: 'r2', label: f.leave.reminders[1], at: momentAt(2, 16) },
+            { id: 'r3', label: f.leave.reminders[2], at: momentAt(3, 10) },
+          ],
+        },
+      },
     }),
     build({
       status: 'queued',

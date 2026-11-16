@@ -39,6 +39,10 @@ flowchart LR
 - **Files** (images, text) can be dropped on a conversation in the window, and on an open bubble, where they wait as
   small previews above the reply field until you send. Holding a dragged file over a conversation of
   the list, or over a folded group, for about a second makes it blink twice and open, so the file can be dropped inside.
+- **Alerts** remind you of something later. When a request leaves you something to do by a date, Pouple suggests
+  reminders in the conversation: tick the ones you want, adjust their times and confirm, and only then are they set. The
+  **Upcoming alerts** menu lists what is to come, and lets you make, move or delete an alert yourself. When one comes due,
+  it shows as a bubble until you press **Done**.
 - **The mascot** sits on the open bubble and changes pose with what it asks of you: looking for a decision,
   celebrating for a ready answer or an applied change, worried for a failure. It is also the grip to drag the
   panel: on release it snaps to the nearest corner of the screen.

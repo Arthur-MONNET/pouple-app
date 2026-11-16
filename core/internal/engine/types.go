@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
@@ -36,12 +37,14 @@ const (
 	OriginAsana = "asana"
 	// OriginMergeRequest: someone commented on, or reviewed, a merge request of the user.
 	OriginMergeRequest = "merge-request"
+	// OriginReminder: an alert the user set came due. Pouple wrote it, to the user, at the time they chose.
+	OriginReminder = "reminder"
 )
 
 // IsEvent says whether a request is an event of a service, not a message someone wrote to the user: its text is what
 // the service reports, there is no one to answer, and two events are never one conversation.
 func IsEvent(origin string) bool {
-	return origin == OriginPipeline || origin == OriginAsana || origin == OriginMergeRequest
+	return origin == OriginPipeline || origin == OriginAsana || origin == OriginMergeRequest || origin == OriginReminder
 }
 
 // Source says where a request came from.
@@ -54,6 +57,8 @@ type Source struct {
 	TS          string  `json:"ts"`
 	Permalink   *string `json:"permalink"`
 	Label       *string `json:"label,omitempty"`
+	// RelatedRequestID is the conversation a reminder was set from; empty for any other request.
+	RelatedRequestID string `json:"relatedRequestId,omitempty"`
 }
 
 type Option struct {
@@ -115,9 +120,12 @@ type Request struct {
 	// Plan is the writes the assistant asks to make, waiting for approval or approved; absent until it writes a plan.
 	Plan *Plan `json:"plan,omitempty"`
 	// Grants are the write approvals given in this conversation; absent until the user approves a plan.
-	Grants  Grants  `json:"grants,omitempty"`
-	Entries []Entry `json:"entries"`
-	Error   *string `json:"error"`
+	Grants Grants `json:"grants,omitempty"`
+	// Reminders are the alerts the assistant suggests setting, waiting for the user's pick or already decided; absent until
+	// it suggests some.
+	Reminders *ReminderOffer `json:"reminders,omitempty"`
+	Entries   []Entry        `json:"entries"`
+	Error     *string        `json:"error"`
 	// Continuable is set when listed: the AI has a conversation a follow-up can continue.
 	Continuable bool `json:"continuable,omitempty"`
 	// Engaged is set once the request has reached the user (a question, an answer, a failure, an applied change).
@@ -214,6 +222,8 @@ type Usage struct {
 type Snapshot struct {
 	Status   StatusInfo `json:"status"`
 	Requests []Request  `json:"requests"`
+	// Alerts are the upcoming alerts, soonest first.
+	Alerts []alerts.Alert `json:"alerts"`
 }
 
 func stamp(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }

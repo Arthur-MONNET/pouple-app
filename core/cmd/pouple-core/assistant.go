@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/asanawatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
@@ -29,6 +30,10 @@ import (
 // ownPort is the port Pouple itself listens on: the browser it starts for a picture never opens it.
 func newAssistant(dir string, ownPort int, registry *connector.Registry, settings *config.File, hints *slackinbox.ThreadHints, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
 	store, err := engine.OpenStore(filepath.Join(dir, "requests.json"), func(err error) { logf("conversations not saved: %v", err) })
+	if err != nil {
+		return nil, nil, err
+	}
+	upcoming, err := alerts.Open(filepath.Join(dir, "alerts.json"), func(err error) { logf("alerts not saved: %v", err) })
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,7 +99,7 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 	devServers := devserver.New(projectsRoot, func() bool { return !load().DevServersDisabled }, os.Getenv("SHELL"))
 	gatherer := servicectx.New(registry)
 	service := engine.NewService(engine.Deps{
-		Store: store, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
+		Store: store, Alerts: upcoming, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
 		Events: []engine.EventSource{asanawatch.New(registry), mrwatch.New(registry)},
 		// The AI cannot run a browser from its sandbox: it names a page, and Pouple opens it on localhost or on a site
 		// the user listed, with an empty profile, and takes the picture.
