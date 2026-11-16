@@ -166,6 +166,15 @@ describe('assistant store', () => {
     expect(new Date(store.alerts.value.find((alert) => alert.id === made?.id)?.at ?? '').getHours()).toBe(18);
     await expect(store.updateAlert(made?.id ?? '', { at: '2020-01-01T09:00' })).rejects.toBeInstanceOf(ApiError);
 
+    await store.updateAlert(made?.id ?? '', { title: 'Call back Jocelyn', note: 'About the leave' });
+    await tick();
+    const edited = store.alerts.value.find((alert) => alert.id === made?.id);
+    expect([edited?.title, edited?.note, new Date(edited?.at ?? '').getHours()]).toEqual(['Call back Jocelyn', 'About the leave', 18]);
+    await store.updateAlert(made?.id ?? '', { note: '' });
+    await tick();
+    expect(store.alerts.value.find((alert) => alert.id === made?.id)?.note).toBeUndefined();
+    await expect(store.updateAlert(made?.id ?? '', { title: ' ' })).rejects.toBeInstanceOf(ApiError);
+
     await store.deleteAlert(made?.id ?? '');
     await tick();
     expect(store.alerts.value).toHaveLength(before);

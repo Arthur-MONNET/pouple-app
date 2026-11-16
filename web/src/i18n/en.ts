@@ -377,7 +377,7 @@ export const en: MessageTree = {
       pastError: 'Pick a moment in the future.',
     },
     row: {
-      timeLabel: 'When the alert "{title}" fires',
+      edit: 'Edit the alert "{title}"',
       delete: 'Delete the alert "{title}"',
       fromConversation: 'See the conversation',
       save: 'Save',

@@ -334,6 +334,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
         alert.at = at.toISOString();
       }
       if (patch.title !== undefined) alert.title = patch.title.trim();
+      if (patch.note !== undefined) {
+        if (patch.note.trim() === '') delete alert.note;
+        else alert.note = patch.note.trim();
+      }
       alerts.sort((a, b) => a.at.localeCompare(b.at));
       publish();
       return structuredClone(alert);

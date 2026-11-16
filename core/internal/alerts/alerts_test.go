@@ -71,6 +71,10 @@ func TestUpdateChangesOnlyWhatIsGivenAndRefusesThePast(t *testing.T) {
 	if err != nil || updated.Title != "Call Jocelyn" || updated.Note != "back" || !updated.At.Equal(moment) {
 		t.Fatalf("updated %+v, err %v", updated, err)
 	}
+	cleared := ""
+	if got, err := store.Update(alert.ID, Patch{Note: &cleared}, now); err != nil || got.Note != "" || got.Title != "Call Jocelyn" || !got.At.Equal(moment) {
+		t.Fatalf("clearing the note changed more than the note: %+v, err %v", got, err)
+	}
 	past := now.Add(-time.Hour)
 	if _, err := store.Update(alert.ID, Patch{At: &past}, now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a past moment: %v", err)

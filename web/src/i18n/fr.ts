@@ -381,7 +381,7 @@ export const fr: MessageTree = {
       pastError: 'Choisis un moment dans le futur.',
     },
     row: {
-      timeLabel: "Moment de l'alerte « {title} »",
+      edit: "Modifier l'alerte « {title} »",
       delete: "Supprimer l'alerte « {title} »",
       fromConversation: 'Voir la conversation',
       save: 'Enregistrer',

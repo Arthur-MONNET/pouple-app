@@ -1,33 +1,55 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import type { AssistantAlert } from '../api/types';
+import { computed, ref, useId, watch } from 'vue';
+import type { AlertPatch, AssistantAlert } from '../api/types';
 import { formatClock, isUpcoming, toLocalInput } from '../lib/alerts';
 import { untilTime } from '../lib/format';
 import AppButton from './AppButton.vue';
 import IconButton from './IconButton.vue';
 
 const props = withDefaults(defineProps<{ alert: AssistantAlert; busy?: boolean; hasConversation?: boolean }>(), { busy: false, hasConversation: false });
-const emit = defineEmits<{ move: [at: string]; remove: []; open: [] }>();
+const emit = defineEmits<{ update: [patch: AlertPatch]; remove: []; open: [] }>();
+
+const ids = { title: useId(), note: useId(), at: useId() };
 
 const editing = ref(false);
-const draft = ref(toLocalInput(props.alert.at));
-const valid = computed(() => isUpcoming(draft.value));
+const title = ref(props.alert.title);
+const note = ref(props.alert.note ?? '');
+const at = ref(toLocalInput(props.alert.at));
 
-// The core is the truth: a moment changed elsewhere replaces what was being typed.
+/** What the core holds: the drafts start from it, and go back to it when the user cancels. */
+function reset(): void {
+  title.value = props.alert.title;
+  note.value = props.alert.note ?? '';
+  at.value = toLocalInput(props.alert.at);
+}
+
+// The core is the truth: a change that came back (or was made elsewhere) replaces what was typed and closes the editor.
 watch(
-  () => props.alert.at,
-  (at) => {
-    draft.value = toLocalInput(at);
+  () => [props.alert.title, props.alert.note, props.alert.at],
+  () => {
+    reset();
     editing.value = false;
   },
 );
 
+/** Only what differs from the alert is sent, so saving a new title never moves the alert. */
+const patch = computed<AlertPatch>(() => ({
+  ...(title.value.trim() !== props.alert.title && { title: title.value.trim() }),
+  ...(note.value.trim() !== (props.alert.note ?? '') && { note: note.value.trim() }),
+  ...(at.value !== toLocalInput(props.alert.at) && { at: at.value }),
+}));
+const changed = computed(() => Object.keys(patch.value).length > 0);
+const titleOk = computed(() => title.value.trim() !== '');
+/** The moment must be in the future only when it is the one being changed. */
+const atOk = computed(() => at.value === toLocalInput(props.alert.at) || isUpcoming(at.value));
+const canSave = computed(() => changed.value && titleOk.value && atOk.value && !props.busy);
+
 function save(): void {
-  if (valid.value) emit('move', draft.value);
+  if (canSave.value) emit('update', patch.value);
 }
 
 function cancel(): void {
-  draft.value = toLocalInput(props.alert.at);
+  reset();
   editing.value = false;
 }
 </script>
@@ -38,7 +60,7 @@ function cancel(): void {
       <button
         type="button"
         class="w-14 shrink-0 rounded-md bg-raised px-1.5 py-1 text-center font-mono text-sm text-ink transition hover:bg-selected motion-reduce:transition-none"
-        :aria-label="$t('alerts.row.timeLabel', { title: alert.title })"
+        :aria-label="$t('alerts.row.edit', { title: alert.title })"
         :aria-expanded="editing"
         @click="editing = !editing"
       >
@@ -55,21 +77,51 @@ function cancel(): void {
           </template>
         </p>
       </div>
+      <IconButton :label="$t('alerts.row.edit', { title: alert.title })" icon="pencil" size="sm" :disabled="busy" data-testid="alert-edit" @click="editing = !editing" />
       <IconButton :label="$t('alerts.row.delete', { title: alert.title })" icon="trash" size="sm" :disabled="busy" data-testid="alert-delete" @click="emit('remove')" />
     </div>
-    <div v-if="editing" class="flex flex-wrap items-center gap-2 pl-[4.25rem]">
-      <input
-        v-model="draft"
-        type="datetime-local"
-        :aria-label="$t('alerts.row.timeLabel', { title: alert.title })"
-        :aria-invalid="!valid"
-        class="h-8 rounded-md border bg-canvas px-2 text-xs text-ink outline-none focus:border-accent"
-        :class="{ 'border-fail/70': !valid, 'border-line-strong': valid }"
-        @keydown.enter.prevent="save"
-        @keydown.esc="cancel"
-      />
-      <AppButton variant="primary" size="sm" :disabled="!valid || busy" data-testid="alert-save" @click="save">{{ $t('alerts.row.save') }}</AppButton>
-      <AppButton variant="ghost" size="sm" @click="cancel">{{ $t('alerts.row.undo') }}</AppButton>
-    </div>
+    <form v-if="editing" class="flex flex-col gap-2.5 rounded-lg border border-line bg-surface p-3" data-testid="alert-edit-form" @submit.prevent="save" @keydown.esc="cancel">
+      <div class="flex flex-col gap-1">
+        <label :for="ids.title" class="text-xs font-medium text-ink-muted">{{ $t('alerts.add.titleLabel') }}</label>
+        <input
+          :id="ids.title"
+          v-model="title"
+          type="text"
+          maxlength="120"
+          autocomplete="off"
+          :aria-invalid="!titleOk"
+          class="h-8 rounded-md border bg-canvas px-2.5 text-sm text-ink outline-none focus:border-accent"
+          :class="{ 'border-fail/70': !titleOk, 'border-line-strong': titleOk }"
+        />
+      </div>
+      <div class="flex flex-col gap-1">
+        <label :for="ids.note" class="text-xs font-medium text-ink-muted">{{ $t('alerts.add.noteLabel') }}</label>
+        <input
+          :id="ids.note"
+          v-model="note"
+          type="text"
+          maxlength="1000"
+          autocomplete="off"
+          :placeholder="$t('alerts.add.notePlaceholder')"
+          class="h-8 rounded-md border border-line-strong bg-canvas px-2.5 text-sm text-ink outline-none focus:border-accent"
+        />
+      </div>
+      <div class="flex flex-col gap-1">
+        <label :for="ids.at" class="text-xs font-medium text-ink-muted">{{ $t('alerts.add.atLabel') }}</label>
+        <input
+          :id="ids.at"
+          v-model="at"
+          type="datetime-local"
+          :aria-invalid="!atOk"
+          class="h-8 w-fit rounded-md border bg-canvas px-2 text-xs text-ink outline-none focus:border-accent"
+          :class="{ 'border-fail/70': !atOk, 'border-line-strong': atOk }"
+        />
+        <p v-if="!atOk" class="text-xs text-fail" role="alert">{{ $t('alerts.add.pastError') }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <AppButton type="submit" variant="primary" size="sm" :disabled="!canSave" data-testid="alert-save">{{ $t('alerts.row.save') }}</AppButton>
+        <AppButton variant="ghost" size="sm" @click="cancel">{{ $t('alerts.row.undo') }}</AppButton>
+      </div>
+    </form>
   </li>
 </template>

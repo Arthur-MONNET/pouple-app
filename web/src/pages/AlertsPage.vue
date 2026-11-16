@@ -71,7 +71,7 @@ const open = (requestId: string | undefined): void => void (requestId && router.
             :alert="alert"
             :busy="busy"
             :has-conversation="hasConversation(alert.requestId)"
-            @move="(at) => guard(() => store.updateAlert(alert.id, { at }))"
+            @update="(patch) => guard(() => store.updateAlert(alert.id, patch))"
             @remove="guard(() => store.deleteAlert(alert.id))"
             @open="open(alert.requestId)"
           />
