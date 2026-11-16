@@ -70,16 +70,18 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(request.title, "❌ dating/vision · feat")
     }
 
-    func testAReminderThatCameDueIsTitledByItsAlertAndIgnoresWhatThisBuildDoesNotKnow() throws {
+    func testAReminderThatCameDueIsTitledByItsAlertAndCarriesTheSuggestedReminders() throws {
         let json = """
         {
           "id": "reminder-1", "source": { "origin": "reminder", "channelId": "reminders", "channelName": null, "senderId": "pouple", "senderName": "Pouple", "ts": "", "permalink": null, "relatedRequestId": "a" },
           "text": "Confirm your leave to Jocelyn\\nFrom the Slack thread", "context": "", "receivedAt": "2026-11-05T14:00:00Z", "updatedAt": "2026-11-05T14:00:00Z",
           "status": "ready", "summary": "From the Slack thread", "draftReply": null, "questions": [], "proposal": null, "entries": [], "error": null, "engaged": true,
-          "reminders": { "id": "o1", "status": "accepted", "items": [] }
+          "reminders": { "id": "o1", "status": "proposed", "items": [{ "id": "r1", "label": "Call back", "at": "2026-11-20T09:00:00+01:00" }] }
         }
         """
         let request = try SnapshotDecoder.make().decode(AssistantRequest.self, from: Data(json.utf8))
+        XCTAssertEqual(request.reminders?.items.first?.at, Date(timeIntervalSince1970: 1_795_161_600))
+        XCTAssertEqual(request.reminders?.isProposed, true)
         XCTAssertEqual(request.source.origin, .reminder)
         XCTAssertEqual(request.title, "Confirm your leave to Jocelyn")
         XCTAssertTrue(request.isEngaged)

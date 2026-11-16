@@ -165,6 +165,12 @@ final class BubbleStore: ObservableObject {
         perform(request.id) { api in try await api.decidePlan(requestId: request.id, approve: approve, planId: planId) }
     }
 
+    /// Sets the reminders the user ticked in the bubble, or declines the suggestion when `picks` is nil.
+    func decideReminders(_ request: AssistantRequest, picks: [ReminderPick]?) {
+        guard let offerId = request.reminders?.id else { return }
+        perform(request.id) { api in try await api.decideReminders(requestId: request.id, offerId: offerId, picks: picks) }
+    }
+
     func send(_ request: AssistantRequest, _ text: String, attachmentIds: [String] = []) {
         perform(request.id) { api in try await api.message(requestId: request.id, text: text, attachmentIds: attachmentIds) }
     }

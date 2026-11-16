@@ -167,6 +167,11 @@ struct BubbleCard: View {
         case .result:
             if let summary = request.summary { MarkdownView(source: summary) }
             if let text = request.draftReply { replyBox(text) }
+            if let offer = request.reminders, offer.isProposed {
+                // A new suggestion starts over: nothing ticked, each option at the moment proposed.
+                ReminderPicker(offer: offer, busy: busy, onConfirm: { store.decideReminders(request, picks: $0) }, onSkip: { store.decideReminders(request, picks: nil) })
+                    .id(offer.id)
+            }
             HStack {
                 Button(L10n.text(.bubbleDone)) { store.dismiss(request) }.buttonStyle(PillButtonStyle(role: .primary))
                 openButton

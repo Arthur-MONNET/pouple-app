@@ -65,7 +65,8 @@ Pouple can remind you of something later, at a time and day you choose. An alert
 - **Suggested by Pouple.** When a request leaves you something to do or to remember later (a deadline, an answer promised
   by a date, a meeting), the investigating AI may suggest alerts with its answer. The conversation then shows a list with a
   tick for each one and the time proposed beside it, which you can change. **Nothing is set until you confirm**: ticking
-  and confirming sets exactly the ticked alerts, at the times shown; "No thanks" sets none. The AI is told the current date
+  and confirming sets exactly the ticked alerts, at the times shown; "No thanks" sets none. The list is shown in the
+  conversation window and in the bubble of a ready answer, with the same choices. The AI is told the current date
   and time at the start of every turn, and a suggestion in the past is dropped.
 - **Made by hand.** The **Upcoming alerts** menu lists every alert still to come, grouped by day, and lets you make one
   (title, optional note, date and time), move it or delete it. An alert is always in the future when it is made or moved.

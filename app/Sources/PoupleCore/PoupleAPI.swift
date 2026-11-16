@@ -100,6 +100,13 @@ public struct PoupleAPI: Sendable {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/plan", body: ["decision": approve ? "approve" : "decline", "planId": planId])
     }
 
+    /// Sets the reminders the user ticked in the suggestion they read (`offerId`), or declines it when `picks` is nil.
+    public func decideReminders(requestId: String, offerId: String, picks: [ReminderPick]?) async throws {
+        var body: [String: Any] = ["decision": picks == nil ? "decline" : "approve", "offerId": offerId]
+        if let picks { body["items"] = picks.map { ["id": $0.id, "at": $0.at] } }
+        _ = try await send("POST", "/api/assistant/requests/\(requestId)/reminders", body: body)
+    }
+
     public func message(requestId: String, text: String, attachmentIds: [String] = []) async throws {
         var body: [String: Any] = ["text": text]
         if !attachmentIds.isEmpty { body["attachmentIds"] = attachmentIds }

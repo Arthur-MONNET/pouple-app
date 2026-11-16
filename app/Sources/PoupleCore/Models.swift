@@ -131,6 +131,24 @@ public struct AssistantPlan: Codable, Equatable, Sendable {
     public var isProposed: Bool { status == "proposed" }
 }
 
+/// The alerts the assistant suggests, for the user to pick from. Nothing is set until they confirm.
+public struct ReminderOffer: Codable, Equatable, Sendable {
+    public struct Item: Codable, Equatable, Identifiable, Sendable {
+        public let id: String
+        public let label: String
+        public let note: String?
+        /// The moment the assistant suggests.
+        public let at: Date
+    }
+
+    /// Names this exact suggestion: a decision carries it, so it can only answer the suggestion that was read.
+    public let id: String
+    public let status: String
+    public let items: [Item]
+
+    public var isProposed: Bool { status == "proposed" && !items.isEmpty }
+}
+
 public struct ChatEntry: Codable, Equatable, Identifiable, Sendable {
     public enum Role: String, Codable, Sendable { case system, assistant, user }
     public enum Kind: String, Codable, Sendable { case text, step }
@@ -162,6 +180,8 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public var switchTo: String? = nil
     /// The writes the assistant asks to make, waiting for approval or approved; absent from older cores.
     public var plan: AssistantPlan? = nil
+    /// The alerts the assistant suggests, waiting for the user's pick or already decided; absent from older cores.
+    public var reminders: ReminderOffer? = nil
 
     /// The name of the AI that can take over, as shown in a button.
     public var switchToName: String? {

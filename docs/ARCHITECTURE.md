@@ -276,7 +276,8 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   (timers stop while the Mac sleeps) and at once when the alerts change. A due alert becomes a ready, engaged conversation
   of origin `reminder` (an event: `IsEvent`), id `reminder-<alert id>`, with `Source.relatedRequestId` pointing at the
   conversation it came from, then the alert is removed. The deterministic id means a crash between the two steps cannot open
-  a second conversation. The macOS shell shows it as any bubble. `Retry` refuses a reminder.
+  a second conversation. The macOS shell shows it as any bubble. A ready answer that carries a proposed `reminders` offer shows it in its bubble too
+  (`ReminderPicker`; the ticking and time rules are `ReminderDraft` in `PoupleCore`). `Retry` refuses a reminder.
 
 ### Plans and grants (being built)
 

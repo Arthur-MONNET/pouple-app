@@ -32,6 +32,7 @@ public enum L10n {
         // Bubbles
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
+        case reminderQuestion, reminderHint, reminderConfirmOne, reminderConfirmOther, reminderConfirmNone, reminderSkip, reminderPast, reminderTimeLabel
         case bubbleReadPlan, badgePlan, planWriteCode, planOnItsOwnBranch, planSyncBranch, planSyncDoneForYou
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
         case usageTokens, usageFiveHour, usageWeek
@@ -189,6 +190,14 @@ public enum L10n {
         .bubbleCopy: "Copier",
         .bubbleSuggestedReply: "Réponse suggérée",
         .bubbleApplyIn: "Appliquer cette modification dans %@ ?",
+        .reminderQuestion: "Veux-tu être rappelé ?",
+        .reminderHint: "Coche ceux que tu veux et ajuste l’heure. Rien n’est programmé avant ta confirmation.",
+        .reminderConfirmOne: "Activer %d rappel",
+        .reminderConfirmOther: "Activer %d rappels",
+        .reminderConfirmNone: "Activer",
+        .reminderSkip: "Non merci",
+        .reminderPast: "Choisis un moment dans le futur pour chaque rappel coché.",
+        .reminderTimeLabel: "Heure du rappel « %@ »",
         .bubbleReadPlan: "Lire et approuver le plan",
         .badgePlan: "Plan à valider",
         .planWriteCode: "Écrire du code · %@",
@@ -334,6 +343,14 @@ public enum L10n {
         .bubbleCopy: "Copy",
         .bubbleSuggestedReply: "Suggested reply",
         .bubbleApplyIn: "Apply this change in %@?",
+        .reminderQuestion: "Do you want to be reminded?",
+        .reminderHint: "Tick the ones you want and adjust the time. Nothing is set before you confirm.",
+        .reminderConfirmOne: "Turn on %d reminder",
+        .reminderConfirmOther: "Turn on %d reminders",
+        .reminderConfirmNone: "Turn on",
+        .reminderSkip: "No thanks",
+        .reminderPast: "Pick a moment in the future for each ticked reminder.",
+        .reminderTimeLabel: "Time of the reminder \"%@\"",
         .bubbleReadPlan: "Read and approve the plan",
         .badgePlan: "Approve a plan",
         .planWriteCode: "Write code · %@",
