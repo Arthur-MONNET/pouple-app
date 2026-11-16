@@ -106,6 +106,9 @@ func newHarness(t *testing.T, steps ...func(context.Context, Turn) (TurnResult, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The store writes in the background: the last write must end before t.TempDir removes the folder (cleanups run
+	// last registered first, so this one runs before the removal and after any Idle a test registers).
+	t.Cleanup(store.Flush)
 	h := &harness{inbox: &fakeInbox{}, codex: &scripted{steps: steps}, claude: &scripted{}, choice: providers.Selection{Provider: providers.Codex}, root: root, now: time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)}
 	h.svc = NewService(Deps{
 		Store: store, Inbox: h.inbox, Providers: map[providers.ID]Provider{providers.Codex: h.codex, providers.Claude: h.claude},
