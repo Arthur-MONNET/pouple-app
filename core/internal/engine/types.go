@@ -161,7 +161,8 @@ type Stored struct {
 	// ServicesUsed, it means an automatic approval must not apply a proposal.
 	WebUsed bool `json:"webUsed,omitempty"`
 	// ForeignSinceGrant is set when text written by strangers reached the conversation (a message in its Slack thread, a
-	// page of the web, a site other than the user's own) after the last plan the user approved. Until they approve
+	// page of the web, a site other than the user's own, what a connected service returned) after the last plan the user
+	// approved. Until they approve
 	// another plan, the plans of the places they approved run at once only while it is not set.
 	ForeignSinceGrant bool `json:"foreignSinceGrant,omitempty"`
 	// LimitedBy is the AI whose usage limit stopped the request; empty otherwise.

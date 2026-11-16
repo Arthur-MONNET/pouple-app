@@ -109,6 +109,9 @@ type Plan struct {
 	Brief   string     `json:"brief"`
 	Actions []Action   `json:"actions"`
 	Status  PlanStatus `json:"status"`
+	// Automatic is set when the plan was approved by the "every change" setting rather than by the user reading it: it is
+	// then written without full access, and grants nothing in the conversation.
+	Automatic bool `json:"automatic,omitempty"`
 }
 
 const (

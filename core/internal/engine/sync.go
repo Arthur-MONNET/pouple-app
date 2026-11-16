@@ -155,7 +155,7 @@ func (s *Service) unmergedFiles(ctx context.Context, w Worktree) []string {
 // fails, leaving nothing behind to clean, when a conflict is left or the merge cannot be committed.
 func (s *Service) resolveConflicts(ctx context.Context, id string, plan Plan, action Action, w Worktree, files []string, step func(string)) error {
 	step(s.text("Resolving the conflicts in %d file(s)", len(files)))
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ConflictPrompt(plan, action, files), Dir: w.Path, Sandbox: FullAccess, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ConflictPrompt(plan, action, files, !plan.Automatic), Dir: w.Path, Sandbox: writeSandbox(!plan.Automatic), SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		return err
 	}

@@ -479,6 +479,10 @@ func TestOwnNotesCanBeAutoApprovedButOthersNever(t *testing.T) {
 	if own.codex.count() != 2 || own.svc.Snapshot().Requests[0].Status != StatusDone {
 		t.Fatalf("own note: %d turns", own.codex.count())
 	}
+	// Approved by the setting, not by a person reading it: written in the project only, without network.
+	if apply := own.codex.turns[1]; apply.Sandbox != WorkspaceWrite || !strings.Contains(apply.Prompt, "Do not commit, push, install dependencies or use the network") {
+		t.Fatalf("an automatic approval wrote with %s", apply.Sandbox)
+	}
 	other := newHarness(t, reply(loginProposal))
 	other.svc.deps.AutoApproveOwnNotes = func() bool { return true }
 	if got := other.receive(message("please fix login"))[0]; got.Status != StatusAwaitingUser || other.codex.count() != 1 {

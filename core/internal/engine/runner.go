@@ -24,6 +24,16 @@ const (
 	FullAccess Sandbox = "danger-full-access"
 )
 
+// writeSandbox is how a change the user approved is written. A person who read and approved it gets full access; an
+// approval given by a setting (every change, or the user's own notes) writes in the project only, without network:
+// nobody read what it was built from, which may be a stranger's message.
+func writeSandbox(approvedByPerson bool) Sandbox {
+	if approvedByPerson {
+		return FullAccess
+	}
+	return WorkspaceWrite
+}
+
 // Event is what an AI CLI reports while it works, reduced to what the chat shows.
 type Event struct {
 	Type     string // thread | step | message

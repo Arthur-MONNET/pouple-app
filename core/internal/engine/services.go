@@ -66,11 +66,13 @@ func (s *Service) gatherServices(ctx context.Context, request Stored) string {
 	if s.deps.Services == nil {
 		return ""
 	}
-	return s.recordServices(request.ID, s.deps.Services(ctx, ServiceQuery{Text: request.Text}))
+	return s.recordServices(request.ID, s.deps.Services(ctx, ServiceQuery{Text: request.Text}), true)
 }
 
-// recordServices writes what the services were asked in the journal and returns the text to hand to the AI.
-func (s *Service) recordServices(id string, result ServiceContext) string {
+// recordServices writes what the services were asked in the journal and returns the text to hand to the AI. foreign says
+// the text came from a service (tasks, notes, merge requests, Slack messages: written by other people), not from Pouple
+// itself: it then takes the direct mode away (see Service.trusted), since it may shape what the AI does next.
+func (s *Service) recordServices(id string, result ServiceContext, foreign bool) string {
 	if len(result.Steps) > 0 {
 		lang := s.deps.Language()
 		entries := make([]Entry, len(result.Steps))
@@ -81,7 +83,10 @@ func (s *Service) recordServices(id string, result ServiceContext) string {
 	}
 	text := clipRunes(strings.TrimSpace(result.Text), maxServiceChars)
 	if text != "" {
-		s.update(id, func(r *Stored) { r.ServicesUsed = true })
+		s.update(id, func(r *Stored) {
+			r.ServicesUsed = true
+			r.ForeignSinceGrant = r.ForeignSinceGrant || foreign
+		})
 	}
 	return text
 }

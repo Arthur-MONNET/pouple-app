@@ -110,8 +110,12 @@ Reading is free. **Every write needs your approval first**, and the approval is 
   (`danger-full-access` for Codex, bypassed permissions for Claude Code). Only Pouple's own data folder stays unreadable to the
   file tools.
 - Level 2 ends, and the next plan is shown again, as soon as text written by strangers reaches the conversation after your
-  approval (a new message in its Slack thread, a web page read for a request of someone else): their text could steer a
-  tool that is no longer restricted. Validating a new plan restores level 2. A plan for another project than the ones you
+  approval (a new message in its Slack thread, a web page read for a request of someone else, what a connected service
+  returned: an Asana task, a Slite note, a merge request, Slack messages): their text could steer a tool that is no longer
+  restricted. A new message in the thread is always read at level 1, even if you approved a plan just before it was read.
+  Validating a new plan restores level 2.
+- An approval given by a setting ("Apply all changes", or your own notes) is not you reading the change: it is written at
+  level 1 rules for writing (in the project only, no network, no installs), and it grants nothing, so it never opens level 2. A plan for another project than the ones you
   validated is a question too: "I intend to do this, do you accept?".
 
 ### Approved by a frozen plan
@@ -148,7 +152,7 @@ that conversation, so later plans in the same project (and updates of the same b
 covering when text written by strangers reaches the conversation after your approval (a new message in its Slack thread, a
 page of the web): the next plan is then shown again. An update of another branch than the one you read is shown first too. The
 macOS bubble shows the plan and leads to the window, where the whole plan, brief included, is read and approved. "Apply all
-changes" in Settings approves plans as they are made. A plan with several actions is shown as a list you tick: only the
+changes" in Settings approves plans as they are made, without full access and without granting anything. A plan with several actions is shown as a list you tick: only the
 ticked actions are approved, carried out and granted (the others are dropped from the plan, which then shows what was
 approved); with one action it is a simple yes or no. Declining ends the conversation.
 

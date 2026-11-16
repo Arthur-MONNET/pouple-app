@@ -137,7 +137,9 @@ func (s *Service) reconsiderThread(ctx context.Context, id string) error {
 	for i, in := range pending {
 		messages[i] = threadMessage{Sender: in.Source.SenderName, Text: in.Text}
 	}
-	return s.continueWith(withSilence(ctx), id, s.deps.Persona().ThreadUpdatePrompt(messages), nil)
+	// Someone else wrote these messages: they are read-only and can write nothing, even if the user approved a plan
+	// between their arrival and this read (the approval clears ForeignSinceGrant).
+	return s.continueWith(withSilence(ctx), id, s.deps.Persona().ThreadUpdatePrompt(messages), nil, false)
 }
 
 // noteThreadChecked journals that new messages changed nothing, without reaching the user.

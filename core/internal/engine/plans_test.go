@@ -388,8 +388,13 @@ func TestWhenTheUserAllowsEveryChangeAPlanIsApprovedAsItIsMade(t *testing.T) {
 	if final.Status != StatusDone || final.Plan == nil || final.Plan.Status != PlanApproved || len(h.codex.turns) != 2 {
 		t.Fatalf("status %s turns %d", final.Status, len(h.codex.turns))
 	}
-	if stored, _ := h.svc.deps.Store.Get(final.ID); !stored.Grants.Covers(final.Plan.Actions[0]) {
-		t.Errorf("an approval, even given in advance, is a grant of this conversation: %+v", stored.Grants)
+	// Nobody read the plan: it is written without full access, and it grants nothing, so the follow-ups of this
+	// conversation are not run with full access either.
+	if write := h.codex.turns[1]; write.Sandbox != WorkspaceWrite || strings.Contains(write.Prompt, "full access") || !strings.Contains(write.Prompt, "use the network") {
+		t.Errorf("an approval by the setting must not write with full access: %s\n%s", write.Sandbox, write.Prompt)
+	}
+	if stored, _ := h.svc.deps.Store.Get(final.ID); len(stored.Grants) != 0 || !stored.Plan.Automatic || h.svc.trusted(final.ID) {
+		t.Errorf("an approval by the setting grants nothing: %+v", stored.Grants)
 	}
 	// Even then, the user's checkout is untouched.
 	if status := gitIn(t, project, "status", "--porcelain"); status != "" {

@@ -56,17 +56,13 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
 	if covered || trusted {
 		plan.Status = PlanApproved
 		why := "Inside what you already approved here: carrying it out"
-		grants := request.Grants
 		if !covered {
-			why = "You allowed every change: carrying it out"
-			var err error
-			if grants, err = request.Grants.With(plan); err != nil {
-				refuse(s.text("The plan could not be used: %s", i18n.ErrorText(s.deps.Language(), err)))
-				return
-			}
+			// Approved by the setting, not by a person: it grants nothing, so it neither covers the next plans nor lets
+			// the follow-ups of this conversation run with full access.
+			why, plan.Automatic = "You allowed every change: carrying it out", true
 		}
 		s.update(id, func(r *Stored) {
-			r.Status, r.Summary, r.Proposal, r.Questions, r.Plan, r.Grants = StatusApplying, ptr(outcome.Summary), nil, []Question{}, &plan, grants
+			r.Status, r.Summary, r.Proposal, r.Questions, r.Plan = StatusApplying, ptr(outcome.Summary), nil, []Question{}, &plan
 			r.Entries = append(r.Entries, summary, s.entry("assistant", "step", s.text(why)))
 		})
 		s.enqueue(id, Interactive, func(ctx context.Context) error { return s.executePlan(ctx, id, plan) })
@@ -211,7 +207,7 @@ func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action 
 	s.update(id, func(r *Stored) {
 		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Working on the branch %s", wt.Branch)))
 	})
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().PlanApplyPrompt(plan, action), Dir: wt.Path, Sandbox: FullAccess, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().PlanApplyPrompt(plan, action, !plan.Automatic), Dir: wt.Path, Sandbox: writeSandbox(!plan.Automatic), SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		s.discardWorktree(ctx, wt)
 		return "", err

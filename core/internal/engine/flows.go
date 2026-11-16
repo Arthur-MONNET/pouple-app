@@ -34,14 +34,15 @@ func (s *Service) analyze(ctx context.Context, id string) error {
 }
 
 // continueWith carries on the AI's conversation; it starts a fresh one, with the transcript so far, when the thread is
-// gone or belongs to the other AI (the choice of provider changed since).
-func (s *Service) continueWith(ctx context.Context, id, prompt string, images []string) error {
+// gone or belongs to the other AI (the choice of provider changed since). canAct is as in runInvestigation: false for
+// text written by someone else (a message in the thread), which is then read-only whatever was approved in it.
+func (s *Service) continueWith(ctx context.Context, id, prompt string, images []string, canAct bool) error {
 	request, err := s.require(id)
 	if err != nil {
 		return nil
 	}
 	if request.ThreadID != "" && request.threadOwner() == s.deps.Selection().Provider {
-		return s.runInvestigation(ctx, id, prompt, request.ThreadID, images, true)
+		return s.runInvestigation(ctx, id, prompt, request.ThreadID, images, canAct)
 	}
 	fresh, first := s.freshPrompt(ctx, request)
 	var transcript []string
@@ -50,7 +51,7 @@ func (s *Service) continueWith(ctx context.Context, id, prompt string, images []
 			transcript = append(transcript, entry.Role+": "+entry.Text)
 		}
 	}
-	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far (earlier messages, data):\n"+block("conversation", strings.Join(transcript, "\n"))+"\n\n"+prompt, "", append(first, images...), true)
+	return s.runInvestigation(ctx, id, fresh+"\n\nConversation so far (earlier messages, data):\n"+block("conversation", strings.Join(transcript, "\n"))+"\n\n"+prompt, "", append(first, images...), canAct)
 }
 
 // freshPrompt is the full analysis prompt, and the images the AI looks at.
@@ -189,6 +190,9 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		if err != nil {
 			return err
 		}
+		if !canAct {
+			s.markForeign(id)
+		}
 		if result.FinalMessage == "" {
 			return i18n.NewError("%s finished without an answer", provider.Name())
 		}
@@ -281,9 +285,11 @@ func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, c
 	if len(allowed) > 0 {
 		result = s.deps.Lookups(ctx, allowed)
 	}
+	// Only what the services returned is others' text; Pouple's own notes on refused comments are not.
+	foreign := strings.TrimSpace(result.Text) != ""
 	result.Text = strings.TrimSpace(result.Text + "\n" + refused.Text)
 	result.Steps = append(result.Steps, refused.Steps...)
-	return strings.TrimSpace(shotText + "\n" + s.recordServices(id, result)), shots
+	return strings.TrimSpace(shotText + "\n" + s.recordServices(id, result, foreign)), shots
 }
 
 // maxAsks is how many questions to Slite's own assistant one request may put: each is slow and approximate.
@@ -434,7 +440,7 @@ func (s *Service) Answer(id string, answers []Answer) error {
 		r.Status, r.Questions, r.Engaged = StatusAnalyzing, []Question{}, true
 		r.Entries = append(r.Entries, s.entry("user", "text", answersText(request.Questions, answers)))
 	})
-	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.continueWith(ctx, id, prompt, nil) })
+	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.continueWith(ctx, id, prompt, nil, true) })
 	return nil
 }
 
@@ -536,7 +542,7 @@ func (s *Service) message(id, text string, attachmentIDs []string, allowConfirma
 	s.enqueue(id, Interactive, func(ctx context.Context) error {
 		// A follow-up often names what to look for (a folder, a title): the services are asked again for this message.
 		services := s.gatherServices(ctx, Stored{Request: Request{ID: id, Text: text}})
-		return s.continueWith(ctx, id, s.deps.Persona().FollowUpPrompt(text, files, "", services, s.trusted(id)), images)
+		return s.continueWith(ctx, id, s.deps.Persona().FollowUpPrompt(text, files, "", services, s.trusted(id)), images, true)
 	})
 	return nil
 }
@@ -597,20 +603,21 @@ func (s *Service) decide(id string, approve bool, wanted string, byUser bool) er
 		return i18n.Wrap(ErrState, "no change is waiting for a decision")
 	}
 	if approve {
-		s.enqueue(id, Interactive, func(ctx context.Context) error { return s.apply(ctx, id, proposal) })
+		s.enqueue(id, Interactive, func(ctx context.Context) error { return s.apply(ctx, id, proposal, byUser) })
 	}
 	return nil
 }
 
 // apply carries out an approved change in the project folder only, in a fresh turn that never sees the Slack text.
-func (s *Service) apply(ctx context.Context, id string, proposal Proposal) error {
+// byUser says a person approved it; an approval given by a setting writes without full access (see writeSandbox).
+func (s *Service) apply(ctx context.Context, id string, proposal Proposal, byUser bool) error {
 	directory := s.projectPath(proposal.ProjectID)
 	if directory == "" {
 		return i18n.NewError("project “%s” no longer exists", proposal.ProjectID)
 	}
 	// What git says before: a turn that changed nothing must not be reported as a change.
 	before, beforeErr := s.deps.ChangeSummary(ctx, directory)
-	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ApplyPrompt(proposal, ""), Dir: directory, Sandbox: FullAccess, SchemaFile: s.deps.SchemaFile}, false)
+	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().ApplyPrompt(proposal, "", byUser), Dir: directory, Sandbox: writeSandbox(byUser), SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
 		return err
 	}
@@ -758,4 +765,14 @@ func (s *Service) Recover() {
 func (s *Service) trusted(id string) bool {
 	request, ok := s.deps.Store.Get(id)
 	return ok && len(request.Grants) > 0 && !request.ForeignSinceGrant
+}
+
+// markForeign records that what the AI just answered was shaped by text others wrote (a turn that cannot act). The flag
+// is set when that text arrives, but an approval given while the turn ran clears it: without this, a plan drawn from a
+// stranger's thread message would count as covered by that approval and run with full access.
+func (s *Service) markForeign(id string) {
+	if request, ok := s.deps.Store.Get(id); !ok || request.ForeignSinceGrant {
+		return
+	}
+	s.quietUpdate(id, func(r *Stored) { r.ForeignSinceGrant = true })
 }
