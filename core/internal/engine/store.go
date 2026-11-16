@@ -23,6 +23,9 @@ type state struct {
 	// EventCursors are what the other event sources remember between two polls, by source name.
 	EventCursors map[string]*Cursor `json:"eventCursors,omitempty"`
 	Requests     []Stored           `json:"requests"`
+	// Topics are the subjects the conversations are sorted into.
+	Topics       []Topic      `json:"topics,omitempty"`
+	Organization organization `json:"organization,omitempty"`
 }
 
 // Store keeps the conversations in memory and on disk. Writes are coalesced and happen in the background; Flush
@@ -134,6 +137,8 @@ func (s *Store) Remove(id string) {
 		}
 	}
 	s.state.Requests = kept
+	// A subject nobody talks about any more goes with its last conversation.
+	s.dropEmptyTopicsLocked()
 	s.changed()
 }
 

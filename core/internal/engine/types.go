@@ -113,10 +113,13 @@ type Request struct {
 	ReceivedAt  string          `json:"receivedAt"`
 	UpdatedAt   string          `json:"updatedAt"`
 	Status      Status          `json:"status"`
-	Summary     *string         `json:"summary"`
-	DraftReply  *string         `json:"draftReply"`
-	Questions   []Question      `json:"questions"`
-	Proposal    *Proposal       `json:"proposal"`
+	// TopicID is the subject the conversation was sorted into; empty until it was (or when it never is, like a message
+	// that needed nothing).
+	TopicID    string     `json:"topicId,omitempty"`
+	Summary    *string    `json:"summary"`
+	DraftReply *string    `json:"draftReply"`
+	Questions  []Question `json:"questions"`
+	Proposal   *Proposal  `json:"proposal"`
 	// Plan is the writes the assistant asks to make, waiting for approval or approved; absent until it writes a plan.
 	Plan *Plan `json:"plan,omitempty"`
 	// Grants are the write approvals given in this conversation; absent until the user approves a plan.
@@ -223,6 +226,8 @@ type Usage struct {
 type Snapshot struct {
 	Status   StatusInfo `json:"status"`
 	Requests []Request  `json:"requests"`
+	// Topics are the subjects the conversations are sorted into, each with at least one conversation.
+	Topics []Topic `json:"topics"`
 	// Alerts are the upcoming alerts, soonest first.
 	Alerts []alerts.Alert `json:"alerts"`
 }

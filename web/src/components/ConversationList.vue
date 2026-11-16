@@ -1,32 +1,41 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import type { AssistantRequest } from '../api/types';
+import type { AssistantRequest, AssistantTopic } from '../api/types';
 import { filterLabel, FILTERS, matchesFilter, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
-import { groupBySource, itemTitle, showsMessageBelow, type ConversationGroup } from '../lib/conversationGroups';
+import { groupByTopic, previewOf, sourceLabel, type ConversationGroup } from '../lib/topicGroups';
+import { shownRequests } from '../lib/topicFolds';
 import { relativeTime } from '../lib/format';
 import { useSpringLoad } from '../composables/useSpringLoad';
+import { useTopicFolds } from '../composables/useTopicFolds';
 import MascotStage from './MascotStage.vue';
 import StatusDot from './StatusDot.vue';
 
-const props = defineProps<{ requests: AssistantRequest[]; selectedId: string | null; attention: number; loaded: boolean }>();
+const props = defineProps<{ requests: AssistantRequest[]; topics?: AssistantTopic[]; selectedId: string | null; attention: number; loaded: boolean }>();
 const emit = defineEmits<{ select: [id: string] }>();
 
 const filter = ref<ConversationFilter>('all');
 const visible = computed(() => props.requests.filter((request) => matchesFilter(request, filter.value)));
-const groups = computed(() => groupBySource(visible.value));
+const groups = computed(() => groupByTopic(visible.value, props.topics ?? []));
 
-// Groups the user folded. A folded group still shows the open conversation, so a selection is never hidden.
-const folded = ref<ReadonlySet<string>>(new Set());
-const isOpen = (key: string): boolean => !folded.value.has(key);
-function shownRequests(group: ConversationGroup): AssistantRequest[] {
-  return isOpen(group.key) ? group.requests : group.requests.filter((request) => request.id === props.selectedId);
-}
-function toggle(key: string): void {
-  const next = new Set(folded.value);
+// Which topics are open follows the whole list, not the filter, so picking a filter does not move the defaults.
+const allGroups = computed(() => groupByTopic(props.requests, props.topics ?? []));
+const folds = useTopicFolds(allGroups, () => props.selectedId);
+const { isOpen, toggle } = folds;
+const groupKeys = computed(() => groups.value.map((group) => group.key));
+const anyOpen = computed(() => folds.anyOpen(groupKeys.value));
+const toggleAll = (): void => folds.setAll(groupKeys.value, !anyOpen.value);
+
+// Topics showing all of their conversations. Not kept: a reload starts again from the first few.
+const expanded = ref<ReadonlySet<string>>(new Set());
+function toggleExpanded(key: string): void {
+  const next = new Set(expanded.value);
   if (next.has(key)) next.delete(key);
   else next.add(key);
-  folded.value = next;
+  expanded.value = next;
 }
+// A folded topic still shows the open conversation, so a selection is never hidden.
+const shownIn = (group: ConversationGroup): { shown: AssistantRequest[]; hidden: number } =>
+  shownRequests(group.requests, isOpen(group.key), expanded.value.has(group.key), props.selectedId);
 
 // A file dragged over a conversation, or over a folded group, for a moment opens it, so it can be dropped inside.
 const CONVERSATION = 'conversation:';
@@ -62,8 +71,8 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div class="px-3 pb-2 pt-3">
-      <div role="tablist" :aria-label="$t('filters.label')" class="flex rounded-lg bg-surface p-0.5" @keydown="onFilterKey">
+    <div class="flex items-center gap-1.5 px-3 pb-2 pt-3">
+      <div role="tablist" :aria-label="$t('filters.label')" class="flex min-w-0 flex-1 rounded-lg bg-surface p-0.5" @keydown="onFilterKey">
         <button
           v-for="item in FILTERS"
           :key="item"
@@ -79,6 +88,20 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
           <span v-if="item === 'needs-me' && attention > 0" class="ml-1 rounded bg-accent/20 px-1 text-2xs text-accent">{{ attention }}</span>
         </button>
       </div>
+      <button
+        v-if="groups.length > 0"
+        type="button"
+        class="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
+        :aria-label="anyOpen ? $t('list.collapseAll') : $t('list.expandAll')"
+        :title="anyOpen ? $t('list.collapseAll') : $t('list.expandAll')"
+        data-testid="toggle-all-topics"
+        @click="toggleAll"
+      >
+        <svg class="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <template v-if="anyOpen"><path d="M5 2.5 8 5.5l3-3" /><path d="M5 13.5l3-3 3 3" /></template>
+          <template v-else><path d="M5 5.5l3-3 3 3" /><path d="M5 10.5l3 3 3-3" /></template>
+        </svg>
+      </button>
     </div>
 
     <ul class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" :aria-label="$t('list.label')">
@@ -101,7 +124,7 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
           <span class="text-2xs text-ink-dim">{{ group.requests.length }}</span>
         </button>
         <ul :id="`group-${group.key}`">
-          <li v-for="request in shownRequests(group)" :key="request.id">
+          <li v-for="request in shownIn(group).shown" :key="request.id">
             <button
               type="button"
               class="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-raised motion-reduce:transition-none"
@@ -115,11 +138,21 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
             >
               <StatusDot :status="request.status" class="mt-1.5" />
               <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm text-ink">{{ itemTitle(request) }}</span>
-                <span v-if="showsMessageBelow(group)" class="block truncate text-xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ request.text }}</span>
+                <span class="block truncate text-sm text-ink">{{ sourceLabel(request) }}</span>
+                <span class="block truncate text-xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ previewOf(request) }}</span>
                 <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ statusLabel(request.status) }}</span>
               </span>
               <time class="shrink-0 pt-0.5 text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'" :datetime="request.updatedAt">{{ relativeTime(request.updatedAt) }}</time>
+            </button>
+          </li>
+          <li v-if="isOpen(group.key) && (shownIn(group).hidden > 0 || expanded.has(group.key))">
+            <button
+              type="button"
+              class="w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-muted transition hover:text-ink motion-reduce:transition-none"
+              data-testid="topic-show-more"
+              @click="toggleExpanded(group.key)"
+            >
+              {{ expanded.has(group.key) ? $t('list.showFewer') : $t('list.showMore', { count: shownIn(group).hidden }) }}
             </button>
           </li>
         </ul>

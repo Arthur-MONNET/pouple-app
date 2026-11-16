@@ -58,6 +58,26 @@ At any time, **Ignore** closes the request in one click from the bubble, on a qu
 - Ignoring only closes this request. A new message in the same thread opens a new request.
 - The window gives the full conversation and the history, and can be used at any time.
 
+## Topics
+
+The list of conversations in the window is grouped by **subject**, not by where a message came from: a bug discussed in a
+channel, in a direct message and in a pipeline failure is one topic. A conversation's own title in the list is its source
+(the channel and the sender, "Note to self", "Pipeline"…), with the start of the message under it.
+
+- **Automatic.** Pouple sorts every new conversation into a topic just before it analyzes it: the AI is given the topics
+  that exist (with their latest conversations) and either picks one or starts a new one with a short title. Nothing to
+  maintain by hand.
+- **Shared context.** When a conversation belongs to a topic, the analysis also reads the other conversations of that topic
+  (what was asked, concluded and decided), so it reasons from the whole subject. Text others wrote in those conversations
+  counts like any text of theirs: nothing is then done on its own.
+- **Kept in order.** From time to time (after a few new conversations, and for the conversations that existed before topics
+  did) the AI looks at all the topics again: it merges two that are one subject, renames the ones whose subject moved on, and
+  sorts what could not be sorted. A topic with no conversation left disappears. A message that needed nothing stays under
+  "Unsorted".
+- **Folded by default.** A topic is folded unless it holds the open conversation or up to three conversations that wait for
+  you. A folded topic still shows the open conversation, an open one shows its five latest and **Show more** for the rest, and
+  one button folds or unfolds them all. What you fold or unfold yourself is remembered.
+
 ## Alerts
 
 Pouple can remind you of something later, at a time and day you choose. An alert is a title, an optional note and a moment.

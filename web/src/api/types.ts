@@ -298,6 +298,8 @@ export interface AssistantRequest {
   /** The alerts the assistant suggests, waiting for the user's pick or already decided. */
   reminders?: ReminderOffer;
   source: RequestSource;
+  /** The topic the core sorted this conversation into. Absent or empty: not sorted yet (small talk, or not looked at yet). */
+  topicId?: string;
   /** The Slack message, as received. Untrusted content. */
   text: string;
   /** The few messages posted just before it. Untrusted content. */
@@ -369,9 +371,20 @@ export interface Usage {
 }
 
 /** GET /api/assistant, and the payload of every `data:` frame of GET /api/assistant/stream. */
+/** A subject the core sorts conversations into. Never empty: the core deletes a topic with no conversation. */
+export interface AssistantTopic {
+  id: string;
+  /** A short plain text written by the AI, and renamed as the topic evolves. Never HTML. */
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AssistantSnapshot {
   status: AssistantStatusInfo;
   requests: AssistantRequest[];
+  /** Missing from a core that does not sort conversations yet: treat as none. */
+  topics?: AssistantTopic[];
   /** The upcoming alerts, soonest first. */
   alerts: AssistantAlert[];
 }

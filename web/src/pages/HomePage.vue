@@ -65,7 +65,7 @@ watch(
         :class="{ 'max-[699px]:hidden': selected }"
         :aria-label="$t('list.label')"
       >
-        <ConversationList :requests="store.requests.value" :selected-id="selectedId" :attention="store.attention.value" :loaded="store.loaded.value" @select="select" />
+        <ConversationList :requests="store.requests.value" :topics="store.topics.value" :selected-id="selectedId" :attention="store.attention.value" :loaded="store.loaded.value" @select="select" />
         <div v-if="hint.visible.value" class="mx-3 mb-3 flex flex-col gap-2 rounded-xl border border-line bg-surface p-3" data-testid="extras-hint">
           <div class="flex items-start gap-2">
             <p class="flex-1 text-xs leading-relaxed text-ink-muted">{{ $t('extras.hint.text', { names: hint.names.value }) }}</p>

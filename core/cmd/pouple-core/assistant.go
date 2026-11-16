@@ -45,6 +45,14 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 	if err := os.WriteFile(schemaFile, []byte(engine.OutcomeSchema), 0o600); err != nil {
 		return nil, nil, err
 	}
+	topicSchemaFile := filepath.Join(dir, "topic.schema.json")
+	if err := os.WriteFile(topicSchemaFile, []byte(engine.TopicSchema), 0o600); err != nil {
+		return nil, nil, err
+	}
+	organizeSchemaFile := filepath.Join(dir, "organize.schema.json")
+	if err := os.WriteFile(organizeSchemaFile, []byte(engine.OrganizeSchema), 0o600); err != nil {
+		return nil, nil, err
+	}
 	scratch := filepath.Join(dir, "workspace")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		return nil, nil, err
@@ -161,7 +169,7 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			}
 			return scratch
 		},
-		SchemaFile: schemaFile,
+		SchemaFile: schemaFile, TopicSchemaFile: topicSchemaFile, OrganizeSchemaFile: organizeSchemaFile,
 		Redact: func() engine.Redactor {
 			secrets := append(codexSecrets(filepath.Join(codexHome, "auth.json")), claudeSecrets(filepath.Join(claudeHome, ".credentials.json"))...)
 			if values, err := registry.Values("slack"); err == nil {

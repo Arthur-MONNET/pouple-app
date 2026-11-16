@@ -1,6 +1,6 @@
 import type { Lang } from '../i18n';
 import { mockText } from './mockText';
-import type { AssistantAlert, AssistantRequest, AssistantStatus, ConnectorStatus, Profile, RequestSource } from './types';
+import type { AssistantAlert, AssistantRequest, AssistantStatus, AssistantTopic, ConnectorStatus, Profile, RequestSource } from './types';
 
 const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -118,6 +118,7 @@ interface Seed {
   minutes: number;
   text: string;
   source?: Partial<RequestSource>;
+  topicId?: string;
   patch?: Partial<AssistantRequest>;
 }
 
@@ -126,6 +127,7 @@ function build(seed: Seed): AssistantRequest {
   const base: AssistantRequest = {
     id,
     source: source(seed.source ?? {}),
+    ...(seed.topicId ? { topicId: seed.topicId } : {}),
     text: seed.text,
     context: '',
     receivedAt: minutesAgo(seed.minutes),
@@ -180,7 +182,9 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
   const f = mockText(lang).fixtures;
   const q = (index: number): string => f.q[index] ?? '';
   return [
+    ...billingExtras(lang),
     build({
+      topicId: 'topic-billing',
       status: 'analyzing',
       minutes: 2,
       text: q(0),
@@ -188,6 +192,7 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       patch: { entries: [step('s1', '$ rg "exportInvoices" -n src', 2), step('s2', f.steps[0], 1)] },
     }),
     build({
+      topicId: 'topic-release',
       status: 'awaiting-user',
       minutes: 9,
       text: q(1),
@@ -228,6 +233,7 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       },
     }),
     build({
+      topicId: 'topic-release',
       status: 'ready',
       minutes: 45,
       text: q(3),
@@ -240,6 +246,7 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       },
     }),
     build({
+      topicId: 'topic-release',
       status: 'applying',
       minutes: 70,
       text: q(4),
@@ -247,6 +254,7 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       patch: { entries: [reply('e1', f.rename, 65), step('s1', '$ sed -i "" "s/Workspace/Team/g" settings/GeneralTab.vue', 64)] },
     }),
     build({
+      topicId: 'topic-people',
       status: 'done',
       minutes: 180,
       text: q(5),
@@ -267,6 +275,7 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       patch: { error: f.limit },
     }),
     build({
+      topicId: 'topic-people',
       status: 'ready',
       minutes: 5,
       text: f.leave.message,
@@ -291,5 +300,40 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
       text: q(8),
       source: { origin: 'group-message', channelName: null, channelId: 'G0123', senderName: 'Inès' },
     }),
+  ];
+}
+
+/** More conversations in the billing topic and a small design topic, so the list can fold and page. */
+function billingExtras(lang: Lang): AssistantRequest[] {
+  const fr = lang === 'fr';
+  const rows: Array<[string, number, string, string]> = [
+    [fr ? 'Le total de la facture 4821 ne tombe pas juste' : 'Invoice 4821 does not add up', 30, 'ready', 'Camille'],
+    [fr ? 'Peux-tu relancer l’export de mars ?' : 'Can you rerun the March export?', 95, 'done', 'Nadia'],
+    [fr ? 'La TVA est absente des factures étrangères' : 'VAT is missing on foreign invoices', 140, 'done', 'Hugo'],
+    [fr ? 'Un client demande un avoir' : 'A customer asks for a credit note', 260, 'ready', 'Léa'],
+    [fr ? 'Format du CSV de facturation' : 'Billing CSV format', 400, 'done', 'Morgan'],
+    [fr ? 'Doublons dans l’export des factures' : 'Duplicates in the invoice export', 800, 'done', 'Sophie'],
+  ];
+  const design: Array<[string, number]> = [
+    [fr ? 'Les nouveaux boutons sont prêts à relire' : 'The new buttons are ready for review', 55],
+    [fr ? 'Quelle couleur pour les alertes ?' : 'Which colour for the alerts?', 700],
+  ];
+  return [
+    ...rows.map(([text, minutes, status, senderName]) =>
+      build({ topicId: 'topic-billing', status: status as AssistantStatus, minutes, text, source: { channelName: 'billing', senderName } })),
+    ...design.map(([text, minutes]) =>
+      build({ topicId: 'topic-design', status: 'done', minutes, text, source: { channelName: 'design', channelId: 'C0DESIGN', senderName: 'Inès' } })),
+  ];
+}
+
+/** The topics the mock starts with, named in the interface language. */
+export function createTopics(lang: Lang): AssistantTopic[] {
+  const fr = lang === 'fr';
+  const at = minutesAgo(5);
+  return [
+    { id: 'topic-billing', title: fr ? 'Export des factures' : 'Invoice export', createdAt: minutesAgo(900), updatedAt: at },
+    { id: 'topic-release', title: fr ? 'Mise en production de la semaine' : 'This week’s release', createdAt: minutesAgo(700), updatedAt: at },
+    { id: 'topic-people', title: fr ? 'Équipe et congés' : 'Team and leave', createdAt: minutesAgo(500), updatedAt: at },
+    { id: 'topic-design', title: fr ? 'Revue du design' : 'Design review', createdAt: minutesAgo(800), updatedAt: at },
   ];
 }

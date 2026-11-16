@@ -279,6 +279,33 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   a second conversation. The macOS shell shows it as any bubble. A ready answer that carries a proposed `reminders` offer shows it in its bubble too
   (`ReminderPicker`; the ticking and time rules are `ReminderDraft` in `PoupleCore`). `Retry` refuses a reminder.
 
+### Topics
+
+- A `Topic` (`{id, title, createdAt, updatedAt}`) is a subject several conversations are about. They are kept in
+  `requests.json` next to the conversations (`topics`, plus `organization`: when the topics were last reorganized and how many
+  conversations were sorted since), and every `Request` carries its `topicId` (empty until sorted, and for a message that
+  needed nothing). The snapshot (and its stream) has `topics`, each with at least one conversation: `Store.Remove` and the
+  merges drop the empty ones.
+- Sorting is on only when `Deps.TopicSchemaFile` and `OrganizeSchemaFile` are set (`cmd/pouple-core` writes `TopicSchema` and
+  `OrganizeSchema` next to the outcome schema). `analyze` first runs `sortIntoTopic`: one short read-only turn that belongs to
+  no conversation (`Service.ask`, no tool, no write), given the topics with their latest conversations and the new message;
+  it answers `{topicId, title}` (an existing id, or "" with a title for a new topic; with an id, a title only to rename). An
+  id the AI made up makes a new topic, a missing title falls back on the start of the message, and a turn that fails is
+  reported once and never stops the analysis: the conversation waits for the next reorganization.
+- `maybeOrganize` (called by every `Poll`) queues `organize` in the background when conversations wait for a topic (those saved
+  before topics, or that could not be sorted), or when five were sorted since the last look and half an hour passed. One turn
+  places up to 25 waiting conversations (new topics are named by a key of the AI's own, shared by the conversations placed
+  under it), merges topics (`Store.MergeTopics` keeps the older start and moves the conversations) and renames them; only ids
+  that exist count. A round that places nothing ends the run, and a failed attempt is retried after ten minutes.
+- The analysis of a conversation in a topic reads the others of the topic (`relatedConversationsOf`: at most six, not ignored,
+  not being worked on) through `AnalysisPromptWithTopic`. If any of them holds text written by someone other than the user (a
+  note to oneself and a reminder are the user's own), the request is flagged `ServicesUsed` and `ForeignSinceGrant` like any
+  text of strangers, so nothing runs on its own after it.
+- Web: `lib/topicGroups.ts` groups by topic (`groupByTopic`, an unknown or missing topic goes to the `unsorted` group) and names
+  a row by its source (`sourceLabel`); `lib/topicFolds.ts` and `composables/useTopicFolds.ts` hold the fold state (folded by
+  default, open for the selected conversation and up to three topics that wait for the user, explicit choices kept in
+  `localStorage`).
+
 ### Plans and grants (being built)
 
 The target is described in [PRODUCT.md](PRODUCT.md), "Writing". The model lives in `core/internal/engine/plan.go`; nothing

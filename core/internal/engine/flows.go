@@ -28,6 +28,8 @@ func (s *Service) analyze(ctx context.Context, id string) error {
 	if request.Source.Origin != "note-to-self" && s.pausedFor(active) {
 		return &providerFailure{active, ErrLimit}
 	}
+	// Sorted first, so that the analysis reads the other conversations of the subject. It never stops the analysis.
+	s.sortIntoTopic(ctx, id)
 	prompt, images := s.freshPrompt(ctx, request)
 	// What a note to oneself says is the user's own request; a message from someone else is not.
 	return s.runInvestigation(ctx, id, prompt, "", images, request.Source.Origin == "note-to-self")
@@ -64,9 +66,23 @@ func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []st
 	files, images := s.describeFiles(request.Attachments)
 	persona := s.deps.Persona()
 	history := persona.ConversationHistory(s.previousInConversation(request))
+	related := persona.ConversationHistory(s.relatedInTopic(request))
 	// Read last: a request that was already stopped does not wait for the services.
 	services := s.gatherServices(ctx, request)
-	return persona.AnalysisPrompt(request, history, files, "", services), images
+	return persona.AnalysisPromptWithTopic(request, history, related, files, "", services), images
+}
+
+// relatedInTopic are the other conversations of the request's topic the AI reads with it. They may hold text written by
+// others, which then shapes the analysis like any other text of theirs: nothing is done on its own afterwards.
+func (s *Service) relatedInTopic(request Stored) []Stored {
+	related, foreign := s.relatedConversationsOf(request)
+	if foreign {
+		s.quietUpdate(request.ID, func(r *Stored) {
+			r.ServicesUsed = true
+			r.ForeignSinceGrant = true
+		})
+	}
+	return related
 }
 
 func (s *Service) previousInConversation(request Stored) []Stored {

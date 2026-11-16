@@ -6,6 +6,7 @@ import type {
   AssistantAlert,
   AssistantRequest,
   AssistantSnapshot,
+  AssistantTopic,
   PlanDecision,
   ProposalDecision,
   QuestionAnswer,
@@ -41,6 +42,7 @@ export function createAssistantStore(api: PoupleApi) {
   const status = computed(() => snapshot.value?.status ?? null);
   const attention = computed(() => attentionCount(requests.value));
   const loaded = computed(() => snapshot.value !== null);
+  const topics = computed<AssistantTopic[]>(() => snapshot.value?.topics ?? []);
   /** Soonest first, as the core sends them. */
   const alerts = computed<AssistantAlert[]>(() => snapshot.value?.alerts ?? []);
 
@@ -111,6 +113,7 @@ export function createAssistantStore(api: PoupleApi) {
 
   return {
     requests,
+    topics,
     status,
     attention,
     alerts,

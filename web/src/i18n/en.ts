@@ -359,6 +359,11 @@ export const en: MessageTree = {
     toggle: "Show or hide {name}",
   },
   list: {
+    unsorted: 'Unsorted',
+    showMore: 'Show {count} more',
+    showFewer: 'Show fewer',
+    collapseAll: 'Collapse all topics',
+    expandAll: 'Expand all topics',
     label: 'Conversations',
     emptyTitle: 'Nothing to do. Pouple is napping.',
     emptyAll: 'When someone mentions you, writes to you, or you leave yourself a note in Slack, Codex looks into it and it shows up here.',

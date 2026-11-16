@@ -1,6 +1,6 @@
 import { ApiError, type PoupleApi } from './client';
 import { lang as activeLang, type Lang } from '../i18n';
-import { codexConnector, codexProfile, createAlerts, createFixtures, slackConnector, slackProfile } from './mockFixtures';
+import { codexConnector, codexProfile, createAlerts, createFixtures, createTopics, slackConnector, slackProfile } from './mockFixtures';
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
 import { mockProviderModels, mockProviderTest, mockProviders } from './mockProviders';
@@ -11,6 +11,7 @@ import type {
   AssistantAlert,
   AssistantRequest,
   AssistantSnapshot,
+  AssistantTopic,
   AttachmentRef,
   ConnectorStatus,
   ConnectorValues,
@@ -60,6 +61,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     for (const status of connectors.filter((c) => c.descriptor.required)) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
   }
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
+  let topics: AssistantTopic[] = options.view === 'empty' ? [] : createTopics(lang);
   let alerts: AssistantAlert[] = options.view === 'empty' ? [] : createAlerts(lang);
   let alertCounter = 0;
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
@@ -81,6 +83,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     }
     if (options.view !== 'empty') {
       requests = createFixtures(lang);
+      topics = createTopics(lang);
       alerts = createAlerts(lang);
     }
     publish();
@@ -110,6 +113,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       },
     },
     requests: structuredClone(requests),
+    topics: structuredClone(topics.filter((topic) => requests.some((item) => item.topicId === topic.id))),
     alerts: structuredClone(alerts),
   });
 

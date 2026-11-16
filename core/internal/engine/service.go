@@ -107,9 +107,12 @@ type Deps struct {
 	// WorkDir is where read-only investigations run (usually ProjectsRoot, or a scratch folder).
 	WorkDir    func() string
 	SchemaFile string
-	Notify     func(title, body string)
-	Redact     func() Redactor
-	Usage      func() Usage
+	// TopicSchemaFile and OrganizeSchemaFile hold the schemas of the turns that sort conversations into topics (one new
+	// conversation; the whole set). Conversations are not sorted when either is empty.
+	TopicSchemaFile, OrganizeSchemaFile string
+	Notify                              func(title, body string)
+	Redact                              func() Redactor
+	Usage                               func() Usage
 	// Inactive returns why the assistant cannot run ("" when it can).
 	Inactive func() string
 	Now      func() time.Time
@@ -188,6 +191,9 @@ type Service struct {
 	stops        map[string]int
 	subscribers  map[chan struct{}]struct{}
 	closing      bool
+	// organizing says a look at all the topics is queued or running; organizeTried is when one was last started.
+	organizing    bool
+	organizeTried time.Time
 }
 
 func NewService(deps Deps) *Service {
@@ -399,7 +405,11 @@ func (s *Service) Snapshot() Snapshot {
 	if upcoming == nil {
 		upcoming = []alerts.Alert{}
 	}
-	return Snapshot{Status: status, Requests: requests, Alerts: upcoming}
+	topics := s.deps.Store.Topics()
+	if topics == nil {
+		topics = []Topic{}
+	}
+	return Snapshot{Status: status, Requests: requests, Topics: topics, Alerts: upcoming}
 }
 
 func (s *Service) standingNoticesLocked(lang i18n.Lang) []string {
@@ -455,6 +465,7 @@ func (s *Service) Poll(ctx context.Context) {
 	s.pollPipelines(ctx)
 	s.pollEvents(ctx)
 	s.expireStale()
+	s.maybeOrganize(ctx)
 }
 
 func (s *Service) pollSlack(ctx context.Context) {

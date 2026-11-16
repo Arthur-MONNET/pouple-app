@@ -363,6 +363,11 @@ export const fr: MessageTree = {
     toggle: "Afficher ou masquer {name}",
   },
   list: {
+    unsorted: 'Sans sujet',
+    showMore: 'Afficher {count} de plus',
+    showFewer: 'Afficher moins',
+    collapseAll: 'Replier tous les sujets',
+    expandAll: 'Déplier tous les sujets',
     label: 'Conversations',
     emptyTitle: 'Rien à faire. Pouple fait la sieste.',
     emptyAll: "Quand quelqu'un te mentionne, t'écrit ou que tu te laisses une note dans Slack, Codex s'en occupe et ça apparaît ici.",
