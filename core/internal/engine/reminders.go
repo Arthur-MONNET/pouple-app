@@ -118,10 +118,12 @@ func (s *Service) DecideReminders(id string, approve bool, offerID string, picks
 		return i18n.Wrap(ErrState, "the suggested reminders changed since you read them")
 	}
 	if !approve {
-		s.update(id, func(r *Stored) {
+		if !s.settleOffer(id, offerID, func(r *Stored) {
 			r.Reminders.Status = ReminderDeclined
 			r.Entries = append(r.Entries, s.entry("user", "text", s.text("Declined the suggested reminders")))
-		})
+		}) {
+			return i18n.Wrap(ErrState, "the suggested reminders changed since you read them")
+		}
 		return nil
 	}
 	drafts, chosen, err := s.draftsFor(*offer, picks, id)
@@ -129,21 +131,41 @@ func (s *Service) DecideReminders(id string, approve bool, offerID string, picks
 		return err
 	}
 	var created []alerts.Alert
+	undo := func() {
+		for _, done := range created {
+			s.deps.Alerts.Remove(done.ID)
+		}
+	}
 	for _, draft := range drafts {
 		alert, err := s.deps.Alerts.Add(draft, s.deps.Now())
 		if err != nil {
-			for _, done := range created {
-				s.deps.Alerts.Remove(done.ID)
-			}
+			undo()
 			return alertError(err)
 		}
 		created = append(created, alert)
 	}
-	s.update(id, func(r *Stored) {
+	if !s.settleOffer(id, offerID, func(r *Stored) {
 		r.Reminders.Status, r.Reminders.Chosen = ReminderAccepted, chosen
 		r.Entries = append(r.Entries, s.entry("user", "text", s.text("Set the reminders:\n%s", s.alertLines(created))))
-	})
+	}) {
+		undo()
+		return i18n.Wrap(ErrState, "the suggested reminders changed since you read them")
+	}
 	return nil
+}
+
+// settleOffer applies change only while the suggestion offerID still waits for a choice, and reports whether it did. A
+// new answer can replace or take away the suggestion while the alerts are being set: reminderMu does not cover it.
+func (s *Service) settleOffer(id, offerID string, change func(*Stored)) bool {
+	settled := false
+	s.update(id, func(r *Stored) {
+		if r.Reminders == nil || r.Reminders.ID != offerID || r.Reminders.Status != ReminderProposed {
+			return
+		}
+		change(r)
+		settled = true
+	})
+	return settled
 }
 
 // draftsFor checks the user's picks against the suggestion and turns them into alerts to set.

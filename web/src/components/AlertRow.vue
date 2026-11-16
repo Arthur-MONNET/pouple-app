@@ -68,7 +68,7 @@ function cancel(): void {
       </button>
       <div class="min-w-0 flex-1">
         <p class="break-words font-medium text-ink">{{ alert.title }}</p>
-        <p v-if="alert.note" class="break-words text-xs text-ink-muted">{{ alert.note }}</p>
+        <p v-if="alert.note" class="whitespace-pre-line break-words text-xs text-ink-muted">{{ alert.note }}</p>
         <p class="mt-0.5 text-2xs text-ink-dim">
           {{ untilTime(alert.at) }}
           <template v-if="hasConversation">
@@ -96,14 +96,15 @@ function cancel(): void {
       </div>
       <div class="flex flex-col gap-1">
         <label :for="ids.note" class="text-xs font-medium text-ink-muted">{{ $t('alerts.add.noteLabel') }}</label>
-        <input
+        <!-- A textarea, not a one-line field: a suggested reminder's note may span lines, and a text field drops its breaks. -->
+        <textarea
           :id="ids.note"
           v-model="note"
-          type="text"
+          rows="2"
           maxlength="1000"
           autocomplete="off"
           :placeholder="$t('alerts.add.notePlaceholder')"
-          class="h-8 rounded-md border border-line-strong bg-canvas px-2.5 text-sm text-ink outline-none focus:border-accent"
+          class="resize-y rounded-md border border-line-strong bg-canvas px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
         />
       </div>
       <div class="flex flex-col gap-1">

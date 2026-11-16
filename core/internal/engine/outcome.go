@@ -213,14 +213,15 @@ func ParseOutcome(text string) (Outcome, error) {
 		out.Plan = raw.Plan
 	}
 	for _, reminder := range raw.Reminders {
-		label := strings.TrimSpace(reminder.Label)
-		// A suggestion with no label or an unreadable moment is dropped, like a lookup that names nothing: the answer stays usable.
-		if _, err := alerts.ParseWhen(reminder.At, time.UTC); len(out.Reminders) == maxReminders || label == "" || err != nil {
+		// A title is one line: the line breaks and tabs the AI may write would make the alert refused once picked.
+		label := clipRunes(strings.Join(strings.Fields(reminder.Label), " "), alerts.MaxTitle)
+		note := clipRunes(strings.TrimSpace(strings.ReplaceAll(reminder.Note, "\t", " ")), alerts.MaxNote)
+		// A suggestion with no label, an unreadable moment or a text no alert could hold is dropped, like a lookup that
+		// names nothing: the answer stays usable.
+		if _, err := alerts.ParseWhen(reminder.At, time.UTC); len(out.Reminders) == maxReminders || err != nil || alerts.Check(label, note) != nil {
 			continue
 		}
-		out.Reminders = append(out.Reminders, OutcomeReminder{
-			Label: clipRunes(label, alerts.MaxTitle), Note: clipRunes(strings.TrimSpace(reminder.Note), alerts.MaxNote), At: strings.TrimSpace(reminder.At),
-		})
+		out.Reminders = append(out.Reminders, OutcomeReminder{Label: label, Note: note, At: strings.TrimSpace(reminder.At)})
 	}
 	for _, lookup := range raw.Lookups {
 		target := strings.TrimSpace(lookup.Target)

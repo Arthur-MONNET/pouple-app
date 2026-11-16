@@ -264,9 +264,20 @@ func clean(title, note string) (string, string, error) {
 	return title, note, nil
 }
 
+// Check says whether a title and a note would make an alert, so a suggestion that would be refused is never offered.
+func Check(title, note string) error {
+	_, _, err := clean(title, note)
+	return err
+}
+
 func hasHiddenRune(text string, allowNewlines bool) bool {
 	for _, r := range text {
 		if allowNewlines && (r == '\n' || r == '\r') {
+			continue
+		}
+		// The zero-width joiner and non-joiner are format characters, but they build emoji (👩‍💻) and words of some
+		// scripts: they change nothing of what is read.
+		if r == '\u200c' || r == '\u200d' {
 			continue
 		}
 		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {

@@ -63,7 +63,7 @@ func (s *Service) reminderRequest(alert alerts.Alert, now time.Time) Stored {
 	}
 	entries := []Entry{s.entry("assistant", "text", summary)}
 	if now.Sub(alert.At) > alertLateAfter {
-		entries = append(entries, s.entry("system", "text", s.text("This reminder was due at %s, while Pouple was not running.", s.whenText(alert.At))))
+		entries = append(entries, s.entry("system", "text", s.text("This reminder was due at %s, while the Mac was asleep or Pouple was not running.", s.whenText(alert.At))))
 	}
 	source := Source{Origin: OriginReminder, ChannelID: "reminders", SenderID: "pouple", SenderName: "Pouple", RelatedRequestID: alert.RequestID}
 	return Stored{Request: Request{

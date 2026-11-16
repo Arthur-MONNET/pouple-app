@@ -21,7 +21,7 @@ var fr = map[string]string{
 	"Declined the suggested reminders":                                                 "Rappels proposés refusés",
 	"Set the reminders:\n%s":                                                           "Rappels programmés :\n%s",
 	"The reminder you set (%s).":                                                       "Le rappel que tu as programmé (%s).",
-	"This reminder was due at %s, while Pouple was not running.":                       "Ce rappel était prévu le %s, alors que Pouple n’était pas lancé.",
+	"This reminder was due at %s, while the Mac was asleep or Pouple was not running.": "Ce rappel était prévu le %s, alors que le Mac était en veille ou que Pouple n’était pas lancé.",
 	"a reminder is not investigated: it only repeats what you asked to be reminded of": "un rappel n’est pas relancé : il répète seulement ce dont tu voulais être rappelé",
 	// Slack connector
 	"Where your requests come from": "D’où viennent tes demandes",

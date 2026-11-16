@@ -29,6 +29,9 @@ func TestAnAlertNeedsATitleAndAMomentInTheFuture(t *testing.T) {
 	if len(store.List()) != 0 {
 		t.Fatal("a refused alert was kept")
 	}
+	if _, err := store.Add(draft("Pair with 👩\u200d💻", now.Add(time.Hour)), now); err != nil {
+		t.Fatalf("an emoji built with a joiner was refused: %v", err)
+	}
 	alert, err := store.Add(Draft{Title: "  Confirm leave  ", Note: "line 1\nline 2", At: now.Add(time.Hour)}, now)
 	if err != nil || alert.Title != "Confirm leave" || alert.ID == "" || !alert.CreatedAt.Equal(now) {
 		t.Fatalf("alert %+v, err %v", alert, err)

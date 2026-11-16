@@ -43,6 +43,22 @@ func TestSuggestedRemindersWaitForThePickAndDropWhatIsPastOrRepeated(t *testing.
 	}
 }
 
+func TestASuggestedLabelOnSeveralLinesBecomesOneThatCanBeSet(t *testing.T) {
+	h := newHarness(t, reply(suggest(
+		[3]string{"Confirm\nleave\twith Jo", "Before\tnoon\nthen relax", tomorrow9},
+		[3]string{"pay‮bill", "", friday17},
+	)))
+	h.receive(message("Can you confirm your leave by Friday?"))
+	request := only(t, h)
+	offer := request.Reminders
+	if offer == nil || len(offer.Items) != 1 || offer.Items[0].Label != "Confirm leave with Jo" || offer.Items[0].Note != "Before noon\nthen relax" {
+		t.Fatalf("offer %+v", offer)
+	}
+	if err := h.svc.DecideReminders(request.ID, true, offer.ID, []ReminderPick{{ID: "r1"}}); err != nil {
+		t.Fatalf("the suggestion could not be set: %v", err)
+	}
+}
+
 func TestAnAnswerWithoutReminderOrWithOnlyPastOnesLeavesNone(t *testing.T) {
 	h := newHarness(t, reply(suggest([3]string{"Too late", "", past})), reply(map[string]any{"outcome": NotARequest}))
 	h.receive(message("Can you confirm your leave by Friday?"))
@@ -110,6 +126,23 @@ func TestADecisionThatCannotBeMadeSetsNothing(t *testing.T) {
 	}
 	if only(t, h).Reminders.Status != ReminderDeclined || len(h.svc.Snapshot().Alerts) != 0 {
 		t.Fatal("declining must set nothing")
+	}
+}
+
+func TestASuggestionTakenAwayWhileTheAlertsAreSetSetsNothing(t *testing.T) {
+	h := newHarness(t, reply(suggest([3]string{"A", "", tomorrow9}, [3]string{"B", "", friday17})))
+	h.receive(message("Can you confirm your leave by Friday?"))
+	request := only(t, h)
+	// A new answer without reminders lands between the check and the record of the choice.
+	h.svc.deps.Alerts.OnChange(func() {
+		h.svc.deps.Store.Update(request.ID, func(r *Stored) { r.Reminders = nil })
+	})
+	err := h.svc.DecideReminders(request.ID, true, request.Reminders.ID, []ReminderPick{{ID: "r1"}, {ID: "r2"}})
+	if !errors.Is(err, ErrState) {
+		t.Fatalf("err %v", err)
+	}
+	if alerts := h.svc.Snapshot().Alerts; len(alerts) != 0 {
+		t.Fatalf("alerts set for a suggestion that is gone: %+v", alerts)
 	}
 }
 
@@ -183,7 +216,7 @@ func TestAnAlertThatCameDueWhilePoupleWasClosedSaysSo(t *testing.T) {
 	h.now = time.Date(2026, 11, 6, 14, 0, 0, 0, time.UTC)
 	h.svc.fireDueAlerts()
 	request := only(t, h)
-	if len(request.Entries) != 2 || request.Entries[1].Role != "system" || !strings.Contains(request.Entries[1].Text, "while Pouple was not running") {
+	if len(request.Entries) != 2 || request.Entries[1].Role != "system" || !strings.Contains(request.Entries[1].Text, "while the Mac was asleep or Pouple was not running") {
 		t.Fatalf("entries %+v", request.Entries)
 	}
 }
