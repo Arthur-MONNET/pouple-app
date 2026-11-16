@@ -129,6 +129,11 @@ public struct AssistantPlan: Codable, Equatable, Sendable {
     public let status: String
 
     public var isProposed: Bool { status == "proposed" }
+
+    /// Whether the bubble can approve the plan in one click from its goal alone. A plan with several actions lists
+    /// courses the user ticks (do A, do B, or both): approving all of them blindly could run two that exclude each other,
+    /// so that choice is made in the window.
+    public var canApproveAtOnce: Bool { isProposed && id != nil && actions.count == 1 }
 }
 
 /// The alerts the assistant suggests, for the user to pick from. Nothing is set until they confirm.

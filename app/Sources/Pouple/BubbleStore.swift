@@ -159,7 +159,8 @@ final class BubbleStore: ObservableObject {
         perform(request.id) { api in try await api.decideProposal(requestId: request.id, approve: approve) }
     }
 
-    /// Declines the plan that waits. Approving is done in Pouple's window, where the whole plan is shown.
+    /// Approves or declines the plan that waits, as a whole. Only a plan of one action is approved from the bubble; a choice
+    /// between several is made in Pouple's window.
     func decidePlan(_ request: AssistantRequest, approve: Bool) {
         guard let planId = request.plan?.id else { return }
         perform(request.id) { api in try await api.decidePlan(requestId: request.id, approve: approve, planId: planId) }

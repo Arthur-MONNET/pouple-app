@@ -206,20 +206,24 @@ struct BubbleCard: View {
 
     @ViewBuilder private var decision: some View {
         if let plan = request.plan, plan.isProposed {
+            // The bubble says in a few words what will be done, to approve it at a glance; the whole plan, brief included,
+            // is read in the window.
             VStack(alignment: .leading, spacing: 8) {
-                Text(plan.goal).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-                ForEach(Array(plan.actions.enumerated()), id: \.offset) { _, action in
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(action.isBranchUpdate ? L10n.text(.planSyncBranch, "\(action.branch ?? "") ← \(action.base ?? "")") : L10n.text(.planWriteCode, "\(action.place) · \(action.branch ?? "")")).font(.system(size: 11.5, weight: .medium))
-                        Text(action.summary).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(plan.goal).font(.system(size: 13, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                if plan.canApproveAtOnce {
+                    HStack {
+                        Button(L10n.text(.bubbleApprovePlan)) { store.decidePlan(request, approve: true) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)
+                        Button(L10n.text(.bubbleNotNow)) { store.decidePlan(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
+                        Spacer()
+                        Button(L10n.text(.bubbleSeePlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .quiet))
                     }
-                }
-                Text(L10n.text(plan.actions.contains(where: \.isBranchUpdate) ? .planSyncDoneForYou : .planOnItsOwnBranch)).font(.system(size: 11)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
-                // The plan is approved where all of it is shown, brief included: the bubble only leads there.
-                HStack {
-                    Button(L10n.text(.bubbleReadPlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .primary))
-                    Button(L10n.text(.bubbleNotNow)) { store.decidePlan(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
-                    Spacer()
+                } else {
+                    Text(L10n.text(.planChoices, plan.actions.count)).font(.system(size: 11)).foregroundStyle(Theme.dim)
+                    HStack {
+                        Button(L10n.text(.bubbleChoosePlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .primary))
+                        Button(L10n.text(.bubbleNotNow)) { store.decidePlan(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
+                        Spacer()
+                    }
                 }
             }
         } else if let proposal = request.proposal {

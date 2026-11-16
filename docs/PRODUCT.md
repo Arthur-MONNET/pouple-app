@@ -151,7 +151,9 @@ refuses to commit if that file changed. You are asked **once**, when the first p
 that conversation, so later plans in the same project (and updates of the same branch) run at once and you are notified. It stops
 covering when text written by strangers reaches the conversation after your approval (a new message in its Slack thread, a
 page of the web): the next plan is then shown again. An update of another branch than the one you read is shown first too. The
-macOS bubble shows the plan and leads to the window, where the whole plan, brief included, is read and approved. "Apply all
+macOS bubble shows only the goal of the plan, in a few words, with **Approve**: a plan of one action is approved there at a
+glance, and **See the plan** opens the window, where the whole plan, brief included, is read and approved. A plan with
+several actions to choose from is ticked in the window only. "Apply all
 changes" in Settings approves plans as they are made, without full access and without granting anything. A plan with several actions is shown as a list you tick: only the
 ticked actions are approved, carried out and granted (the others are dropped from the plan, which then shows what was
 approved); with one action it is a simple yes or no. Declining ends the conversation.

@@ -33,7 +33,7 @@ public enum L10n {
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
         case reminderQuestion, reminderHint, reminderConfirmOne, reminderConfirmOther, reminderConfirmNone, reminderSkip, reminderPast, reminderTimeLabel
-        case bubbleReadPlan, badgePlan, planWriteCode, planOnItsOwnBranch, planSyncBranch, planSyncDoneForYou
+        case bubbleApprovePlan, bubbleSeePlan, bubbleChoosePlan, badgePlan, planChoices
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
         case usageTokens, usageFiveHour, usageWeek
         case bubbleIgnore, bubbleStop, bubbleWorking, bubbleContinueWith
@@ -198,12 +198,11 @@ public enum L10n {
         .reminderSkip: "Non merci",
         .reminderPast: "Choisis un moment dans le futur pour chaque rappel coché.",
         .reminderTimeLabel: "Heure du rappel « %@ »",
-        .bubbleReadPlan: "Lire et approuver le plan",
+        .bubbleApprovePlan: "Valider",
+        .bubbleSeePlan: "Voir le plan",
+        .bubbleChoosePlan: "Choisir dans Pouple",
         .badgePlan: "Plan à valider",
-        .planWriteCode: "Écrire du code · %@",
-        .planOnItsOwnBranch: "Écrit sur une nouvelle branche, commité puis poussé sur origin ; ton dossier de travail n’est pas touché.",
-        .planSyncBranch: "Mettre la branche à jour · %@",
-        .planSyncDoneForYou: "Pouple récupère, intègre, règle les conflits, commit et envoie la branche, puis te fait un récap.",
+        .planChoices: "%d options à choisir",
         .badgeApprove: "Modification à valider",
         .badgeNeedsAnswer: "À toi de décider",
         .badgeFailed: "Échec",
@@ -351,12 +350,11 @@ public enum L10n {
         .reminderSkip: "No thanks",
         .reminderPast: "Pick a moment in the future for each ticked reminder.",
         .reminderTimeLabel: "Time of the reminder \"%@\"",
-        .bubbleReadPlan: "Read and approve the plan",
+        .bubbleApprovePlan: "Approve",
+        .bubbleSeePlan: "See the plan",
+        .bubbleChoosePlan: "Choose in Pouple",
         .badgePlan: "Approve a plan",
-        .planWriteCode: "Write code · %@",
-        .planOnItsOwnBranch: "Written on a new branch, committed and pushed to origin; your checkout is not touched.",
-        .planSyncBranch: "Update the branch · %@",
-        .planSyncDoneForYou: "Pouple fetches, merges, settles conflicts, commits and pushes the branch, then gives you a recap.",
+        .planChoices: "%d options to choose from",
         .badgeApprove: "Approve a change",
         .badgeNeedsAnswer: "Your call",
         .badgeFailed: "Failed",
