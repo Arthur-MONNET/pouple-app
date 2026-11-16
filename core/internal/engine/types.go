@@ -152,6 +152,10 @@ type Stored struct {
 	// WebUsed is set when a turn ran with the web allowed: what the web returns is written by strangers, so, like
 	// ServicesUsed, it means an automatic approval must not apply a proposal.
 	WebUsed bool `json:"webUsed,omitempty"`
+	// ForeignSinceGrant is set when text written by strangers reached the conversation (a message in its Slack thread, a
+	// page of the web, a site other than the user's own) after the last plan the user approved. Until they approve
+	// another plan, the plans of the places they approved run at once only while it is not set.
+	ForeignSinceGrant bool `json:"foreignSinceGrant,omitempty"`
 	// LimitedBy is the AI whose usage limit stopped the request; empty otherwise.
 	LimitedBy providers.ID `json:"limitedBy,omitempty"`
 	// ThreadProvider is the AI that owns ThreadID; empty for a thread kept before Claude existed, which is Codex's.

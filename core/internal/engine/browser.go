@@ -181,6 +181,7 @@ func (s *Service) runScreenshots(ctx context.Context, id string, lookups []Looku
 		s.update(id, func(r *Stored) {
 			r.Entries = append(r.Entries, entry)
 			r.WebUsed = r.WebUsed || foreign
+			r.ForeignSinceGrant = r.ForeignSinceGrant || foreign
 		})
 		told = append(told, fmt.Sprintf("Screenshot of %s taken (%s). The picture is attached to this message.", address, firstNonEmpty(lookup.Text, "desktop")))
 	}

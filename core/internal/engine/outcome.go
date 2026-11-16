@@ -67,9 +67,11 @@ const OutcomeSchema = `{
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "scope", "summary"],
+            "required": ["kind", "scope", "summary", "branch", "base"],
             "properties": {
-              "kind": {"type": "string", "enum": ["code.edit"]},
+              "kind": {"type": "string", "enum": ["code.edit", "code.sync"]},
+              "branch": {"type": "string"},
+              "base": {"type": "string"},
               "scope": {
                 "type": "object",
                 "additionalProperties": false,

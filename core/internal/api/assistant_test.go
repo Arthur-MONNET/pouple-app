@@ -47,8 +47,8 @@ func (f *fakeAssistant) MessageFromLocalAPI(id, text string, ids []string) error
 func (f *fakeAssistant) DecideProposal(id string, ok bool, proposal string) error {
 	return f.record("decide", id, ok, proposal)
 }
-func (f *fakeAssistant) DecidePlan(id string, ok bool, plan string) error {
-	return f.record("decide-plan", id, ok, plan)
+func (f *fakeAssistant) DecidePlanActions(id string, ok bool, plan string, actions []int) error {
+	return f.record("decide-plan", id, ok, plan, actions)
 }
 func (f *fakeAssistant) Ignore(id string) error      { return f.record("ignore", id) }
 func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", id+seen) }
@@ -95,6 +95,9 @@ func TestAssistantRoutesCallTheEngineAndMapItsErrors(t *testing.T) {
 		{"POST", "/api/assistant/requests/r1/close", `{`, 400, ""},
 		{"DELETE", "/api/assistant/requests/r1", "", 204, "remove r1"},
 		{"POST", "/api/assistant/requests/r1/proposal", `{"decision":"approve"}`, 202, "decide r1 true "},
+		{"POST", "/api/assistant/requests/r1/plan", `{"decision":"approve","planId":"p1","actions":[0,2]}`, 202, "decide-plan r1 true p1 [0 2]"},
+		{"POST", "/api/assistant/requests/r1/plan", `{"decision":"approve","planId":"p1"}`, 202, "decide-plan r1 true p1 []"},
+		{"POST", "/api/assistant/requests/r1/plan", `{"decision":"approve"}`, 400, ""},
 		{"POST", "/api/assistant/requests/r1/messages", `{"text":"hi","attachmentIds":["a"]}`, 202, "message r1 hi 1"},
 		{"POST", "/api/assistant/requests/r1/answers", `{"answers":[{"questionId":"q1","optionId":"A"}]}`, 202, "answer r1 1"},
 		{"POST", "/api/assistant/requests/r1/proposal", `{"decision":"maybe"}`, 400, ""},

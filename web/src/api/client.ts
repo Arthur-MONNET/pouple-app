@@ -65,8 +65,8 @@ export interface PoupleApi {
   streamSnapshots(onSnapshot: (snapshot: AssistantSnapshot) => void, signal: AbortSignal): Promise<void>;
   answer(requestId: string, answers: QuestionAnswer[]): Promise<void>;
   decideProposal(requestId: string, decision: ProposalDecision): Promise<void>;
-  /** Approves or declines the plan that waits; planId names the plan the user read. */
-  decidePlan(requestId: string, decision: PlanDecision, planId: string): Promise<void>;
+  /** Approves or declines the plan that waits; planId names the plan the user read, actions the positions of those ticked (all when absent). */
+  decidePlan(requestId: string, decision: PlanDecision, planId: string, actions?: number[]): Promise<void>;
   sendMessage(requestId: string, text: string, attachmentIds: string[]): Promise<void>;
   ignore(requestId: string): Promise<void>;
   retry(requestId: string): Promise<void>;
@@ -175,7 +175,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     },
     answer: (requestId, answers) => post(assistant(requestId, '/answers'), { answers }),
     decideProposal: (requestId, decision) => post(assistant(requestId, '/proposal'), { decision }),
-    decidePlan: (requestId, decision, planId) => post(assistant(requestId, '/plan'), { decision, planId }),
+    decidePlan: (requestId, decision, planId, actions) => post(assistant(requestId, '/plan'), { decision, planId, ...(actions && { actions }) }),
     sendMessage: (requestId, text, attachmentIds) =>
       post(assistant(requestId, '/messages'), { text, ...(attachmentIds.length > 0 && { attachmentIds }) }),
     ignore: (requestId) => post(assistant(requestId, '/ignore')),

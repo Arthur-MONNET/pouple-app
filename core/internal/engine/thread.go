@@ -91,6 +91,7 @@ func (s *Service) followThread(in Incoming) bool {
 			r.ThreadSeen = append(r.ThreadSeen, in.Source.TS)
 			// Written by someone else, it will shape what the assistant concludes: nothing is then done without the user.
 			r.ServicesUsed = true
+			r.ForeignSinceGrant = true
 			r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("New message in the thread from %s: %s", oneLine(in.Source.SenderName, 60), clipRunes(oneLine(in.Text, 300), 120))))
 		})
 		if !scheduled {

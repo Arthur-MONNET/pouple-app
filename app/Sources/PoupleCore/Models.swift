@@ -107,6 +107,11 @@ public struct PlanAction: Codable, Equatable, Sendable {
     public let kind: String
     public let scope: Scope
     public let summary: String
+    /// For a branch update ("code.sync"): the branch that is updated and the one brought into it.
+    public let branch: String?
+    public let base: String?
+
+    public var isBranchUpdate: Bool { kind == "code.sync" }
 
     /// The place as the user reads it: the identifier always, which is what decides where code is written, and the name
     /// the assistant gave it next to it.

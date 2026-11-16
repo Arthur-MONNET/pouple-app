@@ -205,11 +205,11 @@ struct BubbleCard: View {
                 Text(plan.goal).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
                 ForEach(Array(plan.actions.enumerated()), id: \.offset) { _, action in
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(L10n.text(.planWriteCode, action.place)).font(.system(size: 11.5, weight: .medium))
+                        Text(action.isBranchUpdate ? L10n.text(.planSyncBranch, "\(action.branch ?? "") ← \(action.base ?? "")") : L10n.text(.planWriteCode, "\(action.place) · \(action.branch ?? "")")).font(.system(size: 11.5, weight: .medium))
                         Text(action.summary).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                Text(L10n.text(.planOnItsOwnBranch)).font(.system(size: 11)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
+                Text(L10n.text(plan.actions.contains(where: \.isBranchUpdate) ? .planSyncDoneForYou : .planOnItsOwnBranch)).font(.system(size: 11)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
                 // The plan is approved where all of it is shown, brief included: the bubble only leads there.
                 HStack {
                     Button(L10n.text(.bubbleReadPlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .primary))

@@ -45,7 +45,7 @@ func samplePlan() map[string]any {
 		"outcome": ProposesPlan, "summary": "**A plan**",
 		"plan": map[string]any{
 			"goal": "Fix the login redirect", "brief": "After login, users land on /home instead of the page they asked for.",
-			"actions": []any{map[string]any{"kind": "code.edit", "scope": map[string]any{"service": "code", "id": "login-app", "name": "Login app"}, "summary": "Keep the requested page after login"}},
+			"actions": []any{map[string]any{"kind": "code.edit", "scope": map[string]any{"service": "code", "id": "login-app", "name": "Login app"}, "summary": "Keep the requested page after login", "branch": "fix/login-redirect", "base": ""}},
 		},
 	}
 }
@@ -108,11 +108,11 @@ func TestAPlanWaitsForApprovalThenIsWrittenOnABranchOfItsOwn(t *testing.T) {
 	if status := gitIn(t, project, "status", "--porcelain"); status != "" {
 		t.Errorf("the user's checkout must stay clean: %q", status)
 	}
-	branches := gitIn(t, project, "branch", "--list", "pouple/*")
-	if !strings.Contains(branches, "pouple/fix-the-login-redirect-") {
+	branches := gitIn(t, project, "branch", "--list", "fix/*")
+	if !strings.Contains(branches, "fix/login-redirect") {
 		t.Fatalf("branches: %q", branches)
 	}
-	if subject := gitIn(t, write.Dir, "log", "-1", "--format=%s"); subject != "pouple: Fix the login redirect" {
+	if subject := gitIn(t, write.Dir, "log", "-1", "--format=%s"); subject != "Fix the login redirect" {
 		t.Errorf("commit subject: %q", subject)
 	}
 	if files := gitIn(t, write.Dir, "show", "--name-only", "--format=", "HEAD"); files != "redirect.txt" {
@@ -123,7 +123,7 @@ func TestAPlanWaitsForApprovalThenIsWrittenOnABranchOfItsOwn(t *testing.T) {
 	if !stored.Grants.Covers(final.Plan.Actions[0]) {
 		t.Errorf("the places of an approved plan are granted: %+v", stored.Grants)
 	}
-	if !strings.Contains(journalOf(final), "Committed on branch pouple/") {
+	if !strings.Contains(journalOf(final), "Committed on branch fix/login-redirect") {
 		t.Errorf("the conversation says where the work is: %s", journalOf(final))
 	}
 }
@@ -204,7 +204,7 @@ func TestAPlanThatChangesNothingLeavesNoBranchBehind(t *testing.T) {
 	if final.Status != StatusReady || !strings.Contains(journalOf(final), "No file was changed") {
 		t.Fatalf("%s %s", final.Status, journalOf(final))
 	}
-	if branches := gitIn(t, project, "branch", "--list", "pouple/*"); branches != "" {
+	if branches := gitIn(t, project, "branch", "--list", "fix/*"); branches != "" {
 		t.Errorf("no branch for nothing: %q", branches)
 	}
 	if entries, _ := os.ReadDir(worktrees); len(entries) != 0 {
@@ -288,7 +288,7 @@ func TestTheLinkToTheProjectsDependenciesIsNeverCommitted(t *testing.T) {
 	}
 }
 
-func TestOutsideTextInTheConversationMeansEveryPlanIsShownFirst(t *testing.T) {
+func TestStrangersTextAfterTheApprovalMeansTheNextPlanIsShownFirst(t *testing.T) {
 	second := samplePlan()
 	second["plan"].(map[string]any)["goal"] = "Also fix the logout redirect"
 	h, _, _ := planHarness(t, reply(samplePlan()), writes("a.txt", "1\n"), reply(second))
@@ -299,7 +299,7 @@ func TestOutsideTextInTheConversationMeansEveryPlanIsShownFirst(t *testing.T) {
 	}
 	h.svc.Idle()
 	// Someone else writes in the thread afterwards: what they wrote may shape the next brief.
-	h.svc.deps.Store.Update(got.ID, func(r *Stored) { r.ServicesUsed = true })
+	h.svc.deps.Store.Update(got.ID, func(r *Stored) { r.ServicesUsed, r.ForeignSinceGrant = true, true })
 	if err := h.svc.Message(got.ID, "and the logout one too", nil); err != nil {
 		t.Fatal(err)
 	}

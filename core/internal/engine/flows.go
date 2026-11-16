@@ -175,6 +175,7 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 				r.Status, r.Error = StatusAnalyzing, nil
 			}
 			r.WebUsed = r.WebUsed || web
+			r.ForeignSinceGrant = r.ForeignSinceGrant || web
 		})
 		result, provider, err := s.runProvider(ctx, id, Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images, Web: web}, true)
 		if err != nil {

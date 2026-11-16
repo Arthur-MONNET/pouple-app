@@ -112,6 +112,16 @@ describe('http api', () => {
     expect((calls[0]?.init.headers as Record<string, string>)['Content-Type']).toBe('application/octet-stream');
   });
 
+  it('names the ticked actions of a plan, and only when some were ticked', async () => {
+    const { fetch, calls } = recorder(() => new Response(null, { status: 202 }));
+    const api = createHttpApi(fetch);
+    await api.decidePlan('r1', 'approve', 'p1', [0, 2]);
+    await api.decidePlan('r1', 'approve', 'p1');
+    expect(calls.map((c) => c.path)).toEqual(['/api/assistant/requests/r1/plan', '/api/assistant/requests/r1/plan']);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ decision: 'approve', planId: 'p1', actions: [0, 2] });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'approve', planId: 'p1' });
+  });
+
   it('posts conversation actions to the assistant routes', async () => {
     const { fetch, calls } = recorder(() => new Response(null, { status: 204 }));
     const api = createHttpApi(fetch);

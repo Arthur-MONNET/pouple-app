@@ -111,7 +111,8 @@ export function createAssistantStore(api: PoupleApi) {
     stop,
     answer: (id: string, answers: QuestionAnswer[]) => (forgetStopped(id), act(() => api.answer(id, answers))),
     decide: (id: string, decision: ProposalDecision) => (forgetStopped(id), act(() => api.decideProposal(id, decision))),
-    decidePlan: (id: string, decision: PlanDecision, planId: string) => (forgetStopped(id), act(() => api.decidePlan(id, decision, planId))),
+    decidePlan: (id: string, decision: PlanDecision, planId: string, actions?: number[]) =>
+      (forgetStopped(id), act(() => api.decidePlan(id, decision, planId, actions))),
     send: (id: string, text: string, attachmentIds: string[] = []) => (forgetStopped(id), act(() => api.sendMessage(id, text, attachmentIds))),
     ignore: (id: string) => act(() => api.ignore(id)),
     retry: (id: string) => (forgetStopped(id), act(() => api.retry(id))),

@@ -279,10 +279,11 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       });
       work(request, text().replies.answered);
     },
-    async decidePlan(requestId, decision) {
+    async decidePlan(requestId, decision, _planId, actions) {
       await wait();
       const request = find(requestId);
-      touch(request, { status: decision === 'approve' ? 'done' : 'ready', ...(request.plan && { plan: { ...request.plan, status: decision === 'approve' ? 'approved' : 'declined' } }) });
+      const kept = request.plan && actions ? request.plan.actions.filter((_, index) => actions.includes(index)) : request.plan?.actions;
+      touch(request, { status: decision === 'approve' ? 'done' : 'ready', ...(request.plan && { plan: { ...request.plan, ...(kept && { actions: kept }), status: decision === 'approve' ? 'approved' : 'declined' } }) });
     },
     async decideProposal(requestId, decision) {
       await wait();

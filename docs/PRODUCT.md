@@ -76,7 +76,8 @@ Reading is free. **Every write needs your approval first**, and the approval is 
 - A write outside the approved scopes (another project, another repository, another Asana project, another Slite space) needs
   a new approval.
 - Inside an approved code project, Pouple may create a branch and commits, push the branch, open the merge request, and push
-  fixes after a failed pipeline or a reviewer's comments. It does not merge.
+  fixes after a failed pipeline or a reviewer's comments. It does not merge into a shared branch (it can merge one into
+  your own branch to bring it up to date).
 - Replies to people are never sent by Pouple: you copy the text and paste it in the conversation yourself.
 
 ### Approved by a frozen plan
@@ -100,18 +101,44 @@ The first increment of writing is in: **a plan for code**. The investigating AI 
 (what the writing AI must know, restated in its own words) and actions of the kind `code.edit` in one project of your
 projects folder. You read the plan, goal, actions and brief, and approve or decline it. Approving grants that project for
 this conversation; later plans in a granted project run without asking. A separate AI then writes the code in a **git
-worktree on a new branch** (`pouple/<goal>-<id>`, in `.pouple-worktrees` beside your projects, with your `node_modules`
-linked read-only) and Pouple commits it with hooks disabled. Your checkout, your branch and your unsaved files are never
+worktree on a new branch** that the plan names with a type and a subject (`fix/login-redirect`, `feature/offer-layout`: the
+type follows the work and the project's own convention; never a branch of Pouple's own, never a shared branch), started from
+the branch the plan names (the latest `origin/master` for example) or from the project's current one, in `.pouple-worktrees`
+beside your projects, with your `node_modules` linked read-only. Pouple commits it with hooks disabled, **pushes the branch to
+`origin` (never forced; a name already taken here or on `origin` gets a `-2` suffix, so no one's branch is ever reused) and
+notifies you** of what it pushed; without an `origin`, the commit stays local and the notification says so. Your checkout, your branch and your unsaved files are never
 touched. A project that is not a git repository with a commit gets no plan (its code is never written in place). The writing
 AI can edit the `.git` file of its worktree, so Pouple addresses the worktree through the git folder git created and
-refuses to commit if that file changed. A plan inside an approved project runs without asking only while nothing written
-by other people has entered the conversation (their text may have shaped the brief); otherwise it is shown again. The
+refuses to commit if that file changed. You are asked **once**, when the first plan of a conversation is made: what you approve covers the rest of
+that conversation, so later plans in the same project (and updates of the same branch) run at once and you are notified. It stops
+covering when text written by strangers reaches the conversation after your approval (a new message in its Slack thread, a
+page of the web): the next plan is then shown again. An update of another branch than the one you read is shown first too. The
 macOS bubble shows the plan and leads to the window, where the whole plan, brief included, is read and approved. "Apply all
-changes" in Settings approves plans as they are made.
+changes" in Settings approves plans as they are made. A plan with several actions is shown as a list you tick: only the
+ticked actions are approved, carried out and granted (the others are dropped from the plan, which then shows what was
+approved); with one action it is a simple yes or no. Declining ends the conversation.
 
-Not built yet: pushing the branch, opening the merge request and pushing fixes after a failed pipeline or a review (GitLab
-needs a token with a write scope, and pushing needs git credentials on your computer), writes in Asana and Slite, and a
-plan that covers several services.
+**Bringing a branch up to date** is the second kind of action, `code.sync` (a branch, and the branch to bring into it, usually
+`master`). The investigating AI proposes it at once when you ask for it, or when a colleague asks you (an update of your
+branch with a fix merged in `master`): it never answers with git steps for you to run, never asks whether to go ahead, and a
+branch that is missing from your local clone is no obstacle. You approve the plan once; then Pouple does everything itself,
+git commands included, and ends with a short recap:
+
+1. it fetches `origin` and starts a worktree of its own on the branch (as it is on `origin`, or as it is here when it holds
+   commits not pushed yet; a branch that went two ways is left alone and the conversation says so);
+2. it merges the other branch in; with no conflict no AI is involved;
+3. on conflicts, the AI that writes settles them in the worktree (it receives the plan and the files, never the request's
+   text), and Pouple refuses to commit if a conflict marker is left;
+4. it commits the merge and pushes the branch (never forced, hooks disabled like every commit of Pouple, never a trunk or release
+   branch such as `main`, `master`, `develop`, `release/*`: those go through a merge request);
+5. it moves your own copy of the branch forward, only when that cannot touch your work (the branch is not checked out, or
+   your checkout has no uncommitted change), otherwise it says to `git pull`.
+
+The approval names the branch: it covers the updates of that branch for the rest of the conversation, never another
+branch. If the push fails, the merged work is kept on a branch of its own and the conversation names it.
+
+Not built yet: opening the merge request and pushing fixes after a failed pipeline
+or a review (GitLab needs a token with a write scope), writes in Asana and Slite, and a plan that covers several services.
 
 ### Code
 

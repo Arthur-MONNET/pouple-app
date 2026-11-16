@@ -9,7 +9,7 @@ import (
 
 // supportedKinds are the kinds of write Pouple can carry out today. A plan that asks for another kind is refused when it
 // is made, not when the user has already approved it.
-var supportedKinds = []ActionKind{EditCode}
+var supportedKinds = []ActionKind{EditCode, SyncBranch}
 
 // proposePlan shows the plan the investigating AI wrote for the user to approve. Inside places the user already approved
 // in this conversation it is carried out at once: a grant is for the whole conversation.
@@ -36,19 +36,20 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
 			refuse(s.text("The plan asks for a kind of write Pouple cannot do yet: %s", action.Summary))
 			return
 		}
-		if action.Kind == EditCode && s.projectPath(action.Scope.ID) == "" {
+		if codeKind(action.Kind) && s.projectPath(action.Scope.ID) == "" {
 			refuse(s.text("A change was planned for “%s”, which is not a project in your projects folder.", action.Scope.ID))
 			return
 		}
-		if action.Kind == EditCode && !s.canWriteCode(context.Background(), action.Scope.ID) {
+		if codeKind(action.Kind) && !s.canWriteCode(context.Background(), action.Scope.ID) {
 			refuse(s.text("“%s” is not a git repository with a commit, so its code cannot be written on a branch.", action.Scope.ID))
 			return
 		}
 	}
 	request, _ := s.deps.Store.Get(id)
-	// A plan inside what was approved runs at once only while nothing written by other people has entered the
-	// conversation: their text may have shaped the brief, which the user has not read for this plan.
-	covered := len(request.Grants.Uncovered(plan.Actions)) == 0 && !request.ServicesUsed && !request.WebUsed
+	// The user is asked once, when the first plan is made: what they approved then covers the rest of the conversation,
+	// branch updates included (for the branches they read). It stops covering as soon as text written by strangers
+	// reaches the conversation (a message in its thread, the web), since it may shape a brief the user has not read.
+	covered := len(request.Grants.Uncovered(plan.Actions)) == 0 && !request.ForeignSinceGrant
 	// The user chose to trust the assistant with every change: a plan is then approved as it is made. It is written on a
 	// branch of its own, so this is the gentlest way a change can be applied.
 	trusted := s.deps.AutoApproveAll != nil && s.deps.AutoApproveAll()
@@ -79,6 +80,9 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
 	s.alert(id, s.text("Proposed plan: %s", plan.Goal))
 }
 
+// codeKind says whether an action writes in a project folder of this computer.
+func codeKind(kind ActionKind) bool { return kind == EditCode || kind == SyncBranch }
+
 func containsKind(kinds []ActionKind, kind ActionKind) bool {
 	for _, known := range kinds {
 		if known == kind {
@@ -88,9 +92,16 @@ func containsKind(kinds []ActionKind, kind ActionKind) bool {
 	return false
 }
 
-// DecidePlan approves or declines the plan that waits for an answer. wanted names the plan the user read and must match
-// the one waiting now. Approving grants the places the plan names, for this conversation only.
+// DecidePlan approves or declines the plan that waits for an answer, all of its actions.
 func (s *Service) DecidePlan(id string, approve bool, wanted string) error {
+	return s.DecidePlanActions(id, approve, wanted, nil)
+}
+
+// DecidePlanActions approves or declines the plan that waits for an answer. wanted names the plan the user read and must
+// match the one waiting now. Approving grants the places the plan names, for this conversation only. selected holds the
+// positions of the actions the user ticked: only those are approved, carried out and granted, in the plan's order; nil
+// means all of them, and an empty or invalid selection approves nothing.
+func (s *Service) DecidePlanActions(id string, approve bool, wanted string, selected []int) error {
 	if wanted == "" {
 		return i18n.Wrap(ErrInput, "the plan that was read must be named")
 	}
@@ -103,7 +114,7 @@ func (s *Service) DecidePlan(id string, approve bool, wanted string) error {
 		return err
 	}
 	var approved Plan
-	var stale, refused bool
+	var stale, refused, badSelection bool
 	started := s.deps.Store.Transition(id, StatusAwaitingUser, func(r *Stored) bool {
 		if r.Plan == nil || r.Plan.Status != PlanProposed {
 			return false
@@ -112,6 +123,15 @@ func (s *Service) DecidePlan(id string, approve bool, wanted string) error {
 		if wanted != "" && wanted != PlanFingerprint(plan) {
 			stale = true
 			return false
+		}
+		if approve && selected != nil {
+			// The plan the user read is narrowed to what they ticked: the rest is neither written nor granted.
+			chosen, ok := plan.Select(selected)
+			if !ok {
+				badSelection = true
+				return false
+			}
+			plan = chosen
 		}
 		label := "Declined the plan: %s"
 		if approve {
@@ -122,6 +142,7 @@ func (s *Service) DecidePlan(id string, approve bool, wanted string) error {
 				return false
 			}
 			r.Grants, r.Status, label = grants, StatusApplying, "Approved the plan: %s"
+			r.ForeignSinceGrant = false
 		} else {
 			plan.Status = PlanDeclined
 			// Declining ends the conversation: there is nothing left to show in a bubble.
@@ -136,6 +157,8 @@ func (s *Service) DecidePlan(id string, approve bool, wanted string) error {
 	switch {
 	case stale:
 		return i18n.Wrap(ErrState, "the plan changed since you read it")
+	case badSelection:
+		return i18n.Wrap(ErrInput, "choose at least one action of the plan, each only once")
 	case refused:
 		return i18n.Wrap(ErrState, "the plan could not be approved")
 	case !started:
@@ -153,8 +176,12 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 	var written []string
 	for _, action := range plan.Actions {
 		switch action.Kind {
-		case EditCode:
-			line, err := s.runCodeEdit(ctx, id, plan, action)
+		case EditCode, SyncBranch:
+			run := s.runCodeEdit
+			if action.Kind == SyncBranch {
+				run = s.runBranchSync
+			}
+			line, err := run(ctx, id, plan, action)
 			if err != nil {
 				return err
 			}
@@ -169,19 +196,20 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 		return nil
 	}
 	s.update(id, func(r *Stored) { r.Status = StatusDone })
-	s.alert(id, s.text("Change prepared: %s", plan.Goal))
+	// The user is told what was pushed: it left their computer without a question.
+	s.alert(id, strings.Join(written, "\n"))
 	return nil
 }
 
 // runCodeEdit writes the code of one action, on a branch of its own, and commits it. It returns what was committed, or
 // "" when nothing was changed (the request then stays open, saying so).
 func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action Action) (string, error) {
-	wt, err := s.prepareWorktree(ctx, plan, action.Scope.ID)
+	wt, err := s.prepareWorktree(ctx, plan, action)
 	if err != nil {
 		return "", err
 	}
 	s.update(id, func(r *Stored) {
-		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Working on a branch of its own: %s", wt.Branch)))
+		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Working on the branch %s", wt.Branch)))
 	})
 	result, provider, err := s.runProvider(ctx, id, Turn{Prompt: s.deps.Persona().PlanApplyPrompt(plan, action), Dir: wt.Path, Sandbox: WorkspaceWrite, SchemaFile: s.deps.SchemaFile}, false)
 	if err != nil {
@@ -215,5 +243,15 @@ func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action 
 		r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary),
 			s.entry("system", "step", s.text("Committed on branch %s (%s)", wt.Branch, wt.Path)), s.entry("system", "step", line))
 	})
-	return strings.TrimSpace(line), nil
+	if !s.hasOrigin(ctx, s.projectPath(wt.Project)) {
+		return s.text("Branch %s committed (this project has no origin to push it to): %s", wt.Branch, plan.Goal), nil
+	}
+	s.update(id, func(r *Stored) {
+		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Pushing %s to %s", wt.Branch, origin)))
+	})
+	// The user allowed the push with the plan: nothing is forced, and the branch is new, so it cannot overwrite anyone's work.
+	if out, err := s.git(ctx, wt.Path, wt.gitArgs("push", "--set-upstream", origin, "refs/heads/"+wt.Branch+":refs/heads/"+wt.Branch)...); err != nil {
+		return "", i18n.NewError("The work is committed on the branch %s of “%s” but could not be pushed: %s", wt.Branch, wt.Project, clipRunes(out, 300))
+	}
+	return s.text("Branch %s pushed: %s", wt.Branch, plan.Goal), nil
 }

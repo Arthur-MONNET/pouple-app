@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AssistantQuestion, AssistantRequest, QuestionAnswer } from '../api/types';
+import type { AssistantQuestion, AssistantRequest, PlanAction, QuestionAnswer } from '../api/types';
 import { errorMessage } from '../api/client';
 import { useAssistantStore } from '../composables/assistantStore';
 import { t } from '../i18n';
@@ -51,22 +51,43 @@ const proposalQuestion = computed<AssistantQuestion[]>(() => {
     : [];
 });
 
-/** Approving a plan is asked like any other question, so it looks and behaves the same. */
+/** What a plan's action is called where the user picks it: its kind, and the branches it names. */
+function actionLabel(action: PlanAction): string {
+  const branches = action.branch ? (action.base ? `${action.branch} ← ${action.base}` : action.branch) : action.scope.id;
+  return `${t(`chat.plan.kind.${action.kind}`)} · ${branches}`;
+}
+
+/**
+ * Approving a plan is asked like any other question, so it looks and behaves the same. A plan with several actions lets
+ * the user tick the ones they want: only those are carried out.
+ */
 const planQuestion = computed<AssistantQuestion[]>(() => {
   const { plan } = props.request;
-  return plan && plan.status === 'proposed'
-    ? [
-        {
-          id: 'plan',
-          text: t('chat.planQuestion', { goal: plan.goal }),
-          options: [
-            { id: 'approve', label: t('chat.planYes'), description: t('chat.planYesHelp') },
-            { id: 'decline', label: t('chat.planNo'), description: null },
-          ],
-        },
-      ]
-    : [];
+  if (!plan || plan.status !== 'proposed') return [];
+  if (plan.actions.length > 1) {
+    return [
+      {
+        id: 'plan',
+        text: t('chat.planPickQuestion', { goal: plan.goal }),
+        multiple: true,
+        options: plan.actions.map((action, index) => ({ id: `action-${index}`, label: actionLabel(action), description: action.summary })),
+      },
+    ];
+  }
+  // A plan that updates a branch is carried out to the end (merge, conflicts, commit, push), which the answer says.
+  const sync = plan.actions.some((action) => action.kind === 'code.sync');
+  return [
+    {
+      id: 'plan',
+      text: t('chat.planQuestion', { goal: plan.goal }),
+      options: [
+        { id: 'approve', label: t(sync ? 'chat.planSyncYes' : 'chat.planYes'), description: t(sync ? 'chat.planSyncYesHelp' : 'chat.planYesHelp') },
+        { id: 'decline', label: t('chat.planNo'), description: null },
+      ],
+    },
+  ];
 });
+const planIsPicked = computed(() => (props.request.plan?.actions.length ?? 0) > 1);
 
 async function guard(action: () => Promise<unknown>): Promise<void> {
   busy.value = true;
@@ -81,8 +102,15 @@ async function guard(action: () => Promise<unknown>): Promise<void> {
 }
 
 const submitAnswers = (answers: QuestionAnswer[]): Promise<void> => guard(() => store.answer(props.request.id, answers));
-const submitPlan = (answers: QuestionAnswer[]): Promise<void> =>
-  guard(() => store.decidePlan(props.request.id, answers[0]?.optionId === 'approve' ? 'approve' : 'decline', props.request.plan?.id ?? ''));
+const declinePlan = (): Promise<void> => guard(() => store.decidePlan(props.request.id, 'decline', props.request.plan?.id ?? ''));
+const submitPlan = (answers: QuestionAnswer[]): Promise<void> => {
+  const planId = props.request.plan?.id ?? '';
+  if (planIsPicked.value) {
+    const ticked = (answers[0]?.optionIds ?? []).map((id) => Number(id.replace('action-', ''))).sort((a, b) => a - b);
+    return guard(() => store.decidePlan(props.request.id, 'approve', planId, ticked));
+  }
+  return guard(() => store.decidePlan(props.request.id, answers[0]?.optionId === 'approve' ? 'approve' : 'decline', planId));
+};
 const submitProposal = (answers: QuestionAnswer[]): Promise<void> =>
   guard(() => store.decide(props.request.id, answers[0]?.optionId === 'approve' ? 'approve' : 'decline'));
 
@@ -198,8 +226,10 @@ watch(
       :busy="busy"
       :allow-other="false"
       :submit-on-pick="false"
+      :ignorable="planIsPicked"
       submit-label="Confirm"
       @submit="submitPlan"
+      @ignore="declinePlan"
     />
     <AssistantQuestionCard
       v-if="request.proposal"

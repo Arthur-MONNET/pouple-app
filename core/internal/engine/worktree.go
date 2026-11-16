@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
@@ -17,10 +18,19 @@ import (
 // branch and their unsaved files are never touched. The worktree holds the project as of its last commit; what the AI
 // writes there is committed by Pouple, so the user reads it as one reviewable commit.
 
+// remoteTimeout bounds one git command that talks to a remote.
+const remoteTimeout = 3 * time.Minute
+
 // runGit runs git in dir without anything that could run code of the repository (hooks, the filesystem monitor), never
 // asking for a password, and returns what it printed. Nothing of the caller's GIT_* environment reaches it: a variable
 // such as GIT_DIR or GIT_EXTERNAL_DIFF would change what git runs.
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+	if talksToRemote(args) {
+		// A remote that does not answer must not hold the conversation forever.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
+		defer cancel()
+	}
 	full := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "core.editor=true", "-C", dir}, args...)
 	command := exec.CommandContext(ctx, "git", full...)
 	var environment []string
@@ -29,9 +39,30 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 			environment = append(environment, entry)
 		}
 	}
-	command.Env = append(environment, "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0", "GIT_CONFIG_NOSYSTEM=1")
+	environment = append(environment, "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0")
+	// Talking to a remote needs the machine's own git configuration (its credential helper), which no repository can
+	// change; everything else ignores it so that it runs the same everywhere.
+	if !talksToRemote(args) {
+		environment = append(environment, "GIT_CONFIG_NOSYSTEM=1")
+	}
+	command.Env = environment
+	if talksToRemote(args) {
+		// git's children (ssh, the credential helper) can outlive it and hold its output open: stop waiting for them.
+		command.WaitDelay = 5 * time.Second
+	}
 	out, err := command.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
+}
+
+// talksToRemote says whether a git command (its first word that is not an option) reaches another computer.
+func talksToRemote(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "fetch" || arg == "push" || arg == "ls-remote"
+	}
+	return false
 }
 
 func (s *Service) git(ctx context.Context, dir string, args ...string) (string, error) {
@@ -66,6 +97,12 @@ type Worktree struct {
 	gitDir, gitFile string
 }
 
+// pointerIntact says whether the `.git` file of the worktree is still what git wrote.
+func (w Worktree) pointerIntact() bool {
+	content, err := os.ReadFile(filepath.Join(w.Path, ".git"))
+	return err == nil && string(content) == w.gitFile
+}
+
 // gitArgs addresses the worktree through its own git folder, not through the `.git` file the AI could have rewritten.
 func (w Worktree) gitArgs(args ...string) []string {
 	return append([]string{"--git-dir=" + w.gitDir, "--work-tree=" + w.Path}, args...)
@@ -82,8 +119,16 @@ func (s *Service) canWriteCode(ctx context.Context, project string) bool {
 	return err == nil
 }
 
-// prepareWorktree makes the place the code of a plan is written in: a worktree on a new branch.
-func (s *Service) prepareWorktree(ctx context.Context, plan Plan, project string) (Worktree, error) {
+// hasOrigin says whether the project has the remote its branches are pushed to.
+func (s *Service) hasOrigin(ctx context.Context, directory string) bool {
+	_, err := s.git(ctx, directory, "remote", "get-url", origin)
+	return err == nil
+}
+
+// prepareWorktree makes the place the code of an action is written in: a worktree on the new branch the plan names,
+// started from the branch it names (the project's current one by default), as it is on the remote when there is one.
+func (s *Service) prepareWorktree(ctx context.Context, plan Plan, action Action) (Worktree, error) {
+	project := action.Scope.ID
 	directory := s.projectPath(project)
 	if directory == "" {
 		return Worktree{}, i18n.NewError("project “%s” no longer exists", project)
@@ -91,19 +136,44 @@ func (s *Service) prepareWorktree(ctx context.Context, plan Plan, project string
 	if !s.canWriteCode(ctx, project) {
 		return Worktree{}, i18n.NewError("“%s” is not a git repository with a commit, so its code cannot be written on a branch", project)
 	}
+	start := "HEAD"
+	if s.hasOrigin(ctx, directory) {
+		// What is on the remote now: the base to start from, and the names that are already taken.
+		if out, err := s.git(ctx, directory, "fetch", "--quiet", origin); err != nil {
+			return Worktree{}, i18n.NewError("Nothing could be fetched from %s: %s", origin, clipRunes(out, 300))
+		}
+	}
+	if action.Base != "" {
+		if start = firstNonEmpty(s.commitOf(ctx, directory, "refs/remotes/"+origin+"/"+action.Base), s.commitOf(ctx, directory, "refs/heads/"+action.Base)); start == "" {
+			return Worktree{}, i18n.NewError("The branch %s exists neither in “%s” nor on %s", action.Base, project, origin)
+		}
+	}
+	branch, path := s.freeSpot(ctx, directory, project, action.Branch, PlanFingerprint(plan)[:6])
+	return s.addWorktree(ctx, directory, project, branch, path, start)
+}
+
+// freeSpot picks the branch and the folder of a worktree: a name that is not taken, here or on the remote, so that the
+// work never lands on a branch that exists, and a folder of its own for each plan.
+func (s *Service) freeSpot(ctx context.Context, directory, project, wanted, short string) (branch, path string) {
 	root := s.deps.WorktreesRoot()
-	// Each plan has its own branch and folder, whatever else was written in this conversation or before.
-	short := PlanFingerprint(plan)[:6]
-	branch := "pouple/" + branchSlug(plan.Goal) + "-" + short
-	path := filepath.Join(root, project+"-"+short)
-	for n := 2; pathExists(path) || s.branchExists(ctx, directory, branch); n++ {
-		branch = "pouple/" + branchSlug(plan.Goal) + "-" + short + "-" + strconv.Itoa(n)
+	branch, path = wanted, filepath.Join(root, project+"-"+short)
+	for n := 2; pathExists(path) || s.branchTaken(ctx, directory, branch); n++ {
+		branch = wanted + "-" + strconv.Itoa(n)
 		path = filepath.Join(root, project+"-"+short+"-"+strconv.Itoa(n))
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
+	return branch, path
+}
+
+func (s *Service) branchTaken(ctx context.Context, directory, branch string) bool {
+	return s.branchExists(ctx, directory, branch) || s.commitOf(ctx, directory, "refs/remotes/"+origin+"/"+branch) != ""
+}
+
+// addWorktree makes a worktree of a project at path, on a new branch that starts at start.
+func (s *Service) addWorktree(ctx context.Context, directory, project, branch, path, start string) (Worktree, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Worktree{}, err
 	}
-	if out, err := s.git(ctx, directory, "worktree", "add", "-q", "-b", branch, path, "HEAD"); err != nil {
+	if out, err := s.git(ctx, directory, "worktree", "add", "-q", "-b", branch, path, start); err != nil {
 		return Worktree{}, i18n.NewError("The branch for this work could not be created: %s", clipRunes(out, 300))
 	}
 	w := Worktree{Path: path, Branch: branch, Project: project}
@@ -140,7 +210,7 @@ var withoutDependencies = []string{"--", ".", ":(exclude)node_modules"}
 // which case the worktree and its branch are removed.
 func (s *Service) commitWorktree(ctx context.Context, w Worktree, goal string) (string, error) {
 	// The AI wrote in this folder: if it changed what points to the git folder, nothing is committed from it.
-	if content, err := os.ReadFile(filepath.Join(w.Path, ".git")); err != nil || string(content) != w.gitFile {
+	if !w.pointerIntact() {
 		return "", i18n.NewError("The work area was changed in a way Pouple does not commit from")
 	}
 	changes, err := s.git(ctx, w.Path, w.gitArgs(append([]string{"status", "--porcelain"}, withoutDependencies...)...)...)
@@ -154,7 +224,7 @@ func (s *Service) commitWorktree(ctx context.Context, w Worktree, goal string) (
 	if out, err := s.git(ctx, w.Path, w.gitArgs(append([]string{"add", "-A"}, withoutDependencies...)...)...); err != nil {
 		return "", i18n.NewError("What was written could not be prepared for a commit: %s", clipRunes(out, 300))
 	}
-	message := "pouple: " + clipRunes(oneLine(goal, 72), 72) + "\n\nWritten by Pouple from a plan the user approved."
+	message := clipRunes(oneLine(goal, 72), 72) + "\n\nWritten by Pouple from a plan the user approved."
 	if out, err := s.git(ctx, w.Path, w.gitArgs("commit", "-q", "-m", message)...); err != nil {
 		return "", i18n.NewError("The commit could not be made: %s", clipRunes(out, 300))
 	}
@@ -168,6 +238,8 @@ func (s *Service) discardWorktree(ctx context.Context, w Worktree) {
 	if directory == "" {
 		return
 	}
+	// Cleaning up is wanted most when the work was stopped: the stop must not stop it too.
+	ctx = context.WithoutCancel(ctx)
 	_, _ = s.git(ctx, directory, "worktree", "remove", "--force", w.Path)
 	_, _ = s.git(ctx, directory, "branch", "-D", w.Branch)
 }

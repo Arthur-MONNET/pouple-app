@@ -32,7 +32,7 @@ public enum L10n {
         // Bubbles
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
-        case bubbleReadPlan, badgePlan, planWriteCode, planOnItsOwnBranch
+        case bubbleReadPlan, badgePlan, planWriteCode, planOnItsOwnBranch, planSyncBranch, planSyncDoneForYou
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
         case usageTokens, usageFiveHour, usageWeek
         case bubbleIgnore, bubbleStop, bubbleWorking, bubbleContinueWith
@@ -192,7 +192,9 @@ public enum L10n {
         .bubbleReadPlan: "Lire et approuver le plan",
         .badgePlan: "Plan à valider",
         .planWriteCode: "Écrire du code · %@",
-        .planOnItsOwnBranch: "Écrit sur une branche à part ; ton dossier de travail n’est pas touché.",
+        .planOnItsOwnBranch: "Écrit sur une nouvelle branche, commité puis poussé sur origin ; ton dossier de travail n’est pas touché.",
+        .planSyncBranch: "Mettre la branche à jour · %@",
+        .planSyncDoneForYou: "Pouple récupère, intègre, règle les conflits, commit et envoie la branche, puis te fait un récap.",
         .badgeApprove: "Modification à valider",
         .badgeNeedsAnswer: "À toi de décider",
         .badgeFailed: "Échec",
@@ -335,7 +337,9 @@ public enum L10n {
         .bubbleReadPlan: "Read and approve the plan",
         .badgePlan: "Approve a plan",
         .planWriteCode: "Write code · %@",
-        .planOnItsOwnBranch: "Written on a branch of its own; your checkout is not touched.",
+        .planOnItsOwnBranch: "Written on a new branch, committed and pushed to origin; your checkout is not touched.",
+        .planSyncBranch: "Update the branch · %@",
+        .planSyncDoneForYou: "Pouple fetches, merges, settles conflicts, commits and pushes the branch, then gives you a recap.",
         .badgeApprove: "Approve a change",
         .badgeNeedsAnswer: "Your call",
         .badgeFailed: "Failed",

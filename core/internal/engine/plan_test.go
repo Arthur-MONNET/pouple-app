@@ -18,7 +18,7 @@ func fixPlan() Plan {
 		Goal:  "Fix the SSO callback on iOS",
 		Brief: "Florian reports that SSO sign-in fails on iOS only.\nThe state is lost in the redirect.",
 		Actions: []Action{
-			{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Keep the state in the SSO callback"},
+			{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Keep the state in the SSO callback", Branch: "fix/sso-state"},
 			{Kind: PushBranch, Scope: gitlabScope("acme/web/login-app"), Summary: "Push the fix branch"},
 			{Kind: MergeRequest, Scope: gitlabScope("acme/web/login-app"), Summary: "Open the merge request"},
 		},
@@ -135,7 +135,11 @@ func TestNormalizeAcceptsOnlyRealIdentifiersOfEachService(t *testing.T) {
 		{Scope{Service: ScopeSlite, ID: "space/../x"}, WriteNote, false},
 	}
 	for _, c := range cases {
-		raw := Plan{Goal: "Goal", Actions: []Action{{Kind: c.kind, Scope: c.scope, Summary: "Do it"}}}
+		action := Action{Kind: c.kind, Scope: c.scope, Summary: "Do it"}
+		if c.kind == EditCode {
+			action.Branch = "fix/it"
+		}
+		raw := Plan{Goal: "Goal", Actions: []Action{action}}
 		_, err := raw.Normalize()
 		if (err == nil) != c.ok {
 			t.Errorf("%s %q: accepted=%v, want %v (%v)", c.scope.Service, c.scope.ID, err == nil, c.ok, err)
@@ -167,6 +171,7 @@ func TestFingerprintFollowsWhatTheUserReads(t *testing.T) {
 		"scope":   func(p *Plan) { p.Actions[0].Scope.ID = "other-app" },
 		"name":    func(p *Plan) { p.Actions[0].Scope.Name = "Other" },
 		"summary": func(p *Plan) { p.Actions[0].Summary += "!" },
+		"branch":  func(p *Plan) { p.Actions[0].Branch = "fix/other" },
 	} {
 		changed, _ := fixPlan().Normalize()
 		change(&changed)
@@ -189,24 +194,24 @@ func TestApprovingAPlanGrantsItsScopesWithItsKindsOnly(t *testing.T) {
 		}
 	}
 	// Inside a granted scope, another write of a granted kind needs no new approval.
-	again := Action{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Fix the test that the change broke"}
+	again := Action{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Fix the test that the change broke", Branch: "fix/x"}
 	if !grants.Covers(again) {
 		t.Fatal("a further edit in the approved project asks again")
 	}
 	// Another project, another service or another kind in the same place needs one.
 	for _, outside := range []Action{
-		{Kind: EditCode, Scope: codeScope("api"), Summary: "Edit another project"},
+		{Kind: EditCode, Scope: codeScope("api"), Summary: "Edit another project", Branch: "fix/x"},
 		{Kind: CommentTask, Scope: asanaScope("1200"), Summary: "Comment a task"},
 		{Kind: PushBranch, Scope: gitlabScope("acme/api"), Summary: "Push elsewhere"},
-		{Kind: EditCode, Scope: codeScope("Login-App"), Summary: "Same folder, other case"},
-		{Kind: EditCode, Scope: codeScope(" login-app"), Summary: "Same folder, untrimmed"},
+		{Kind: EditCode, Scope: codeScope("Login-App"), Summary: "Same folder, other case", Branch: "fix/x"},
+		{Kind: EditCode, Scope: codeScope(" login-app"), Summary: "Same folder, untrimmed", Branch: "fix/x"},
 	} {
 		if grants.Covers(outside) {
 			t.Fatalf("covered without approval: %+v", outside)
 		}
 	}
 	// The name is only what the user reads: a different label does not escape or widen the grant.
-	renamed := Action{Kind: EditCode, Scope: Scope{Service: ScopeCode, ID: "login-app", Name: "Login"}, Summary: "Edit"}
+	renamed := Action{Kind: EditCode, Scope: Scope{Service: ScopeCode, ID: "login-app", Name: "Login"}, Summary: "Edit", Branch: "fix/x"}
 	if !grants.Covers(renamed) {
 		t.Fatal("the display name changed what is covered")
 	}
@@ -244,7 +249,7 @@ func TestAnActionWhoseKindDoesNotMatchItsPlaceIsNeverCovered(t *testing.T) {
 func TestUncoveredListsWhatNeedsANewApproval(t *testing.T) {
 	grants := grantsOf(t, fixPlan())
 	comment := Action{Kind: CommentTask, Scope: asanaScope("1200"), Summary: "Say the fix is out"}
-	edit := Action{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Adjust the fix"}
+	edit := Action{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Adjust the fix", Branch: "fix/x"}
 
 	if got := grants.Uncovered([]Action{edit, comment}); len(got) != 1 || got[0] != comment {
 		t.Fatalf("uncovered %+v", got)
@@ -258,7 +263,7 @@ func TestGrantsAddUpAndNeverChangeTheOriginal(t *testing.T) {
 	grants := grantsOf(t, fixPlan())
 	second := approved(t, Plan{Goal: "Tell Florian", Actions: []Action{
 		{Kind: CommentTask, Scope: asanaScope("1200"), Summary: "Comment the task"},
-		{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Again"},
+		{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Again", Branch: "fix/x"},
 	}})
 
 	both, err := grants.With(second)

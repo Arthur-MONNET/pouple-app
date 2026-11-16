@@ -21,8 +21,9 @@ type Assistant interface {
 	Answer(id string, answers []engine.Answer) error
 	Message(id, text string, attachmentIDs []string) error
 	DecideProposal(id string, approve bool, proposalID string) error
-	// DecidePlan approves or declines the plan that waits for an answer; planID names the plan the user read.
-	DecidePlan(id string, approve bool, planID string) error
+	// DecidePlanActions approves or declines the plan that waits for an answer; planID names the plan the user read, and
+	// actions (when not nil) the positions of the actions that were ticked.
+	DecidePlanActions(id string, approve bool, planID string, actions []int) error
 	Ignore(id string) error
 	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
 	Close(id, seen string) error
@@ -123,6 +124,8 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 			var body struct {
 				Decision string `json:"decision"`
 				PlanID   string `json:"planId"`
+				// Actions are the positions of the ticked actions; absent means all of them.
+				Actions []int `json:"actions"`
 			}
 			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
 				return i18n.Wrap(engine.ErrInput, `"decision" must be "approve" or "decline"`)
@@ -131,7 +134,7 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 			if body.PlanID == "" {
 				return i18n.Wrap(engine.ErrInput, `"planId" is required`)
 			}
-			return accepted(w, assistant.DecidePlan(r.PathValue("id"), body.Decision == "approve", body.PlanID))
+			return accepted(w, assistant.DecidePlanActions(r.PathValue("id"), body.Decision == "approve", body.PlanID, body.Actions))
 		})
 		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
 			return noContent(w, assistant.Ignore(r.PathValue("id")))
