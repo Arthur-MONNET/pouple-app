@@ -26,8 +26,8 @@ const OutcomeSchema = `{
         "additionalProperties": false,
         "required": ["service", "action", "target", "text"],
         "properties": {
-          "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "screenshot"]},
-          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "capture", "serve"]},
+          "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "slack", "screenshot"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "thread", "around", "capture", "serve"]},
           "target": {"type": "string"},
           "text": {"type": "string"}
         }
@@ -119,6 +119,8 @@ var lookupActions = map[string][]string{
 	"asana":  {"task", "comment"},
 	// screenshot: "capture" opens a page in a browser (the lookup's text is the screen size, "" or "mobile"); "serve" starts
 	// a project's dev server and waits for it (the target is the project, the text the script to start, "" for the usual).
+	// slack: "search" looks for messages like Slack's search box does; "thread" and "around" open a message found by it.
+	"slack":      {"search", "thread", "around"},
 	"screenshot": {"capture", "serve"},
 }
 

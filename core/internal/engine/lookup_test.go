@@ -287,6 +287,36 @@ func TestThePromptTellsHowToReviewAndHowToAskForCode(t *testing.T) {
 	}
 }
 
+func TestSlackLookupsAreReadsThatTheAIMayAskForAndNeverWrite(t *testing.T) {
+	raw, _ := json.Marshal(map[string]any{"outcome": LookupOutcome, "summary": "s", "lookups": []Lookup{
+		{Service: "slack", Action: "search", Target: "in:#preprod after:2026-11-01", Text: "ignored"},
+		{Service: "slack", Action: "thread", Target: "C0PREPROD1 1762790400.000100"},
+		{Service: "slack", Action: "around", Target: "C0PREPROD1 1762790400.000100"},
+		{Service: "slack", Action: "comment", Target: "C0PREPROD1", Text: "post this"},
+	}})
+	outcome, err := ParseOutcome(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outcome.Lookups) != 3 {
+		t.Fatalf("%+v", outcome.Lookups)
+	}
+	for _, lookup := range outcome.Lookups {
+		if lookup.Service != "slack" || lookup.Writes() || lookup.Text != "" {
+			t.Errorf("a Slack lookup only reads and carries no text: %+v", lookup)
+		}
+	}
+}
+
+func TestThePromptTeachesSlackLookupsAndKeepsPrivateConversationsPrivate(t *testing.T) {
+	prompt := Persona{Name: "Arthur"}.AnalysisPrompt(Stored{}, "", "", "", "")
+	for _, want := range []string{`For "slack": "search"`, `"thread"`, `"around"`, "in:#channel-name", `"direct message"`, "never quote it or give its substance in a reply that is meant for someone else"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the rules lack %q", want)
+		}
+	}
+}
+
 var postComment = Lookup{Service: "asana", Action: "comment", Target: "1220044008196354", Text: "Déployé en preprod."}
 
 func recordLookups(h *harness) *[]Lookup {

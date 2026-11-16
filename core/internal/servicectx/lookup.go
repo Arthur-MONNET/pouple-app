@@ -8,6 +8,7 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
@@ -54,6 +55,9 @@ func (g *Gatherer) runnerFor(service string) (lookupRunner, section) {
 			return nil, failure(service, name, i18n.NewMessage("the saved connection could not be used"))
 		}
 		return func(ctx context.Context, lookup engine.Lookup) section { return g.gitlabLookup(ctx, client, lookup) }, section{}
+	case slack.ID:
+		client := g.NewSlack(values["token"])
+		return func(ctx context.Context, lookup engine.Lookup) section { return g.slackLookup(ctx, client, lookup) }, section{}
 	}
 	return nil, section{source: service, lines: []string{name + ": this service cannot be looked up."}}
 }
@@ -66,6 +70,8 @@ func serviceName(service string) string {
 		return "GitLab"
 	case asana.ID:
 		return "Asana"
+	case slack.ID:
+		return "Slack"
 	}
 	return service
 }

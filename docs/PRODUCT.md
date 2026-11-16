@@ -32,6 +32,12 @@ into account silently, and tells you only if it changes what it proposes.
 
 1. **Silent thinking.** The request arrives. Pouple reads as much as it needs, with no limit per request: your connectors
    (Slack, Asana, GitLab, Slite) and the projects on your computer. **No bubble is shown during this phase.**
+   Slack is also something to **search**, not only a source of requests: when a question is about what the team said
+   (how far the tests of a feature got, who took a preproduction environment, with which commit and when), the AI searches
+   your Slack with the operators of its search box (`in:#channel`, `from:@person`, `after:…`), opens the threads and the
+   messages around the best results, and gives the date of what it found. It reads only what you can read, and never writes.
+   What it finds in a direct message, a group conversation or a private channel is used to understand and answer you: it is
+   not repeated in a reply meant for someone else, unless you ask for exactly that.
 2. **First contact.** If at least one action is worth doing, the bubble appears with what Pouple found and what it suggests.
    Suggestions are a choice among proposals, and the choice can be multiple when Pouple offers it. When it needs more context,
    it asks one or several multiple-choice questions in a row, as in a plan in Claude. No questions when none are needed.

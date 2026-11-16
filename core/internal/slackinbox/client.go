@@ -196,6 +196,8 @@ type searchHit struct {
 	// directPeerID is the other participant of a direct message (the user themself for a note to self).
 	directPeerID string
 	permalink    *string
+	// private is set for a private channel, group is set for a group conversation.
+	private, group bool
 }
 
 // conversationMessage is a message read from a conversation; userID is empty for bots and system messages.
@@ -255,7 +257,8 @@ func (c *Client) search(ctx context.Context, query string, count int) ([]searchH
 		if !okTS || !okText || !okChannel || !okUser {
 			continue
 		}
-		hit := searchHit{ts: ts, text: text, userID: userID, channelID: channelID, isDM: flag(channel, "is_im")}
+		hit := searchHit{ts: ts, text: text, userID: userID, channelID: channelID, isDM: flag(channel, "is_im"),
+			private: flag(channel, "is_private") || flag(channel, "is_group"), group: flag(channel, "is_mpim")}
 		if _, listed := match["files"].([]any); listed {
 			hit.files = parseFiles(match["files"])
 		}
@@ -434,6 +437,8 @@ type conversationInfo struct {
 	// name is empty for direct and group messages.
 	name string
 	isDM bool
+	// private is set for a private channel, group for a group conversation.
+	private, group bool
 }
 
 // channelInfo reads a conversation's name. It needs the matching *:read scope, which is optional.
@@ -446,8 +451,8 @@ func (c *Client) channelInfo(ctx context.Context, channel string) (conversationI
 	if !ok {
 		return conversationInfo{}, unexpected("conversations.info")
 	}
-	result := conversationInfo{isDM: flag(info, "is_im")}
-	if !result.isDM && !flag(info, "is_mpim") {
+	result := conversationInfo{isDM: flag(info, "is_im"), group: flag(info, "is_mpim"), private: flag(info, "is_private")}
+	if !result.isDM && !result.group {
 		result.name, _ = str(info, "name")
 	}
 	return result, nil

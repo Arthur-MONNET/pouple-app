@@ -25,6 +25,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/svchttp"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 )
 
 // Budget is how long all the services together may take.
@@ -76,6 +77,13 @@ type Slite interface {
 	Ask(ctx context.Context, question string) (slite.Answer, error)
 }
 
+// Slack is the part of the Slack reader the gatherer uses. It only reads, in conversations the user belongs to.
+type Slack interface {
+	FindMessages(ctx context.Context, query string, limit int) ([]slackinbox.Message, error)
+	ReadThread(ctx context.Context, ref slackinbox.MessageRef, limit int) ([]slackinbox.Message, error)
+	ReadAround(ctx context.Context, ref slackinbox.MessageRef, before, after int) ([]slackinbox.Message, error)
+}
+
 // Gatherer collects the context of a request from the connected services.
 type Gatherer struct {
 	Connections Connections
@@ -85,6 +93,7 @@ type Gatherer struct {
 	NewAsana  func(token string) Asana
 	NewGitLab func(address, token string) (GitLab, error)
 	NewSlite  func(token string) Slite
+	NewSlack  func(token string) Slack
 }
 
 // New builds a gatherer on the registry, with the real clients.
@@ -97,6 +106,7 @@ func New(connections Connections) *Gatherer {
 			return client, err
 		},
 		NewSlite: func(token string) Slite { return slite.NewClient(token) },
+		NewSlack: func(token string) Slack { return slackinbox.NewClient(token, nil, "") },
 	}
 }
 
