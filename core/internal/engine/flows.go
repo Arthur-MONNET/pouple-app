@@ -332,6 +332,8 @@ func (s *Service) applyOutcome(id string, outcome Outcome) {
 			r.Entries = append(r.Entries, summary)
 		})
 		s.alert(id, s.text("Needs your decision"))
+	case ProposesPlan:
+		s.proposePlan(id, outcome, summary)
 	case ProposesChange:
 		if outcome.Proposal == nil || s.projectPath(outcome.Proposal.ProjectID) == "" {
 			// A change aimed at a project that does not exist cannot be approved: show the analysis only.

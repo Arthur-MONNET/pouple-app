@@ -16,6 +16,7 @@ import ClampedBox from './ClampedBox.vue';
 import MarkdownText from './MarkdownText.vue';
 import InlineError from './InlineError.vue';
 import MascotStage from './MascotStage.vue';
+import PlanSummary from './PlanSummary.vue';
 
 const props = defineProps<{ request: AssistantRequest }>();
 const store = useAssistantStore();
@@ -50,6 +51,23 @@ const proposalQuestion = computed<AssistantQuestion[]>(() => {
     : [];
 });
 
+/** Approving a plan is asked like any other question, so it looks and behaves the same. */
+const planQuestion = computed<AssistantQuestion[]>(() => {
+  const { plan } = props.request;
+  return plan && plan.status === 'proposed'
+    ? [
+        {
+          id: 'plan',
+          text: t('chat.planQuestion', { goal: plan.goal }),
+          options: [
+            { id: 'approve', label: t('chat.planYes'), description: t('chat.planYesHelp') },
+            { id: 'decline', label: t('chat.planNo'), description: null },
+          ],
+        },
+      ]
+    : [];
+});
+
 async function guard(action: () => Promise<unknown>): Promise<void> {
   busy.value = true;
   actionError.value = null;
@@ -63,6 +81,8 @@ async function guard(action: () => Promise<unknown>): Promise<void> {
 }
 
 const submitAnswers = (answers: QuestionAnswer[]): Promise<void> => guard(() => store.answer(props.request.id, answers));
+const submitPlan = (answers: QuestionAnswer[]): Promise<void> =>
+  guard(() => store.decidePlan(props.request.id, answers[0]?.optionId === 'approve' ? 'approve' : 'decline', props.request.plan?.id ?? ''));
 const submitProposal = (answers: QuestionAnswer[]): Promise<void> =>
   guard(() => store.decide(props.request.id, answers[0]?.optionId === 'approve' ? 'approve' : 'decline'));
 
@@ -169,6 +189,17 @@ watch(
       ignorable
       @submit="submitAnswers"
       @ignore="guard(() => store.ignore(request.id))"
+    />
+    <PlanSummary v-if="request.plan && request.plan.status === 'proposed'" :plan="request.plan" />
+    <AssistantQuestionCard
+      v-if="planQuestion.length > 0"
+      :title="title"
+      :questions="planQuestion"
+      :busy="busy"
+      :allow-other="false"
+      :submit-on-pick="false"
+      submit-label="Confirm"
+      @submit="submitPlan"
     />
     <AssistantQuestionCard
       v-if="request.proposal"

@@ -21,6 +21,8 @@ type Assistant interface {
 	Answer(id string, answers []engine.Answer) error
 	Message(id, text string, attachmentIDs []string) error
 	DecideProposal(id string, approve bool, proposalID string) error
+	// DecidePlan approves or declines the plan that waits for an answer; planID names the plan the user read.
+	DecidePlan(id string, approve bool, planID string) error
 	Ignore(id string) error
 	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
 	Close(id, seen string) error
@@ -116,6 +118,20 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 				return i18n.Wrap(engine.ErrInput, `"proposalId" is required`)
 			}
 			return accepted(w, assistant.DecideProposal(r.PathValue("id"), body.Decision == "approve", body.ProposalID))
+		})
+		handle("POST /api/assistant/requests/{id}/plan", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Decision string `json:"decision"`
+				PlanID   string `json:"planId"`
+			}
+			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
+				return i18n.Wrap(engine.ErrInput, `"decision" must be "approve" or "decline"`)
+			}
+			// Approving names the plan that was read: an approval can never apply to a plan that changed meanwhile.
+			if body.PlanID == "" {
+				return i18n.Wrap(engine.ErrInput, `"planId" is required`)
+			}
+			return accepted(w, assistant.DecidePlan(r.PathValue("id"), body.Decision == "approve", body.PlanID))
 		})
 		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
 			return noContent(w, assistant.Ignore(r.PathValue("id")))

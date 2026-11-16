@@ -47,6 +47,9 @@ func (f *fakeAssistant) MessageFromLocalAPI(id, text string, ids []string) error
 func (f *fakeAssistant) DecideProposal(id string, ok bool, proposal string) error {
 	return f.record("decide", id, ok, proposal)
 }
+func (f *fakeAssistant) DecidePlan(id string, ok bool, plan string) error {
+	return f.record("decide-plan", id, ok, plan)
+}
 func (f *fakeAssistant) Ignore(id string) error      { return f.record("ignore", id) }
 func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", id+seen) }
 func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }

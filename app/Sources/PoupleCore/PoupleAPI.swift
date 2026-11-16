@@ -95,6 +95,11 @@ public struct PoupleAPI: Sendable {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/proposal", body: ["decision": approve ? "approve" : "decline"])
     }
 
+    /// Approves or declines the plan that waits; `planId` names the plan the user read.
+    public func decidePlan(requestId: String, approve: Bool, planId: String) async throws {
+        _ = try await send("POST", "/api/assistant/requests/\(requestId)/plan", body: ["decision": approve ? "approve" : "decline", "planId": planId])
+    }
+
     public func message(requestId: String, text: String, attachmentIds: [String] = []) async throws {
         var body: [String: Any] = ["text": text]
         if !attachmentIds.isEmpty { body["attachmentIds"] = attachmentIds }

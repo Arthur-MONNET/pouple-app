@@ -132,6 +132,10 @@ type Deps struct {
 	Connected func(providers.ID) bool
 	// UseProvider makes an AI the one the next turns run on, as the user would in the settings.
 	UseProvider func(providers.ID) error
+	// Git runs git for the code Pouple writes; the hardened real one when nil (tests replace it).
+	Git func(ctx context.Context, dir string, args ...string) (string, error)
+	// WorktreesRoot is the folder the worktrees of plans are made in; "" works in the project folder itself.
+	WorktreesRoot func() string
 	// ChangeSummary says what git sees changed in a folder.
 	ChangeSummary func(ctx context.Context, dir string) (string, error)
 	OnError       func(error)
@@ -365,6 +369,11 @@ func (s *Service) Snapshot() Snapshot {
 			shown.ID = ProposalFingerprint(shown)
 			view.Proposal = &shown
 		}
+		if view.Plan != nil {
+			shown := *view.Plan
+			shown.ID = PlanFingerprint(shown)
+			view.Plan = &shown
+		}
 		requests[i] = view
 	}
 	return Snapshot{Status: status, Requests: requests}
@@ -588,7 +597,7 @@ func (s *Service) expireStale() {
 		updated, err := time.Parse(time.RFC3339, request.UpdatedAt)
 		if request.Status == StatusAwaitingUser && err == nil && updated.Before(limit) {
 			s.update(request.ID, func(r *Stored) {
-				r.Status, r.Questions, r.Proposal = StatusIgnored, []Question{}, nil
+				r.Status, r.Questions, r.Proposal, r.Plan = StatusIgnored, []Question{}, nil, nil
 				r.Entries = append(r.Entries, s.entry("system", "text", s.text("Expired: no answer for 7 days.")))
 			})
 		}

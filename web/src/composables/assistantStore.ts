@@ -1,6 +1,6 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, type InjectionKey } from 'vue';
 import { ApiError, errorMessage, type PoupleApi } from '../api/client';
-import type { AssistantRequest, AssistantSnapshot, ProposalDecision, QuestionAnswer } from '../api/types';
+import type { AssistantRequest, AssistantSnapshot, PlanDecision, ProposalDecision, QuestionAnswer } from '../api/types';
 import { attentionCount, byRecentActivity } from '../lib/assistantRequests';
 
 const RETRY_MS = [1000, 2000, 5000, 10_000];
@@ -111,6 +111,7 @@ export function createAssistantStore(api: PoupleApi) {
     stop,
     answer: (id: string, answers: QuestionAnswer[]) => (forgetStopped(id), act(() => api.answer(id, answers))),
     decide: (id: string, decision: ProposalDecision) => (forgetStopped(id), act(() => api.decideProposal(id, decision))),
+    decidePlan: (id: string, decision: PlanDecision, planId: string) => (forgetStopped(id), act(() => api.decidePlan(id, decision, planId))),
     send: (id: string, text: string, attachmentIds: string[] = []) => (forgetStopped(id), act(() => api.sendMessage(id, text, attachmentIds))),
     ignore: (id: string) => act(() => api.ignore(id)),
     retry: (id: string) => (forgetStopped(id), act(() => api.retry(id))),

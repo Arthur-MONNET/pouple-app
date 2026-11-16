@@ -96,6 +96,35 @@ public struct AssistantProposal: Codable, Equatable, Sendable {
     public let projectId: String
 }
 
+/// A place a write approval covers, and one write a plan asks for there.
+public struct PlanAction: Codable, Equatable, Sendable {
+    public struct Scope: Codable, Equatable, Sendable {
+        public let service: String
+        public let id: String
+        public let name: String?
+    }
+
+    public let kind: String
+    public let scope: Scope
+    public let summary: String
+
+    /// The place as the user reads it: the identifier always, which is what decides where code is written, and the name
+    /// the assistant gave it next to it.
+    public var place: String { scope.name?.isEmpty == false ? "\(scope.name ?? "") (\(scope.id))" : scope.id }
+}
+
+/// What the assistant wants to write, for the user to approve before anything is written.
+public struct AssistantPlan: Codable, Equatable, Sendable {
+    /// Names this exact plan: an approval carries it, so it can only approve the plan that was read.
+    public let id: String?
+    public let goal: String
+    public let brief: String
+    public let actions: [PlanAction]
+    public let status: String
+
+    public var isProposed: Bool { status == "proposed" }
+}
+
 public struct ChatEntry: Codable, Equatable, Identifiable, Sendable {
     public enum Role: String, Codable, Sendable { case system, assistant, user }
     public enum Kind: String, Codable, Sendable { case text, step }
@@ -125,6 +154,8 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public var closed: Bool? = nil
     /// The other AI ("codex", "claude") that can take over a request stopped by a usage limit; absent otherwise.
     public var switchTo: String? = nil
+    /// The writes the assistant asks to make, waiting for approval or approved; absent from older cores.
+    public var plan: AssistantPlan? = nil
 
     /// The name of the AI that can take over, as shown in a button.
     public var switchToName: String? {

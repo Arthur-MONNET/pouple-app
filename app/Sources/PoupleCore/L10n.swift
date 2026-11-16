@@ -32,6 +32,7 @@ public enum L10n {
         // Bubbles
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
+        case bubbleReadPlan, badgePlan, planWriteCode, planOnItsOwnBranch
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
         case usageTokens, usageFiveHour, usageWeek
         case bubbleIgnore, bubbleStop, bubbleWorking, bubbleContinueWith
@@ -188,6 +189,10 @@ public enum L10n {
         .bubbleCopy: "Copier",
         .bubbleSuggestedReply: "Réponse suggérée",
         .bubbleApplyIn: "Appliquer cette modification dans %@ ?",
+        .bubbleReadPlan: "Lire et approuver le plan",
+        .badgePlan: "Plan à valider",
+        .planWriteCode: "Écrire du code · %@",
+        .planOnItsOwnBranch: "Écrit sur une branche à part ; ton dossier de travail n’est pas touché.",
         .badgeApprove: "Modification à valider",
         .badgeNeedsAnswer: "À toi de décider",
         .badgeFailed: "Échec",
@@ -327,6 +332,10 @@ public enum L10n {
         .bubbleCopy: "Copy",
         .bubbleSuggestedReply: "Suggested reply",
         .bubbleApplyIn: "Apply this change in %@?",
+        .bubbleReadPlan: "Read and approve the plan",
+        .badgePlan: "Approve a plan",
+        .planWriteCode: "Write code · %@",
+        .planOnItsOwnBranch: "Written on a branch of its own; your checkout is not touched.",
         .badgeApprove: "Approve a change",
         .badgeNeedsAnswer: "Your call",
         .badgeFailed: "Failed",

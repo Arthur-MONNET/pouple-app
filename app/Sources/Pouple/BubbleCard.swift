@@ -142,7 +142,7 @@ struct BubbleCard: View {
         switch item.kind {
         case .decision:
             // A proposal says what it changes by its own title: the summary above it would only repeat it.
-            if request.proposal == nil, let summary = request.summary { MarkdownView(source: summary) }
+            if request.proposal == nil, request.plan?.isProposed != true, let summary = request.summary { MarkdownView(source: summary) }
             decision
         case .working:
             work
@@ -200,7 +200,24 @@ struct BubbleCard: View {
     }
 
     @ViewBuilder private var decision: some View {
-        if let proposal = request.proposal {
+        if let plan = request.plan, plan.isProposed {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(plan.goal).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                ForEach(Array(plan.actions.enumerated()), id: \.offset) { _, action in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(L10n.text(.planWriteCode, action.place)).font(.system(size: 11.5, weight: .medium))
+                        Text(action.summary).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Text(L10n.text(.planOnItsOwnBranch)).font(.system(size: 11)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
+                // The plan is approved where all of it is shown, brief included: the bubble only leads there.
+                HStack {
+                    Button(L10n.text(.bubbleReadPlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .primary))
+                    Button(L10n.text(.bubbleNotNow)) { store.decidePlan(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
+                    Spacer()
+                }
+            }
+        } else if let proposal = request.proposal {
             VStack(alignment: .leading, spacing: 8) {
                 Text(proposal.title).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
                 // The full plan is one click away in Pouple: the bubble only gives its beginning.
@@ -245,7 +262,9 @@ struct BubbleCard: View {
 
     private var badge: String {
         switch item.kind {
-        case .decision: return request.proposal != nil ? L10n.text(.badgeApprove) : L10n.text(.badgeNeedsAnswer)
+        case .decision:
+            if request.plan?.isProposed == true { return L10n.text(.badgePlan) }
+            return request.proposal != nil ? L10n.text(.badgeApprove) : L10n.text(.badgeNeedsAnswer)
         case .working: return L10n.text(.badgeWorking)
         case .failed: return L10n.text(.badgeFailed)
         case .result: return L10n.text(.badgeAnswerReady)

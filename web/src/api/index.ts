@@ -20,6 +20,7 @@ export async function createApi(): Promise<PoupleApi> {
       streamSnapshots: mock.streamSnapshots,
       answer: mock.answer,
       decideProposal: mock.decideProposal,
+      decidePlan: mock.decidePlan,
       sendMessage: mock.sendMessage,
       ignore: mock.ignore,
       retry: mock.retry,

@@ -139,7 +139,14 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			}
 			return persona
 		},
-		Style:        style,
+		Style: style,
+		// Code Pouple writes goes to a branch of its own, in a worktree beside the projects, never in the user's checkout.
+		WorktreesRoot: func() string {
+			if root := projectsRoot(); root != "" {
+				return filepath.Join(root, ".pouple-worktrees")
+			}
+			return ""
+		},
 		Language:     language,
 		ProjectsRoot: projectsRoot,
 		ProtectedDir: dir,

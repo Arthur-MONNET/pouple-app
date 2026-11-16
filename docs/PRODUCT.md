@@ -94,6 +94,25 @@ The AI that investigates reads the Slack, Asana or GitLab text. The AI that writ
 This keeps what a person can write in a message (instructions hidden in a Slack message, an Asana comment, a merge request
 description) from reaching the AI that has write access.
 
+### What exists today
+
+The first increment of writing is in: **a plan for code**. The investigating AI answers `proposes_plan` with a goal, a brief
+(what the writing AI must know, restated in its own words) and actions of the kind `code.edit` in one project of your
+projects folder. You read the plan, goal, actions and brief, and approve or decline it. Approving grants that project for
+this conversation; later plans in a granted project run without asking. A separate AI then writes the code in a **git
+worktree on a new branch** (`pouple/<goal>-<id>`, in `.pouple-worktrees` beside your projects, with your `node_modules`
+linked read-only) and Pouple commits it with hooks disabled. Your checkout, your branch and your unsaved files are never
+touched. A project that is not a git repository with a commit gets no plan (its code is never written in place). The writing
+AI can edit the `.git` file of its worktree, so Pouple addresses the worktree through the git folder git created and
+refuses to commit if that file changed. A plan inside an approved project runs without asking only while nothing written
+by other people has entered the conversation (their text may have shaped the brief); otherwise it is shown again. The
+macOS bubble shows the plan and leads to the window, where the whole plan, brief included, is read and approved. "Apply all
+changes" in Settings approves plans as they are made.
+
+Not built yet: pushing the branch, opening the merge request and pushing fixes after a failed pipeline or a review (GitLab
+needs a token with a write scope, and pushing needs git credentials on your computer), writes in Asana and Slite, and a
+plan that covers several services.
+
 ### Code
 
 Pouple decides where to work on the code: in a dedicated git worktree by default, so your branch and your unsaved files are

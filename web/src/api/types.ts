@@ -176,6 +176,31 @@ export interface AssistantProposal {
   projectId: string;
 }
 
+/** A place a write approval covers: a project folder, a GitLab project, an Asana project or a Slite space. */
+export interface PlanScope {
+  service: 'code' | 'gitlab' | 'asana' | 'slite';
+  id: string;
+  name?: string;
+}
+
+/** One write a plan asks for, in the words of the assistant that investigated; the user approves it as written. */
+export interface PlanAction {
+  kind: string;
+  scope: PlanScope;
+  summary: string;
+}
+
+/** What the assistant wants to write, for the user to approve before anything is written. */
+export interface AssistantPlan {
+  /** Names this exact plan: an approval carries it, so it can only approve the plan that was read. */
+  id?: string;
+  goal: string;
+  /** What the AI that writes will know of the request, restated by the assistant that read it. */
+  brief: string;
+  actions: PlanAction[];
+  status: 'proposed' | 'approved' | 'declined';
+}
+
 /** A file that came with a message. The bytes stay on the core. */
 export interface AttachmentRef {
   id: string;
@@ -214,6 +239,8 @@ export interface AssistantRequest {
   id: string;
   /** Set only while the browser is at work for this conversation. */
   browser?: BrowserState;
+  /** The writes the assistant asks to make, waiting for approval or approved. */
+  plan?: AssistantPlan;
   source: RequestSource;
   /** The Slack message, as received. Untrusted content. */
   text: string;
@@ -301,6 +328,7 @@ export interface QuestionAnswer {
 }
 
 export type ProposalDecision = 'approve' | 'decline';
+export type PlanDecision = ProposalDecision;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Settings (/api/settings)

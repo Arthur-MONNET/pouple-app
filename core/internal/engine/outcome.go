@@ -14,10 +14,10 @@ import (
 const OutcomeSchema = `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["outcome", "summary", "reply", "questions", "proposal", "sourcesUsed", "lookups"],
+  "required": ["outcome", "summary", "reply", "questions", "proposal", "plan", "sourcesUsed", "lookups"],
   "properties": {
     "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
-    "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup", "no_change"]},
+    "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup", "no_change", "proposes_plan"]},
     "summary": {"type": "string"},
     "lookups": {
       "type": "array",
@@ -55,6 +55,33 @@ const OutcomeSchema = `{
         }
       }
     },
+    "plan": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["goal", "brief", "actions"],
+      "properties": {
+        "goal": {"type": "string"},
+        "brief": {"type": "string"},
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "scope", "summary"],
+            "properties": {
+              "kind": {"type": "string", "enum": ["code.edit"]},
+              "scope": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["service", "id", "name"],
+                "properties": {"service": {"type": "string", "enum": ["code"]}, "id": {"type": "string"}, "name": {"type": "string"}}
+              },
+              "summary": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
     "proposal": {
       "type": ["object", "null"],
       "additionalProperties": false,
@@ -70,6 +97,8 @@ const (
 	Answered       = "answered"
 	NeedsInput     = "needs_input"
 	ProposesChange = "proposes_change"
+	// ProposesPlan asks the user to approve writes in one or more places (a plan), before anything is written.
+	ProposesPlan = "proposes_plan"
 	// LookupOutcome is not an answer: the AI wants more from a connected service first.
 	LookupOutcome = "lookup"
 	// NoChange is the answer to new messages of a thread that change nothing of what was said or proposed.
@@ -96,6 +125,7 @@ type Outcome struct {
 	Reply       *string           `json:"reply"`
 	Questions   []OutcomeQuestion `json:"questions"`
 	Proposal    *Proposal         `json:"proposal"`
+	Plan        *Plan             `json:"plan"`
 	SourcesUsed []string          `json:"sourcesUsed"`
 	Lookups     []Lookup          `json:"lookups"`
 }
@@ -132,7 +162,7 @@ func ParseOutcome(text string) (Outcome, error) {
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI did not answer with the expected JSON")
 	}
-	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome, NoChange}, raw.Outcome) {
+	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome, NoChange, ProposesPlan}, raw.Outcome) {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI answered with an unexpected shape")
 	}
 	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}}
@@ -153,6 +183,9 @@ func ParseOutcome(text string) (Outcome, error) {
 	}
 	if raw.Proposal != nil {
 		out.Proposal = raw.Proposal
+	}
+	if raw.Plan != nil {
+		out.Plan = raw.Plan
 	}
 	for _, lookup := range raw.Lookups {
 		target := strings.TrimSpace(lookup.Target)
@@ -215,6 +248,16 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 	}
 	if o.Proposal != nil {
 		out.Proposal = &Proposal{Title: redact(o.Proposal.Title), Description: redact(o.Proposal.Description), ProjectID: o.Proposal.ProjectID}
+	}
+	if o.Plan != nil {
+		plan := *o.Plan
+		plan.Goal, plan.Brief = redact(o.Plan.Goal), redact(o.Plan.Brief)
+		plan.Actions = make([]Action, len(o.Plan.Actions))
+		for i, action := range o.Plan.Actions {
+			action.Summary = redact(action.Summary)
+			plan.Actions[i] = action
+		}
+		out.Plan = &plan
 	}
 	return out
 }
