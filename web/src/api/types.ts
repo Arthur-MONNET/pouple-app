@@ -425,6 +425,8 @@ export interface Settings {
   devServers?: boolean;
   /** Whether Pouple learns how the user writes from their Slack messages, to draft replies in that style; on unless turned off. */
   learnStyle?: boolean;
+  /** Follows the develop branch (beta channel) instead of main; off by default. */
+  betaUpdates?: boolean;
   /** Which finished GitLab pipelines become conversations; set on the GitLab connector's card. */
   gitlabPipelines?: PipelineMode;
 }
@@ -474,7 +476,7 @@ export type SettingsPatch = Partial<Settings>;
 
 export type UpdateUnsupportedReason = '' | 'not-installed-from-source' | 'checkout-missing' | 'checkout-invalid';
 
-export type UpdateBlockerCode = 'local-changes' | 'not-on-main' | 'diverged';
+export type UpdateBlockerCode = 'local-changes' | 'other-branch' | 'diverged';
 
 export interface UpdateBlocker {
   code: UpdateBlockerCode;
@@ -483,7 +485,13 @@ export interface UpdateBlocker {
 }
 
 /** GET /api/update and POST /api/update/check (the check may take up to 30 s). Every string is already localized. */
+export type UpdateChannel = 'stable' | 'beta';
+export type UpdateBranch = 'main' | 'develop';
+
 export interface UpdateInfo {
+  /** The channel the core follows, and the git branch it maps to. */
+  channel: UpdateChannel;
+  branch: UpdateBranch;
   supported: boolean;
   reason: UpdateUnsupportedReason;
   /** Why updating is not possible here; only meaningful when `supported` is false. */

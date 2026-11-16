@@ -242,7 +242,7 @@ export const fr: MessageTree = {
     blockersTitle: 'À régler avant, sinon la mise à jour peut échouer',
     blockerHint: {
       'local-changes': 'Mets de côté tes modifications (commit ou stash) dans le dossier du code.',
-      'not-on-main': 'Reviens sur la branche main : git switch main.',
+      'other-branch': 'Remets le dossier source sur main, ou sur develop pour la bêta : git switch main.',
       diverged: 'Ta copie a divergé de la branche principale : rapproche-la avant de mettre à jour.',
     },
     now: 'Mettre à jour maintenant',
@@ -252,6 +252,13 @@ export const fr: MessageTree = {
     copied: 'Copié',
     copyAria: 'Copier la commande {command}',
     badge: 'Mise à jour disponible',
+    badgeBeta: 'Mise à jour bêta',
+    channel: 'Canal : {channel} ({branch})',
+    channelStable: 'stable',
+    channelBeta: 'bêta',
+    beta: 'Version bêta',
+    betaHelp: 'Reçois les nouveautés de la branche develop avant tout le monde. Elles peuvent être moins stables.',
+    betaStay: "Tu restes sur ta version actuelle jusqu'à la prochaine version stable.",
     badgeAria: 'Mise à jour de Pouple disponible : voir les Réglages',
     dialog: {
       title: 'Mettre à jour Pouple',

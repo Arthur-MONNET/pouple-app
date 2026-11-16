@@ -147,7 +147,14 @@ func run() error {
 	mountAssistant := api.MountAssistant(service, attachments)
 	mountAlerts := api.MountAlerts(service)
 	mountSettings := api.MountSettings(settings)
-	updateChecker := updates.New(updates.Options{DataDir: dir})
+	updateChecker := updates.New(updates.Options{DataDir: dir, Channel: func() updates.Channel {
+		// An unreadable configuration follows the stable channel: the beta is never chosen by default.
+		current, err := settings.Load()
+		if err != nil {
+			return updates.ChannelStable
+		}
+		return updates.ParseChannel(current.UpdateChannel)
+	}})
 	mountUpdates := api.MountUpdates(updateChecker)
 	mountProviders := api.MountProviders(settings, registry, service, modelCatalog{registry: registry})
 	language := func() string {

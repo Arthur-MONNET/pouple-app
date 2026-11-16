@@ -132,11 +132,13 @@ Local tools can read and interact with Pouple conversations through the [local A
 ## Updates
 
 Pouple tells you when a newer version is available: the core checks the public repository 30 seconds after it starts
-and every 6 hours (**Pouple → Check for Updates…** looks right away), and the update button shows what changed. Press it,
+and every hour, the window looks again when you come back to it after 15 minutes, and **Pouple → Check for Updates…**
+looks right away. The window's header then shows an update badge, and the update button shows what changed. Press it,
 and Pouple:
 
 1. quits;
-2. opens Terminal, goes to the source folder you installed from, and runs `git pull --ff-only`;
+2. opens Terminal, goes to the source folder you installed from, switches it to the branch of your channel if needed,
+   and runs `git pull --ff-only`;
 3. re-runs `scripts/install-local.sh`, which rebuilds the app, replaces `~/Applications/Pouple.app`, and opens it.
 
 Your connections and settings are kept. The Slack, AI and connector tokens stay in the macOS Keychain, and settings,
@@ -145,8 +147,24 @@ conversations and attachments stay in `~/Library/Application Support/Pouple`. Th
 Pouple finds its source folder.
 
 The button needs Pouple to have been installed with `scripts/install-local.sh` from a clone of this repository, still in
-place, on `main`, with no local changes and no commits that are not on `origin/main`. Otherwise Pouple says what is wrong
+place, on `main` or `develop`, with no local changes and no commits that are on no branch of `origin`. Otherwise Pouple says what is wrong
 instead of updating. Installations made before this feature have no `install.json` yet: update them once by hand.
+
+### Stable and beta
+
+- **Stable** (the default) follows `main`. Every change that reaches `main` is a new version: once CI passed, the
+  Version workflow tags it (a `feat` commit bumps the minor number, anything else the patch number, see
+  `scripts/next-version.sh`) and publishes the release.
+- **Beta** follows `develop`, where the work lands first. Turn it on in **Settings → Updates → Beta version**: every new
+  commit on `develop` is offered, and the installed version reads like `0.2.0+beta.3` (three commits past 0.2.0).
+  Turning it off keeps your build until `main` has caught up with it; nothing is ever downgraded.
+
+To publish the beta as a stable version, bring `develop` into `main` (a fast-forward keeps the version tags on
+`develop` too):
+
+```sh
+git switch main && git merge --ff-only develop && git push origin main && git switch develop
+```
 
 To update by hand, quit Pouple, then:
 

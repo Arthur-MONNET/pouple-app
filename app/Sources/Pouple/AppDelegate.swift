@@ -40,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MainMenu.install(updates: updates, reload: { [weak self] in self?.windowController?.reload() })
         languageSubscription()
-        updates.onUpdateNow = { [weak self] in self?.updateLauncher.launch() }
+        updates.onUpdateNow = { [weak self] branch in self?.updateLauncher.launch(branch: branch) }
+        updates.api = { [weak self] in self?.store.api }
         store.openApp = { [weak self] id in self?.showMainWindow(conversation: id) }
         store.start()
         panelController = PanelController(store: store, corner: Self.argument("--corner").flatMap(Corner.init(rawValue:)))
@@ -114,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController()
         controller.onClose = { NSApp.setActivationPolicy(.accessory) }
         controller.onRetry = { [weak self] in self?.supervisor.retryNow() }
-        controller.onUpdateRequested = { [weak self] in self?.updateLauncher.launch() }
+        controller.onUpdateRequested = { [weak self] branch in self?.updateLauncher.launch(branch: branch) }
         controller.coreChanged(supervisor.state, token: supervisor.connection?.token)
         windowController = controller
         return controller

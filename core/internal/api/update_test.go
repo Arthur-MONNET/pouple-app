@@ -49,7 +49,7 @@ func (g *updateGit) run(_ context.Context, cmd updates.Command) (string, error) 
 		return updateHead + "\n", nil
 	case "rev-list --count " + updateHead + "..origin/main --":
 		return "3\n", nil
-	case "rev-list --count origin/main..HEAD --":
+	case "rev-list --count HEAD --not --remotes=origin --":
 		return "0\n", nil
 	case "log --format=%s -n 15 " + updateHead + "..origin/main --":
 		return "feat: one\nfix: two\nchore: three\n", nil

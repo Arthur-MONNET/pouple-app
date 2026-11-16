@@ -1,21 +1,49 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { formatDay, relativeTime } from '../lib/format';
 import { MANUAL_COMMANDS, shortCommit, splitChanges } from '../lib/update';
+import { useAutoSave } from '../composables/useAutoSave';
+import { useSettings } from '../composables/useSettings';
 import { useUpdate } from '../composables/useUpdate';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 import AppSpinner from './AppSpinner.vue';
 import PouMascot from './PouMascot.vue';
+import SaveStatus from './SaveStatus.vue';
+import ToggleSwitch from './ToggleSwitch.vue';
 import UpdateConfirmDialog from './UpdateConfirmDialog.vue';
 
 const update = useUpdate();
 const { info, view, error, checking, closing, canLaunch } = update;
 
+const { settings, load, save } = useSettings();
+const autosave = useAutoSave();
+const beta = ref(false);
+
+onMounted(async () => {
+  await load();
+  beta.value = settings.value?.betaUpdates === true;
+});
+
+/** Saves the channel, then looks at the new branch at once; a refused save puts the switch back. */
+async function onBeta(on: boolean): Promise<void> {
+  const previous = beta.value;
+  beta.value = on;
+  const saved = await autosave.run(() => save({ betaUpdates: on }));
+  if (!saved) {
+    beta.value = previous;
+    return;
+  }
+  void update.check();
+}
+
 const confirming = ref(false);
 const copied = ref<string | null>(null);
 
 const installed = computed(() => info.value?.installed ?? null);
+const channelLabel = computed(() => (info.value?.channel === 'beta' ? 'update.channelBeta' : 'update.channelStable'));
+/** Leaving the beta never downgrades: say so when the installed build is still a beta one. */
+const showBetaStay = computed(() => !beta.value && Boolean(installed.value?.version.toLowerCase().includes('beta')));
 const changes = computed(() => (info.value ? splitChanges(info.value) : { shown: [], hidden: 0 }));
 const showManual = computed(() => !canLaunch.value && (view.value === 'unsupported' || view.value === 'available'));
 
@@ -47,6 +75,7 @@ async function copy(command: string): Promise<void> {
           {{ $t('update.version', { version: installed.version, commit: shortCommit(installed.commit) }) }}
           <template v-if="formatDay(installed.installedAt)"> · {{ $t('update.installedOn', { date: formatDay(installed.installedAt) }) }}</template>
         </p>
+        <p v-if="info" class="text-xs text-ink-muted" data-testid="update-channel">{{ $t('update.channel', { channel: $t(channelLabel), branch: info.branch }) }}</p>
         <p v-if="info && view !== 'unsupported'" class="text-xs text-ink-dim" data-testid="update-last-check">
           {{ info.checkedAt ? $t('update.lastCheck', { when: relativeTime(info.checkedAt) }) : $t('update.neverChecked') }}
         </p>
@@ -56,6 +85,12 @@ async function copy(command: string): Promise<void> {
         <AppIcon v-else name="refresh" size="sm" />
         {{ checking || view === 'checking' ? $t('update.checking') : $t('update.check') }}
       </AppButton>
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <ToggleSwitch :model-value="beta" :label="$t('update.beta')" :description="$t('update.betaHelp')" :disabled="autosave.saving.value" data-testid="update-beta" @update:model-value="onBeta" />
+      <p v-if="showBetaStay" class="text-xs text-ink-muted" data-testid="update-beta-stay">{{ $t('update.betaStay') }}</p>
+      <SaveStatus :saved="autosave.saved.value" :error="autosave.error.value" />
     </div>
 
     <p v-if="view === 'checking'" role="status" class="text-sm text-ink-muted">{{ $t('update.checkingHelp') }}</p>

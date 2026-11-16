@@ -29,7 +29,8 @@ final class UpdateLauncher {
         )
     }
 
-    func launch() {
+    /// Updates to the newest build of `branch`: main for the stable builds, develop for the beta.
+    func launch(branch: UpdateScript.Branch) {
         guard !launching else { return }
         switch Self.currentPlan() {
         case let .failure(problem):
@@ -37,7 +38,7 @@ final class UpdateLauncher {
         case let .success(record):
             launching = true
             do {
-                let script = try writeScript(for: record)
+                let script = try writeScript(for: record, branch: branch)
                 openInTerminal(script)
             } catch {
                 launching = false
@@ -46,7 +47,7 @@ final class UpdateLauncher {
         }
     }
 
-    private func writeScript(for record: UpdateScript.InstallRecord) throws -> URL {
+    private func writeScript(for record: UpdateScript.InstallRecord, branch: UpdateScript.Branch) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pouple-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let file = folder.appendingPathComponent("update.command")
@@ -55,7 +56,7 @@ final class UpdateLauncher {
             done: L10n.text(.scriptDone), notQuit: L10n.text(.scriptNotQuit), badOrigin: L10n.text(.scriptBadOrigin),
             pullFailed: L10n.text(.scriptPullFailed), installFailed: L10n.text(.scriptInstallFailed), close: L10n.text(.scriptClose)
         )
-        let text = UpdateScript.content(sourceRoot: record.sourceRoot, appPID: ProcessInfo.processInfo.processIdentifier, messages: messages)
+        let text = UpdateScript.content(sourceRoot: record.sourceRoot, branch: branch, appPID: ProcessInfo.processInfo.processIdentifier, messages: messages)
         guard FileManager.default.createFile(atPath: file.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o700]) else {
             throw CocoaError(.fileWriteUnknown)
         }

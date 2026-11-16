@@ -50,6 +50,23 @@ write_install_record() {
   return 1
 }
 
+# Prints the version shown for a build of this checkout. On main it is the release, as in 0.2.0; on develop (the beta)
+# it also says how many commits the build is past that release, as in 0.2.0+beta.3. The app bundle keeps the plain
+# release number, which macOS expects to be made of digits only.
+display_version() {
+  local root="$1" version="$2" tag="${3:-}" branch past=0
+  branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ "$branch" != develop ]]; then
+    printf '%s\n' "$version"
+    return 0
+  fi
+  if [[ -n "$tag" ]]; then
+    past="$(git -C "$root" rev-list --count "$tag..HEAD" 2>/dev/null || echo 0)"
+  fi
+  [[ "$past" =~ ^[0-9]+$ ]] || past=0
+  printf '%s+beta.%s\n' "$version" "$past"
+}
+
 # Sourcing this file (for tests) only defines the functions above.
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
 
@@ -196,7 +213,10 @@ tag="$(git -C "$root" describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*'
   --exclude '*[-+]*' 2>/dev/null || true)"
 if [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   version="${tag#v}"
+else
+  tag=''
 fi
+shown="$(display_version "$root" "$version" "$tag")"
 
 printf '==> Building the web interface\n'
 (
@@ -233,8 +253,8 @@ if [[ -d "$stage/previous.app" ]]; then
   mv -- "$stage/previous.app" "$backup"
   printf 'Previous installation saved at %s\n' "$backup"
 fi
-printf 'Installed Pouple %s at %s\n' "$version" "$app"
-write_install_record "$root" "$version" || true
+printf 'Installed Pouple %s at %s\n' "$shown" "$app"
+write_install_record "$root" "$shown" || true
 printf 'Your connections and settings are kept.\n'
 
 if [[ "$launch" == 1 ]]; then

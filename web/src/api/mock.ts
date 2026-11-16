@@ -17,6 +17,7 @@ import type {
   Profile,
   QuestionAnswer,
   Settings,
+  UpdateChannel,
 } from './types';
 
 export interface MockOptions {
@@ -64,7 +65,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
   const style = { learned: true };
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all' };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all', betaUpdates: false };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
 
@@ -86,6 +87,7 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   }
 
   let updateScenario: UpdateScenario = options.update ?? 'uptodate';
+  const channel = (): UpdateChannel => (settings.betaUpdates ? 'beta' : 'stable');
 
   const wait = (): Promise<void> => sleep(latency);
   /** With no latency (tests) nothing waits; otherwise the pauses of slow operations keep their real feel. */
@@ -248,11 +250,11 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     },
     async getUpdate() {
       await wait();
-      return mockUpdateInfo(updateScenario, lang);
+      return mockUpdateInfo(updateScenario, lang, new Date(), channel());
     },
     async checkUpdate() {
       await sleep(latency + slow(1500));
-      const result = mockCheckResult(updateScenario, lang);
+      const result = mockCheckResult(updateScenario, lang, channel());
       // A check that was running ends on the available state; the next read agrees.
       if (updateScenario === 'checking') updateScenario = 'available';
       return result;

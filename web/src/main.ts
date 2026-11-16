@@ -38,5 +38,5 @@ app.use(router);
 showConversation = (id) => void router.push({ name: 'conversation', params: { id } });
 if (waitingConversation) showConversation(waitingConversation);
 app.mount('#app');
-// Once at startup, then every 30 minutes while the window is open; never awaited, errors ignored.
+// Once at startup, then every 5 minutes while the window is open; never awaited, errors ignored.
 updates.startPolling();

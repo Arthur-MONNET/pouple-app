@@ -17,9 +17,9 @@ public enum L10n {
         case editMenu, undo, redo, cut, copy, paste, selectAll
         case viewMenu, reload, windowMenu, minimize, close
         // Updates
-        case updateCheck, updateChecking, updateAvailable, updateOpenInstructions, updateInstallInstructions
-        case updateUpToDate, updateInstalledVersion, updateUnavailable, updateInvalidInstalledVersion
-        case updateReleaseUnavailable, updateFailed, updateTryAgain, updateBrowserFailed
+        case updateCheck, updateChecking, updateAvailable, updateAvailableBeta, updateOpenInstructions
+        case updateUpToDate, updateInstalledVersion, updateChannelBeta, updateUnavailable, updateCoreNotReady
+        case updateFailed, updateBrowserFailed
         case updateNow, updateNotFromSource, updateCheckoutMissing, updateTerminalFailed
         case scriptQuitting, scriptFetching, scriptBuilding, scriptDone, scriptNotQuit, scriptBadOrigin, scriptPullFailed, scriptInstallFailed, scriptClose
         // Window, placeholder, dialogs
@@ -121,16 +121,15 @@ public enum L10n {
         .appAbout: "À propos de Pouple",
         .updateCheck: "Rechercher des mises à jour…",
         .updateChecking: "Recherche de mises à jour…",
-        .updateAvailable: "Pouple %@ est disponible",
+        .updateAvailable: "Une mise à jour de Pouple est disponible",
+        .updateAvailableBeta: "Une mise à jour bêta de Pouple est disponible",
         .updateOpenInstructions: "Voir les instructions",
-        .updateInstallInstructions: "Pour mettre Pouple à jour, relance la commande d’installation dans Terminal. Elle compile la nouvelle version sur ton Mac et remplace l’application installée.",
         .updateUpToDate: "Pouple est à jour",
         .updateInstalledVersion: "Version installée : %@",
+        .updateChannelBeta: "Canal bêta (branche develop)",
         .updateUnavailable: "Mise à jour indisponible",
-        .updateInvalidInstalledVersion: "Cette copie n’indique pas de version compatible avec la recherche de mises à jour.",
-        .updateReleaseUnavailable: "Aucune version publique de Pouple n’est disponible sur GitHub.",
+        .updateCoreNotReady: "Pouple n’a pas encore fini de démarrer. Réessaie dans un instant.",
         .updateFailed: "La mise à jour n’a pas abouti",
-        .updateTryAgain: "Impossible de vérifier les mises à jour sur GitHub. Vérifie ta connexion et réessaie dans un instant.",
         .updateBrowserFailed: "Les instructions d’installation n’ont pas pu être ouvertes dans ton navigateur.",
         .updateNow: "Mettre à jour maintenant",
         .updateNotFromSource: "Cette copie de Pouple n’a pas été installée depuis les sources : la mise à jour automatique n’est pas possible. Relance la commande d’installation dans Terminal.",
@@ -273,16 +272,15 @@ public enum L10n {
         .appAbout: "About Pouple",
         .updateCheck: "Check for Updates…",
         .updateChecking: "Checking for Updates…",
-        .updateAvailable: "Pouple %@ is available",
+        .updateAvailable: "A Pouple update is available",
+        .updateAvailableBeta: "A Pouple beta update is available",
         .updateOpenInstructions: "View Instructions",
-        .updateInstallInstructions: "To update Pouple, rerun the install command in Terminal. It builds the new version on your Mac and replaces the installed app.",
         .updateUpToDate: "Pouple is up to date",
         .updateInstalledVersion: "Installed version: %@",
+        .updateChannelBeta: "Beta channel (develop branch)",
         .updateUnavailable: "Update unavailable",
-        .updateInvalidInstalledVersion: "This copy does not report a version that can be checked for updates.",
-        .updateReleaseUnavailable: "No public Pouple release is available on GitHub.",
+        .updateCoreNotReady: "Pouple has not finished starting. Try again in a moment.",
         .updateFailed: "The update could not be completed",
-        .updateTryAgain: "Could not check for updates on GitHub. Check your connection and try again shortly.",
         .updateBrowserFailed: "The installation instructions could not be opened in your browser.",
         .updateNow: "Update now",
         .updateNotFromSource: "This copy of Pouple was not installed from the sources, so it cannot update itself. Run the install command again in Terminal.",

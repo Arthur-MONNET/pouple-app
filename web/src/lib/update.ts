@@ -1,4 +1,4 @@
-import type { UpdateInfo } from '../api/types';
+import type { UpdateBranch, UpdateInfo } from '../api/types';
 
 /** What the Updates section shows. One kind at a time, decided here so the template only draws. */
 export type UpdateView = 'unknown' | 'unsupported' | 'checking' | 'available' | 'upToDate';
@@ -44,7 +44,10 @@ export function findUpdateBridge(target: { webkit?: Window['webkit'] } | undefin
  * Asks the shell to run the update. The shell quits the app and gives no answer, so the message goes out at most once:
  * a second click (or a second dialog confirmation) does nothing.
  */
-export function createUpdateLauncher(getBridge: () => UpdateBridge | null = findUpdateBridge): { launch(): boolean; readonly launched: boolean } {
+export function createUpdateLauncher(
+  getBridge: () => UpdateBridge | null = findUpdateBridge,
+  getBranch: () => UpdateBranch | undefined = () => undefined,
+): { launch(): boolean; readonly launched: boolean } {
   let launched = false;
   return {
     launch() {
@@ -52,7 +55,7 @@ export function createUpdateLauncher(getBridge: () => UpdateBridge | null = find
       const bridge = getBridge();
       if (!bridge) return false;
       launched = true;
-      bridge.postMessage({ type: 'update' });
+      bridge.postMessage({ type: 'update', branch: getBranch() ?? 'main' });
       return true;
     },
     get launched() {
@@ -65,7 +68,38 @@ export function createUpdateLauncher(getBridge: () => UpdateBridge | null = find
 // Polling
 // ---------------------------------------------------------------------------------------------------------------
 
-export const UPDATE_POLL_MS = 30 * 60 * 1000;
+export const UPDATE_POLL_MS = 5 * 60 * 1000;
+
+/** A check older than this is redone when the window comes back. */
+export const UPDATE_STALE_MS = 15 * 60 * 1000;
+
+/** True when the last check is missing or older than `staleMs`, and the install can be updated. */
+export function isCheckStale(info: UpdateInfo | null, now: number = Date.now(), staleMs = UPDATE_STALE_MS): boolean {
+  if (!info?.supported) return false;
+  if (!info.checkedAt) return true;
+  const at = Date.parse(info.checkedAt);
+  return Number.isNaN(at) || now - at > staleMs;
+}
+
+/** Calls `onReturn` each time the window becomes visible or focused. Returns the function that removes the listeners. */
+export function listenForReturn(
+  onReturn: () => void,
+  doc?: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>,
+  win?: Pick<Window, 'addEventListener' | 'removeEventListener'>,
+): () => void {
+  doc ??= typeof document === 'undefined' ? undefined : document;
+  win ??= typeof window === 'undefined' ? undefined : window;
+  if (!doc || !win) return () => undefined;
+  const onVisibility = (): void => {
+    if (doc.visibilityState === 'visible') onReturn();
+  };
+  doc.addEventListener('visibilitychange', onVisibility);
+  win.addEventListener('focus', onReturn);
+  return () => {
+    doc.removeEventListener('visibilitychange', onVisibility);
+    win.removeEventListener('focus', onReturn);
+  };
+}
 
 export interface Scheduler {
   setInterval(handler: () => void, ms: number): unknown;

@@ -63,7 +63,16 @@ write_install_record "$tmp/plain" 0.1.0 2>/dev/null && fail "a non-git folder mu
 export POUPLE_HOME="relative/path"
 write_install_record "$checkout" 0.1.0 2>/dev/null && fail "a relative data folder must fail" || ok "relative data folder refused"
 
-# 5. The installer never names the keychain or Application Support, apart from the documented default folder.
+# 5. A build of develop says it is a beta and how far past the last release it is; main shows the release alone.
+git -C "$checkout" tag v0.4.0
+git -C "$checkout" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m second
+git -C "$checkout" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m third
+[[ "$(display_version "$checkout" 0.4.0 v0.4.0)" == 0.4.0 ]] && ok "main shows the release" || fail "main: $(display_version "$checkout" 0.4.0 v0.4.0)"
+git -C "$checkout" switch -q -c develop
+[[ "$(display_version "$checkout" 0.4.0 v0.4.0)" == 0.4.0+beta.2 ]] && ok "develop shows the beta" || fail "develop: $(display_version "$checkout" 0.4.0 v0.4.0)"
+[[ "$(display_version "$checkout" 0.1.0 '')" == 0.1.0+beta.0 ]] && ok "develop without a release tag" || fail "no tag: $(display_version "$checkout" 0.1.0 '')"
+
+# 6. The installer never names the keychain or Application Support, apart from the documented default folder.
 if grep -nE 'security |find-generic|add-generic|delete-generic|Keychain' "$here/install-local.sh" | grep -v '^[0-9]*:#'; then
   fail "the installer mentions the keychain"
 else

@@ -2,7 +2,7 @@ import { computed, inject, ref, type App, type InjectionKey } from 'vue';
 import type { PoupleApi } from '../api/client';
 import { errorMessage } from '../api/client';
 import type { UpdateInfo } from '../api/types';
-import { createUpdateLauncher, findUpdateBridge, isUpdateAvailable, startPolling, updateView, type UpdateBridge } from '../lib/update';
+import { createUpdateLauncher, findUpdateBridge, isCheckStale, isUpdateAvailable, listenForReturn, startPolling, updateView, type UpdateBridge } from '../lib/update';
 
 export interface UpdateStoreOptions {
   /** Looked up on each use, so a bridge injected late is still found. */
@@ -17,7 +17,7 @@ export function createUpdateStore(api: PoupleApi, options: UpdateStoreOptions = 
   /** The message of a failed check, shown calmly in the section. */
   const checkError = ref<string | null>(null);
   const closing = ref(false);
-  const launcher = createUpdateLauncher(getBridge);
+  const launcher = createUpdateLauncher(getBridge, () => info.value?.branch);
 
   const view = computed(() => updateView(info.value, checking.value));
   const available = computed(() => isUpdateAvailable(info.value));
@@ -55,10 +55,25 @@ export function createUpdateStore(api: PoupleApi, options: UpdateStoreOptions = 
     return sent;
   }
 
-  /** One read now, then one every 30 minutes while the window is open. Returns the stop function. */
-  const startPolling_ = (intervalMs?: number): (() => void) => startPolling(refresh, intervalMs);
+  /** Redoes the check when the last one is missing or stale; `check()` itself never stacks two. */
+  function checkIfStale(): void {
+    if (isCheckStale(info.value)) void check();
+  }
 
-  return { info, checking, error, closing, view, available, canLaunch, refresh, check, launch, startPolling: startPolling_ };
+  /**
+   * One read now, then one every 5 minutes (it only reads the core's cached state), plus a fresh check when the window
+   * comes back after a stale one. Returns the stop function.
+   */
+  const startPolling_ = (intervalMs?: number, doc?: Parameters<typeof listenForReturn>[1], win?: Parameters<typeof listenForReturn>[2]): (() => void) => {
+    const stopPolling = startPolling(refresh, intervalMs);
+    const stopListening = listenForReturn(checkIfStale, doc, win);
+    return () => {
+      stopPolling();
+      stopListening();
+    };
+  };
+
+  return { info, checking, error, closing, view, available, canLaunch, refresh, check, launch, checkIfStale, startPolling: startPolling_ };
 }
 
 export type UpdateStore = ReturnType<typeof createUpdateStore>;

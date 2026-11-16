@@ -62,6 +62,9 @@ type Settings struct {
 	// GitLabPipelines is which finished GitLab pipelines of the user become requests: "all" (the default),
 	// "failures" or "off". It belongs to the GitLab connector and is set on its card.
 	GitLabPipelines string `json:"gitlabPipelines"`
+	// UpdateChannel is which builds the in-app update follows: "beta" (the develop branch) or anything else, the stable
+	// one (main). Empty is stable, so a copy follows the beta only when the user asked for it.
+	UpdateChannel string `json:"updateChannel"`
 }
 
 func Defaults() Settings {

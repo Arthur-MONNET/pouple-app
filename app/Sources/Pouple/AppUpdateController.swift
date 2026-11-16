@@ -1,26 +1,33 @@
 import AppKit
 import PoupleCore
 
+/// The "Check for Updates…" menu item. It asks the core, which follows the channel chosen in Settings (the stable builds
+/// on main, or the beta on develop), so the menu and the window's header always tell the same thing.
 @MainActor
 final class AppUpdateController: NSObject, NSMenuItemValidation {
-    private let checker = UpdateChecker()
-    /// Called when the user chooses "Update now" in the alert (the app knows how to update itself).
-    var onUpdateNow: () -> Void = {}
+    private static let instructionsURL = URL(string: "https://arthur-monnet.github.io/pouple-app/#install")!
+
+    /// The core's API, once it runs.
+    var api: () -> PoupleAPI? = { nil }
+    /// Called when the user chooses "Update now", with the branch of the channel they follow.
+    var onUpdateNow: (UpdateScript.Branch) -> Void = { _ in }
     private var checkTask: Task<Void, Never>?
 
     @objc func checkForUpdates() {
         guard checkTask == nil else { return }
+        guard let api = api() else {
+            show(.updateUnavailable, detail: L10n.text(.updateCoreNotReady))
+            return
+        }
         checkTask = Task { [weak self] in
-            guard let self else { return }
-            defer { checkTask = nil }
-            let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+            defer { self?.checkTask = nil }
             do {
-                let result = try await checker.check(installedVersion: installedVersion)
+                let status = try await api.checkUpdate()
                 try Task.checkCancellation()
-                present(result, installedVersion: installedVersion)
+                self?.present(status)
             } catch {
                 guard !Task.isCancelled else { return }
-                present(error)
+                self?.show(.updateFailed, detail: error.localizedDescription)
             }
         }
     }
@@ -35,35 +42,45 @@ final class AppUpdateController: NSObject, NSMenuItemValidation {
         return !checking
     }
 
-    private func present(_ result: UpdateChecker.Result, installedVersion: String) {
-        switch result {
-        case .upToDate:
-            show(.updateUpToDate, detail: L10n.text(.updateInstalledVersion, installedVersion))
-        case let .available(version, instructionsURL):
-            let alert = NSAlert()
-            alert.messageText = L10n.text(.updateAvailable, version)
-            alert.informativeText = L10n.text(.updateInstallInstructions)
-            let canUpdateHere = UpdateLauncher.isAvailable()
-            if canUpdateHere { alert.addButton(withTitle: L10n.text(.updateNow)) }
-            alert.addButton(withTitle: L10n.text(.updateOpenInstructions))
-            alert.addButton(withTitle: L10n.text(.dialogCancel))
-            let choice = alert.runModal()
-            if canUpdateHere, choice == .alertFirstButtonReturn {
-                onUpdateNow()
-            } else if choice == (canUpdateHere ? .alertSecondButtonReturn : .alertFirstButtonReturn), !NSWorkspace.shared.open(instructionsURL) {
-                show(.updateFailed, detail: L10n.text(.updateBrowserFailed))
-            }
+    private func present(_ status: UpdateStatus) {
+        guard status.supported else {
+            presentUnsupported(status.message)
+            return
+        }
+        if let error = status.error, !status.available {
+            show(.updateFailed, detail: error)
+            return
+        }
+        guard status.available else {
+            let version = status.installed?.version ?? "?"
+            let channel = status.isBeta ? "\n" + L10n.text(.updateChannelBeta) : ""
+            show(.updateUpToDate, detail: L10n.text(.updateInstalledVersion, version) + channel)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = L10n.text(status.isBeta ? .updateAvailableBeta : .updateAvailable)
+        // What changes, then what stops the update in the source folder, in the core's own words.
+        var lines = status.changes.prefix(6).map { "• " + $0 }
+        if !status.blockers.isEmpty { lines.append("") }
+        lines.append(contentsOf: status.blockers.map(\.message))
+        alert.informativeText = lines.joined(separator: "\n")
+        let canUpdate = status.canUpdateNow && UpdateLauncher.isAvailable()
+        if canUpdate { alert.addButton(withTitle: L10n.text(.updateNow)) }
+        alert.addButton(withTitle: L10n.text(canUpdate ? .dialogCancel : .dialogOK))
+        if alert.runModal() == .alertFirstButtonReturn, canUpdate, let branch = status.branch {
+            onUpdateNow(branch)
         }
     }
 
-    private func present(_ error: Error) {
-        switch error as? UpdateChecker.Failure {
-        case .invalidInstalledVersion:
-            show(.updateUnavailable, detail: L10n.text(.updateInvalidInstalledVersion))
-        case .releaseUnavailable:
-            show(.updateUnavailable, detail: L10n.text(.updateReleaseUnavailable))
-        default:
-            show(.updateFailed, detail: L10n.text(.updateTryAgain))
+    /// A copy that was not installed from its sources cannot update itself: the instructions say how to reinstall.
+    private func presentUnsupported(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = L10n.text(.updateUnavailable)
+        alert.informativeText = message
+        alert.addButton(withTitle: L10n.text(.updateOpenInstructions))
+        alert.addButton(withTitle: L10n.text(.dialogOK))
+        if alert.runModal() == .alertFirstButtonReturn, !NSWorkspace.shared.open(Self.instructionsURL) {
+            show(.updateFailed, detail: L10n.text(.updateBrowserFailed))
         }
     }
 

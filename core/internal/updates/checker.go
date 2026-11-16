@@ -1,6 +1,7 @@
 // Package updates tells whether a newer Pouple can be installed from the source checkout the running build came
 // from. The installer leaves a record (install.json) of where that checkout lives; the Checker validates it,
-// fetches origin/main with a hardened git, and reports how far behind the checkout is and what would change. It
+// fetches the branch of the chosen channel (main, or develop for the beta) with a hardened git, and reports how far
+// behind the running build is and what would change. It
 // only reads: the update itself is run by the macOS shell in a Terminal.
 package updates
 
@@ -20,10 +21,11 @@ import (
 )
 
 const (
-	checkTimeout   = 30 * time.Second
-	minFetchGap    = 30 * time.Second
-	initialDelay   = 30 * time.Second
-	checkInterval  = 6 * time.Hour
+	checkTimeout = 30 * time.Second
+	minFetchGap  = 30 * time.Second
+	initialDelay = 30 * time.Second
+	// checkInterval is how often origin is looked at: a fetch of one branch is light, and a new version should not wait.
+	checkInterval  = time.Hour
 	maxChanges     = 15
 	maxSubjectRune = 120
 )
@@ -51,7 +53,9 @@ type Options struct {
 	Git Runner
 	// Now is the clock; nil uses time.Now.
 	Now func() time.Time
-	// InitialDelay and Interval schedule Run; zero means 30 s and 6 h.
+	// Channel is the channel the user follows, read at each check; nil follows the stable one.
+	Channel func() Channel
+	// InitialDelay and Interval schedule Run; zero means 30 s and 1 h.
 	InitialDelay, Interval time.Duration
 	// Jitter returns the extra wait added to Interval; nil adds up to 10 %.
 	Jitter func(interval time.Duration) time.Duration
@@ -65,20 +69,26 @@ type Checker struct {
 	initialDelay, interval time.Duration
 	jitter                 func(time.Duration) time.Duration
 	timeout                time.Duration
+	channel                func() Channel
 
 	mu          sync.Mutex
 	result      Result
 	have        bool
 	lastAttempt time.Time
 	attempted   bool
-	inflight    chan struct{}
+	// attemptChannel is the channel of the last attempt: the rate limit only holds back a check of that same channel.
+	attemptChannel Channel
+	inflight       chan struct{}
 }
 
 // New builds a Checker.
 func New(opts Options) *Checker {
 	c := &Checker{
 		dir: opts.DataDir, git: opts.Git, now: opts.Now,
-		initialDelay: opts.InitialDelay, interval: opts.Interval, jitter: opts.Jitter, timeout: checkTimeout,
+		initialDelay: opts.InitialDelay, interval: opts.Interval, jitter: opts.Jitter, timeout: checkTimeout, channel: opts.Channel,
+	}
+	if c.channel == nil {
+		c.channel = func() Channel { return ChannelStable }
 	}
 	if c.git == nil {
 		c.git = ExecRunner
@@ -119,25 +129,30 @@ func (c *Checker) Run(ctx context.Context) {
 // Current returns the last result without touching the network. Before any check it only validates the install
 // record and the checkout, so the interface can tell at once whether updates are supported.
 func (c *Checker) Current(ctx context.Context) Result {
+	channel := c.channel()
 	c.mu.Lock()
-	if c.have {
+	if c.knows(channel) {
 		defer c.mu.Unlock()
 		return c.snapshot()
 	}
 	c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	inspected, _ := c.inspect(ctx)
+	inspected, _ := c.inspect(ctx, channel)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.have && ctx.Err() == nil && inspected.failure == failureNone {
+	if !c.knows(channel) && ctx.Err() == nil && inspected.failure == failureNone {
 		c.result, c.have = inspected, true
 	}
-	if !c.have {
+	if !c.knows(channel) {
 		return inspected
 	}
 	return c.snapshot()
 }
+
+// knows says whether the kept result answers for channel: after the user switches channel, what was found for the
+// other one is never shown. It must be called with mu held.
+func (c *Checker) knows(channel Channel) bool { return c.have && c.result.Channel == channel }
 
 func (c *Checker) snapshot() Result {
 	r := c.result
@@ -145,7 +160,7 @@ func (c *Checker) snapshot() Result {
 	return r
 }
 
-// Check fetches origin/main and refreshes the result. It does at most one real fetch per 30 seconds: a call that
+// Check fetches the channel's branch and refreshes the result. It does at most one real fetch per 30 seconds: a call that
 // comes sooner returns the cached result, and a call made while a check runs waits for that check.
 func (c *Checker) Check(ctx context.Context) Result {
 	c.mu.Lock()
@@ -159,18 +174,19 @@ func (c *Checker) Check(ctx context.Context) Result {
 		defer c.mu.Unlock()
 		return c.snapshot()
 	}
-	if c.attempted && c.now().Sub(c.lastAttempt) < minFetchGap && c.have {
+	channel := c.channel()
+	if c.attempted && c.attemptChannel == channel && c.now().Sub(c.lastAttempt) < minFetchGap && c.knows(channel) {
 		defer c.mu.Unlock()
 		return c.snapshot()
 	}
-	previousAttempt, previouslyAttempted := c.lastAttempt, c.attempted
+	previousAttempt, previouslyAttempted, previousChannel := c.lastAttempt, c.attempted, c.attemptChannel
 	c.inflight = make(chan struct{})
-	c.lastAttempt, c.attempted = c.now(), true
-	previous, havePrevious := c.result, c.have
+	c.lastAttempt, c.attempted, c.attemptChannel = c.now(), true, channel
+	previous, havePrevious := c.result, c.knows(channel)
 	c.mu.Unlock()
 
 	checkContext, cancel := context.WithTimeout(ctx, c.timeout)
-	result := c.check(checkContext, previous, havePrevious)
+	result := c.check(checkContext, channel, previous, havePrevious)
 	cancelled := ctx.Err() != nil
 	cancel()
 
@@ -178,7 +194,7 @@ func (c *Checker) Check(ctx context.Context) Result {
 	defer c.mu.Unlock()
 	if cancelled {
 		// The caller went away (the app is quitting, the request was dropped): learn nothing from it.
-		c.lastAttempt, c.attempted = previousAttempt, previouslyAttempted
+		c.lastAttempt, c.attempted, c.attemptChannel = previousAttempt, previouslyAttempted, previousChannel
 	} else {
 		c.result, c.have = result, true
 	}
@@ -187,9 +203,12 @@ func (c *Checker) Check(ctx context.Context) Result {
 	return c.snapshot()
 }
 
-// check validates the checkout, fetches and measures. previous is kept, with an error, when the fetch fails.
-func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool) Result {
-	base, root := c.inspect(ctx)
+// check validates the checkout, fetches the channel's branch and measures. previous is kept, with an error, when the
+// fetch fails.
+func (c *Checker) check(ctx context.Context, channel Channel, previous Result, havePrevious bool) Result {
+	branch := channel.Branch()
+	remote := "origin/" + branch
+	base, root := c.inspect(ctx, channel)
 	if !base.Supported {
 		return base
 	}
@@ -207,14 +226,14 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 	if problem != failureNone {
 		return fail(problem)
 	}
-	if _, err := c.run(ctx, root, "fetch", "--quiet", "origin", "main"); err != nil {
+	if _, err := c.run(ctx, root, "fetch", "--quiet", "origin", branch); err != nil {
 		return fail(classify(ctx, err))
 	}
-	branch, err := c.run(ctx, root, "rev-parse", "--abbrev-ref", "HEAD")
+	current, err := c.run(ctx, root, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
-	latest, err := c.commit(ctx, root, "origin/main")
+	latest, err := c.commit(ctx, root, remote)
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
@@ -222,17 +241,19 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
-	behind, err := c.count(ctx, root, baseline+"..origin/main")
+	behind, err := c.count(ctx, root, baseline+".."+remote)
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
-	ahead, err := c.count(ctx, root, "origin/main..HEAD")
+	// Only commits found on no branch of origin are the user's own: a checkout on develop that goes back to main has
+	// commits main lacks, but they are published and switching branch loses nothing.
+	ahead, err := c.count(ctx, root, "HEAD", "--not", "--remotes=origin")
 	if err != nil {
 		return fail(classify(ctx, err))
 	}
 	var changes []string
 	if behind > 0 {
-		log, err := c.run(ctx, root, "log", "--format=%s", "-n", strconv.Itoa(maxChanges), baseline+"..origin/main", "--")
+		log, err := c.run(ctx, root, "log", "--format=%s", "-n", strconv.Itoa(maxChanges), baseline+".."+remote, "--")
 		if err != nil {
 			return fail(classify(ctx, err))
 		}
@@ -250,8 +271,9 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 	if strings.TrimSpace(dirty) != "" {
 		base.Blockers = append(base.Blockers, BlockerLocalChanges)
 	}
-	if strings.TrimSpace(branch) != "main" {
-		base.Blockers = append(base.Blockers, BlockerNotOnMain)
+	// The update switches between main and develop by itself; any other branch is the user's work, never left silently.
+	if current = strings.TrimSpace(current); current != ChannelStable.Branch() && current != ChannelBeta.Branch() {
+		base.Blockers = append(base.Blockers, BlockerOtherBranch)
 	}
 	if ahead > 0 {
 		base.Blockers = append(base.Blockers, BlockerDiverged)
@@ -260,13 +282,13 @@ func (c *Checker) check(ctx context.Context, previous Result, havePrevious bool)
 }
 
 // inspect validates the install record and the checkout it names, without any network access.
-func (c *Checker) inspect(ctx context.Context) (Result, string) {
+func (c *Checker) inspect(ctx context.Context, channel Channel) (Result, string) {
 	record, err := readRecord(c.dir)
 	if errors.Is(err, errNoRecord) {
-		return Result{Reason: ReasonNotFromSource}, ""
+		return Result{Channel: channel, Reason: ReasonNotFromSource}, ""
 	}
 	if err != nil {
-		return Result{Reason: ReasonCheckoutBad}, ""
+		return Result{Channel: channel, Reason: ReasonCheckoutBad}, ""
 	}
 	installed := &Installed{
 		Version: record.Version, Commit: short(record.Commit),
@@ -274,10 +296,10 @@ func (c *Checker) inspect(ctx context.Context) (Result, string) {
 	}
 	reason, problem := c.validateCheckout(ctx, record.SourceRoot)
 	if reason != ReasonSupported {
-		return Result{Reason: reason, Installed: installed}, ""
+		return Result{Channel: channel, Reason: reason, Installed: installed}, ""
 	}
 	// problem is set when git could not answer (timeout, git missing): the checkout is not judged invalid.
-	return Result{Supported: true, Installed: installed, buildCommit: record.Commit, Changes: []string{}, Blockers: []BlockerCode{}, failure: problem}, record.SourceRoot
+	return Result{Channel: channel, Supported: true, Installed: installed, buildCommit: record.Commit, Changes: []string{}, Blockers: []BlockerCode{}, failure: problem}, record.SourceRoot
 }
 
 // validateCheckout makes sure root is a real, unlinked folder holding the Pouple sources whose git repository is
@@ -344,7 +366,7 @@ func (c *Checker) commit(ctx context.Context, root, ref string) (string, error) 
 }
 
 // baseline is what "behind" is measured from: the commit the running build was made from, so an update is offered
-// whenever that build is older than origin/main, even when the checkout has already moved on. It falls back to the
+// whenever that build is older than the channel's branch, even when the checkout has already moved on. It falls back to the
 // checkout's HEAD when the checkout no longer has that commit (rewritten history, a fresh clone). A git that could
 // not answer is an error, not a reason to fall back.
 func (c *Checker) baseline(ctx context.Context, root, buildCommit string) (string, error) {
@@ -359,8 +381,8 @@ func (c *Checker) baseline(ctx context.Context, root, buildCommit string) (strin
 	return "", err
 }
 
-func (c *Checker) count(ctx context.Context, root, rangeSpec string) (int, error) {
-	out, err := c.run(ctx, root, "rev-list", "--count", rangeSpec, "--")
+func (c *Checker) count(ctx context.Context, root string, revisions ...string) (int, error) {
+	out, err := c.run(ctx, root, append(append([]string{"rev-list", "--count"}, revisions...), "--")...)
 	if err != nil {
 		return 0, err
 	}

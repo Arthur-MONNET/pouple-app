@@ -270,7 +270,7 @@ func TestChangesAreCappedAtFifteen(t *testing.T) {
 func TestBlockersAreReportedAndDoNotHideTheUpdate(t *testing.T) {
 	fx := newFixture(t)
 	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "2\n", nil)
-	fx.git.set("rev-list --count origin/main..HEAD --", "1\n", nil)
+	fx.git.set("rev-list --count HEAD --not --remotes=origin --", "1\n", nil)
 	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "one\ntwo\n", nil)
 	fx.git.set("rev-parse --abbrev-ref HEAD", "feature\n", nil)
 	fx.git.set("status --porcelain --untracked-files=no", " M core/go.mod\n", nil)
@@ -285,16 +285,16 @@ func TestBlockersAreReportedAndDoNotHideTheUpdate(t *testing.T) {
 			t.Errorf("blocker %s has no message", b.Code)
 		}
 	}
-	if !reflect.DeepEqual(codes, []BlockerCode{BlockerLocalChanges, BlockerNotOnMain, BlockerDiverged}) {
+	if !reflect.DeepEqual(codes, []BlockerCode{BlockerLocalChanges, BlockerOtherBranch, BlockerDiverged}) {
 		t.Errorf("blockers: %v", codes)
 	}
 }
 
-func TestDetachedHeadIsNotOnMain(t *testing.T) {
+func TestADetachedHeadIsOnABranchOfItsOwn(t *testing.T) {
 	fx := newFixture(t)
 	fx.git.set("rev-parse --abbrev-ref HEAD", "HEAD\n", nil)
 	s := status(fx.checker().Check(context.Background()))
-	if len(s.Blockers) != 1 || s.Blockers[0].Code != BlockerNotOnMain {
+	if len(s.Blockers) != 1 || s.Blockers[0].Code != BlockerOtherBranch {
 		t.Errorf("%+v", s.Blockers)
 	}
 }
@@ -446,7 +446,7 @@ func TestEveryCommandIsHardenedAndNeverUsesAShell(t *testing.T) {
 		"rev-parse --verify --quiet origin/main^{commit}",
 		"rev-parse --verify --quiet " + headSHA + "^{commit}",
 		"rev-list --count " + headSHA + "..origin/main --",
-		"rev-list --count origin/main..HEAD --",
+		"rev-list --count HEAD --not --remotes=origin --",
 		"log --format=%s -n 15 " + headSHA + "..origin/main --",
 		"status --porcelain --untracked-files=no",
 	}
@@ -606,7 +606,7 @@ func TestRunChecksAfterTheDelayAndOnEveryInterval(t *testing.T) {
 
 func TestDefaultSchedule(t *testing.T) {
 	c := New(Options{DataDir: t.TempDir()})
-	if c.initialDelay != 30*time.Second || c.interval != 6*time.Hour || c.timeout != 30*time.Second {
+	if c.initialDelay != 30*time.Second || c.interval != time.Hour || c.timeout != 30*time.Second {
 		t.Errorf("%v %v %v", c.initialDelay, c.interval, c.timeout)
 	}
 	for range 200 {
@@ -621,14 +621,14 @@ func TestStatusJSONShape(t *testing.T) {
 	fx.git.set("rev-list --count "+headSHA+"..origin/main --", "3\n", nil)
 	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/main --", "a\nb\nc\n", nil)
 	supported, _ := json.Marshal(status(fx.checker().Check(context.Background())))
-	want := `{"supported":true,"reason":"","message":"","installed":{"version":"0.1.0","commit":"1111111","installedAt":"2026-11-01T09:30:00Z"},"latest":{"commit":"def5678"},"available":true,"behind":3,"changes":["a","b","c"],"blockers":[],"checkedAt":"2026-11-06T12:00:00Z","checking":false,"error":null}`
+	want := `{"channel":"stable","branch":"main","supported":true,"reason":"","message":"","installed":{"version":"0.1.0","commit":"1111111","installedAt":"2026-11-01T09:30:00Z"},"latest":{"commit":"def5678"},"available":true,"behind":3,"changes":["a","b","c"],"blockers":[],"checkedAt":"2026-11-06T12:00:00Z","checking":false,"error":null}`
 	if string(supported) != want {
 		t.Errorf("supported:\n got %s\nwant %s", supported, want)
 	}
 	other := newFixture(t)
 	os.Remove(filepath.Join(other.dir, recordFile))
 	unsupported, _ := json.Marshal(other.checker().Check(context.Background()).Status(i18n.EN))
-	wantUnsupported := `{"supported":false,"reason":"not-installed-from-source","message":"Updates from the app are available only when Pouple was installed from its source with scripts/install-local.sh.","installed":null,"latest":null,"available":false,"behind":0,"changes":[],"blockers":[],"checkedAt":null,"checking":false,"error":null}`
+	wantUnsupported := `{"channel":"stable","branch":"main","supported":false,"reason":"not-installed-from-source","message":"Updates from the app are available only when Pouple was installed from its source with scripts/install-local.sh.","installed":null,"latest":null,"available":false,"behind":0,"changes":[],"blockers":[],"checkedAt":null,"checking":false,"error":null}`
 	if string(unsupported) != wantUnsupported {
 		t.Errorf("unsupported:\n got %s\nwant %s", unsupported, wantUnsupported)
 	}
@@ -639,7 +639,7 @@ func TestEveryUserVisibleTextHasAFrenchTranslation(t *testing.T) {
 	for _, reason := range []Reason{ReasonNotFromSource, ReasonCheckoutMissing, ReasonCheckoutBad} {
 		texts = append(texts, unsupportedText(reason))
 	}
-	for _, code := range []BlockerCode{BlockerLocalChanges, BlockerNotOnMain, BlockerDiverged} {
+	for _, code := range []BlockerCode{BlockerLocalChanges, BlockerOtherBranch, BlockerDiverged} {
 		texts = append(texts, blockerText(code))
 	}
 	for _, f := range []failure{failureOffline, failureAuth, failureTimeout, failureGit} {
@@ -669,6 +669,70 @@ func TestCleanLine(t *testing.T) {
 	} {
 		if got := cleanLine(in); got != want {
 			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
+// betaFixture is newFixture for a copy that follows the beta: develop is what is fetched and measured.
+func betaFixture(t *testing.T) *fixture {
+	fx := newFixture(t)
+	fx.git.set("fetch --quiet origin develop", "", nil)
+	fx.git.set("rev-parse --abbrev-ref HEAD", "develop\n", nil)
+	fx.git.set("rev-parse --verify --quiet origin/develop^{commit}", latestSHA+"\n", nil)
+	fx.git.set("rev-list --count "+headSHA+"..origin/develop --", "2\n", nil)
+	fx.git.set("log --format=%s -n 15 "+headSHA+"..origin/develop --", "feat: beta thing\nfix: beta fix\n", nil)
+	return fx
+}
+
+func TestTheBetaFollowsDevelop(t *testing.T) {
+	fx := betaFixture(t)
+	c := New(Options{DataDir: fx.dir, Git: fx.git.run, Now: fx.clock, Channel: func() Channel { return ChannelBeta }})
+	s := status(c.Check(context.Background()))
+	if s.Channel != ChannelBeta || s.Branch != "develop" || !s.Available || s.Behind != 2 || len(s.Changes) != 2 || len(s.Blockers) != 0 {
+		t.Fatalf("%+v", s)
+	}
+	if fx.git.count("fetch --quiet origin main") != 0 {
+		t.Error("the beta only fetches develop")
+	}
+}
+
+func TestSwitchingChannelNeverShowsWhatWasFoundForTheOther(t *testing.T) {
+	fx := betaFixture(t)
+	channel := ChannelBeta
+	var mu sync.Mutex
+	c := New(Options{DataDir: fx.dir, Git: fx.git.run, Now: fx.clock, Channel: func() Channel { mu.Lock(); defer mu.Unlock(); return channel }})
+	if s := status(c.Check(context.Background())); !s.Available {
+		t.Fatalf("beta: %+v", s)
+	}
+	mu.Lock()
+	channel = ChannelStable
+	mu.Unlock()
+	// Before any check of the stable channel, the beta's update is not offered.
+	if s := status(c.Current(context.Background())); s.Channel != ChannelStable || s.Available || s.Latest != nil {
+		t.Fatalf("the beta's result leaked into the stable channel: %+v", s)
+	}
+	// And the rate limit does not hand back the other channel's result either: the stable branch is fetched at once.
+	s := status(c.Check(context.Background()))
+	if s.Channel != ChannelStable || s.Available || fx.git.count("fetch --quiet origin main") != 1 {
+		t.Fatalf("%+v, %d fetches of main", s, fx.git.count("fetch --quiet origin main"))
+	}
+}
+
+func TestBothPublishedBranchesCanBeUpdatedFromButNotABranchOfTheUsersOwn(t *testing.T) {
+	for branch, blocked := range map[string]bool{"main": false, "develop": false, "feat/mine": true} {
+		fx := newFixture(t)
+		fx.git.set("rev-parse --abbrev-ref HEAD", branch+"\n", nil)
+		s := status(fx.checker().Check(context.Background()))
+		if got := len(s.Blockers) == 1 && s.Blockers[0].Code == BlockerOtherBranch; got != blocked {
+			t.Errorf("%s: blockers %+v", branch, s.Blockers)
+		}
+	}
+}
+
+func TestParseChannel(t *testing.T) {
+	for value, want := range map[string]Channel{"beta": ChannelBeta, "stable": ChannelStable, "": ChannelStable, "nightly": ChannelStable} {
+		if got := ParseChannel(value); got != want {
+			t.Errorf("%q: %s", value, got)
 		}
 	}
 }

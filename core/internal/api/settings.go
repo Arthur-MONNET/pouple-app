@@ -39,6 +39,8 @@ type Settings struct {
 	DevServers bool `json:"devServers"`
 	// GitLabPipelines is which finished pipelines become requests: "all", "failures" or "off".
 	GitLabPipelines string `json:"gitlabPipelines"`
+	// BetaUpdates is whether the in-app update follows the beta (develop) instead of the stable builds (main).
+	BetaUpdates bool `json:"betaUpdates"`
 }
 
 func viewOf(s config.Settings) Settings {
@@ -50,6 +52,7 @@ func viewOf(s config.Settings) Settings {
 		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
 		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels, ScreenshotHosts: nonNil(s.ScreenshotHosts),
 		Provider: string(s.ActiveProvider()), Models: models, WebAccess: !s.WebDisabled, DevServers: !s.DevServersDisabled, LearnStyle: !s.StyleDisabled, GitLabPipelines: s.GitLabPipelines,
+		BetaUpdates: s.UpdateChannel == "beta",
 	}
 }
 
@@ -87,6 +90,7 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				LearnStyle *bool             `json:"learnStyle"`
 				// GitLabPipelines is "all", "failures" or "off".
 				GitLabPipelines *string `json:"gitlabPipelines"`
+				BetaUpdates     *bool   `json:"betaUpdates"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&patch); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(lang, "The request is not valid JSON")})
@@ -137,6 +141,12 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 				if patch.GitLabPipelines != nil {
 					s.GitLabPipelines = *patch.GitLabPipelines
+				}
+				if patch.BetaUpdates != nil {
+					s.UpdateChannel = "stable"
+					if *patch.BetaUpdates {
+						s.UpdateChannel = "beta"
+					}
 				}
 				if patch.PollSeconds != nil {
 					s.PollSeconds = *patch.PollSeconds

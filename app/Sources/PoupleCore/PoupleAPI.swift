@@ -82,6 +82,12 @@ public struct PoupleAPI: Sendable {
         _ = try await send("PUT", "/api/settings", body: ["uiLanguage": language.rawValue])
     }
 
+    /// Asks the core to look for an update now (it fetches the branch of the chosen channel, which can take up to 30 s).
+    public func checkUpdate() async throws -> UpdateStatus {
+        let data = try await send("POST", "/api/update/check", timeout: 45)
+        return try JSONDecoder().decode(UpdateStatus.self, from: data)
+    }
+
     public func snapshot() async throws -> AssistantSnapshot {
         let data = try await send("GET", "/api/assistant")
         return try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: data)
@@ -180,10 +186,10 @@ public struct PoupleAPI: Sendable {
         return result
     }
 
-    private func send(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
+    private func send(_ method: String, _ path: String, body: [String: Any]? = nil, timeout: TimeInterval = 15) async throws -> Data {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = method
-        request.timeoutInterval = 15
+        request.timeoutInterval = timeout
         request.setValue("Bearer \(connection.token)", forHTTPHeaderField: "Authorization")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

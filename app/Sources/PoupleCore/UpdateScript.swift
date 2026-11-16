@@ -3,6 +3,19 @@ import Foundation
 /// What the in-app "Update" button runs in Terminal: quit Pouple, pull the code, rebuild and reopen. The app only writes
 /// this file and opens it; the file does the work in a window the user can watch.
 public enum UpdateScript {
+    /// The branches an update may follow: main for the stable builds, develop for the beta. Nothing else is ever put in
+    /// the script, whatever a message asks for.
+    public enum Branch: String, Sendable, CaseIterable {
+        case main, develop
+
+        /// The branch a page message asks for: none named is main, an unknown one is refused (nil).
+        public init?(messageValue: Any?) {
+            guard let value = messageValue else { self = .main; return }
+            guard let name = value as? String, let branch = Branch(rawValue: name) else { return nil }
+            self = branch
+        }
+    }
+
     /// The record `scripts/install-local.sh` leaves in Pouple's data folder.
     public struct InstallRecord: Decodable, Equatable, Sendable {
         public let sourceRoot: String
@@ -55,15 +68,16 @@ public enum UpdateScript {
         "git@github.com:Arthur-MONNET/pouple-app", "git@github.com:Arthur-MONNET/pouple-app.git",
     ]
 
-    /// The text of the `.command` file. Only two values are interpolated, both quoted or numeric: the checkout path
-    /// and the process id of the app to wait for.
-    public static func content(sourceRoot: String, appPID: Int32, messages m: Messages) -> String {
+    /// The text of the `.command` file. Only three values are interpolated, all quoted or numeric: the checkout path, the
+    /// branch (one of `Branch`) and the process id of the app to wait for.
+    public static func content(sourceRoot: String, branch: Branch, appPID: Int32, messages m: Messages) -> String {
         let origins = allowedOrigins.map(shellQuote).joined(separator: "|")
         return """
         #!/bin/bash
         # Pouple update, written by the app for this one run. Read it: it is short.
         set -u
         ROOT=\(shellQuote(sourceRoot))
+        BRANCH=\(shellQuote(branch.rawValue))
         APP_PID=\(appPID)
         SELF="$(cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")"
 
@@ -90,7 +104,12 @@ public enum UpdateScript {
         esac
 
         say \(shellQuote(m.fetching))
-        GIT_TERMINAL_PROMPT=0 git pull --ff-only origin main || fail \(shellQuote(m.pullFailed))
+        GIT_TERMINAL_PROMPT=0 git fetch origin "$BRANCH" || fail \(shellQuote(m.pullFailed))
+        # Going to the beta, or back to the stable builds, switches the checkout to that branch first.
+        if [ "$(git rev-parse --abbrev-ref HEAD)" != "$BRANCH" ]; then
+          git switch "$BRANCH" 2>/dev/null || git switch --create "$BRANCH" --track "origin/$BRANCH" || fail \(shellQuote(m.pullFailed))
+        fi
+        GIT_TERMINAL_PROMPT=0 git pull --ff-only origin "$BRANCH" || fail \(shellQuote(m.pullFailed))
 
         say \(shellQuote(m.building))
         bash scripts/install-local.sh || fail \(shellQuote(m.installFailed))

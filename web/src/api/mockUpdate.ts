@@ -1,6 +1,6 @@
 import { ApiError } from './client';
 import type { Lang } from '../i18n';
-import type { UpdateInfo } from './types';
+import type { UpdateChannel, UpdateInfo } from './types';
 
 export type UpdateScenario = 'uptodate' | 'available' | 'unsupported' | 'error' | 'checking';
 
@@ -38,9 +38,11 @@ const TEXT: Record<Lang, { unsupported: string; blocker: string; error: string; 
 const INSTALLED = { version: '0.1.0', commit: 'abc1234', installedAt: '2026-10-28T09:12:00Z' };
 
 /** The update answer of each scenario; `checkedAt` is the moment the mock "looked". */
-export function mockUpdateInfo(scenario: UpdateScenario, lang: Lang, now: Date = new Date()): UpdateInfo {
+export function mockUpdateInfo(scenario: UpdateScenario, lang: Lang, now: Date = new Date(), channel: UpdateChannel = 'stable'): UpdateInfo {
   const text = TEXT[lang];
   const base: UpdateInfo = {
+    channel,
+    branch: channel === 'beta' ? 'develop' : 'main',
     supported: true,
     reason: '',
     message: '',
@@ -69,9 +71,9 @@ export function mockUpdateInfo(scenario: UpdateScenario, lang: Lang, now: Date =
 }
 
 /** Where a forced check ends up: "checking" resolves to the available state, "error" refuses. */
-export function mockCheckResult(scenario: UpdateScenario, lang: Lang): UpdateInfo {
+export function mockCheckResult(scenario: UpdateScenario, lang: Lang, channel: UpdateChannel = 'stable'): UpdateInfo {
   if (scenario === 'error') throw new ApiError(502, TEXT[lang].error);
-  return mockUpdateInfo(scenario === 'checking' ? 'available' : scenario, lang);
+  return mockUpdateInfo(scenario === 'checking' ? 'available' : scenario, lang, new Date(), channel);
 }
 
 /** Stands in for the macOS shell: it records the message and, like the shell, gives no answer. */

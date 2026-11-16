@@ -22,7 +22,7 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     var onClose: () -> Void = {}
     var onRetry: () -> Void = {}
     /// The page asked for an update (its own button, after its own confirmation).
-    var onUpdateRequested: () -> Void = {}
+    var onUpdateRequested: (UpdateScript.Branch) -> Void = { _ in }
     private var corePort: Int?
 
     override init() {
@@ -296,16 +296,18 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
 // MARK: - Page messages
 
 extension MainWindowController {
-    /// Only the core's own page, in the main frame, may ask for an update, and only with the known message.
-    nonisolated static func accepts(host: String, scheme: String, port: Int, isMainFrame: Bool, corePort: Int?, body: Any) -> Bool {
-        guard isMainFrame, scheme == "http", host == "127.0.0.1", let corePort, port == corePort else { return false }
-        return (body as? [String: Any])?["type"] as? String == "update"
+    /// Only the core's own page, in the main frame, may ask for an update, and only with the known message: its branch is
+    /// main or develop, or none (main). Anything else is ignored.
+    nonisolated static func accepts(host: String, scheme: String, port: Int, isMainFrame: Bool, corePort: Int?, body: Any) -> UpdateScript.Branch? {
+        guard isMainFrame, scheme == "http", host == "127.0.0.1", let corePort, port == corePort else { return nil }
+        guard let message = body as? [String: Any], message["type"] as? String == "update" else { return nil }
+        return UpdateScript.Branch(messageValue: message["branch"])
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         let origin = message.frameInfo.securityOrigin
-        guard Self.accepts(host: origin.host, scheme: origin.protocol, port: origin.port, isMainFrame: message.frameInfo.isMainFrame, corePort: corePort, body: message.body) else { return }
-        onUpdateRequested()
+        guard let branch = Self.accepts(host: origin.host, scheme: origin.protocol, port: origin.port, isMainFrame: message.frameInfo.isMainFrame, corePort: corePort, body: message.body) else { return }
+        onUpdateRequested(branch)
     }
 }
 

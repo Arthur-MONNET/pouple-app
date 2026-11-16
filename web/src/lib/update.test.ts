@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockCheckResult, mockUpdateInfo } from '../api/mockUpdate';
 import { createUpdateStore } from '../composables/useUpdate';
 import { createMockApi } from '../api/mock';
-import { createUpdateLauncher, findUpdateBridge, isUpdateAvailable, shortCommit, splitChanges, startPolling, updateView, UPDATE_POLL_MS } from './update';
+import { createUpdateLauncher, findUpdateBridge, isCheckStale, isUpdateAvailable, listenForReturn, shortCommit, splitChanges, startPolling, updateView, UPDATE_POLL_MS, UPDATE_STALE_MS } from './update';
 
 const info = (scenario: Parameters<typeof mockUpdateInfo>[0]) => mockUpdateInfo(scenario, 'en');
 
@@ -50,8 +50,17 @@ describe('native bridge', () => {
     const launcher = createUpdateLauncher(() => ({ postMessage }));
     expect([launcher.launch(), launcher.launch(), launcher.launch()]).toEqual([true, false, false]);
     expect(postMessage).toHaveBeenCalledTimes(1);
-    expect(postMessage).toHaveBeenCalledWith({ type: 'update' });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'update', branch: 'main' });
     expect(launcher.launched).toBe(true);
+  });
+
+  it('carries the branch of the followed channel, main when unknown', () => {
+    const beta = vi.fn();
+    createUpdateLauncher(() => ({ postMessage: beta }), () => 'develop').launch();
+    expect(beta).toHaveBeenCalledWith({ type: 'update', branch: 'develop' });
+    const store = createUpdateStore(createMockApi({ latency: 0 }), { getBridge: () => ({ postMessage: beta }) });
+    store.launch();
+    expect(beta).toHaveBeenLastCalledWith({ type: 'update', branch: 'main' });
   });
 
   it('does nothing, and can still try later, without a bridge', () => {
@@ -69,7 +78,11 @@ describe('native bridge', () => {
 describe('polling', () => {
   afterEach(() => vi.useRealTimers());
 
-  it('reads once at startup then every 30 minutes, and stops', () => {
+  it('polls every 5 minutes by default', () => {
+    expect(UPDATE_POLL_MS).toBe(5 * 60 * 1000);
+  });
+
+  it('reads once at startup then every interval, and stops', () => {
     vi.useFakeTimers();
     const task = vi.fn().mockResolvedValue(undefined);
     const stop = startPolling(task);
@@ -160,5 +173,66 @@ describe('mock update states', () => {
     const api = createMockApi({ latency: 0, update: 'available' });
     expect((await api.getUpdate()).available).toBe(true);
     expect((await api.checkUpdate()).available).toBe(true);
+  });
+});
+
+describe('stale check on return', () => {
+  const now = Date.parse('2026-11-16T12:00:00Z');
+  const checked = (agoMs: number) => ({ ...info('uptodate'), checkedAt: new Date(now - agoMs).toISOString() });
+
+  it('is stale when the check is missing or older than 15 minutes', () => {
+    expect(isCheckStale({ ...info('uptodate'), checkedAt: null }, now)).toBe(true);
+    expect(isCheckStale(checked(UPDATE_STALE_MS + 1000), now)).toBe(true);
+    expect(isCheckStale(checked(60_000), now)).toBe(false);
+  });
+
+  it('never asks for a check when updates are unsupported or nothing is known yet', () => {
+    expect(isCheckStale({ ...info('unsupported'), checkedAt: null }, now)).toBe(false);
+    expect(isCheckStale(null, now)).toBe(false);
+  });
+
+  it('removes its listeners, and only reacts to a visible window', () => {
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'hidden' as DocumentVisibilityState });
+    const win = new EventTarget();
+    const onReturn = vi.fn();
+    const stop = listenForReturn(onReturn, doc as unknown as Document, win as unknown as Window);
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(onReturn).not.toHaveBeenCalled();
+    doc.visibilityState = 'visible';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    win.dispatchEvent(new Event('focus'));
+    expect(onReturn).toHaveBeenCalledTimes(2);
+    stop();
+    win.dispatchEvent(new Event('focus'));
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(onReturn).toHaveBeenCalledTimes(2);
+  });
+
+  it('the store checks on focus when stale, once at a time, and stops listening', async () => {
+    const api = createMockApi({ latency: 0 });
+    const checkUpdate = vi.fn(() => api.checkUpdate());
+    const store = createUpdateStore({ ...api, checkUpdate }, { getBridge: () => null });
+    store.info.value = { ...info('uptodate'), checkedAt: null };
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' as DocumentVisibilityState });
+    const win = new EventTarget();
+    const stop = store.startPolling(60_000, doc as unknown as Document, win as unknown as Window);
+    win.dispatchEvent(new Event('focus'));
+    win.dispatchEvent(new Event('focus'));
+    expect(checkUpdate).toHaveBeenCalledTimes(1);
+    stop();
+    await vi.waitFor(() => expect(store.checking.value).toBe(false));
+    store.info.value = { ...info('uptodate'), checkedAt: null };
+    win.dispatchEvent(new Event('focus'));
+    expect(checkUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('beta channel', () => {
+  it('follows develop once the setting is on, in the mock', async () => {
+    const api = createMockApi({ latency: 0 });
+    expect(await api.getUpdate()).toMatchObject({ channel: 'stable', branch: 'main' });
+    expect((await api.updateSettings({ betaUpdates: true })).betaUpdates).toBe(true);
+    expect(await api.getUpdate()).toMatchObject({ channel: 'beta', branch: 'develop' });
+    expect(await api.checkUpdate()).toMatchObject({ channel: 'beta', branch: 'develop' });
   });
 });

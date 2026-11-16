@@ -320,11 +320,18 @@ An installation from source leaves `install.json` (`sourceRoot`, `commit`, `vers
 of the API (they are not on the local assistant socket):
 
 - `GET /api/update`: the last known status. It never touches the network.
-- `POST /api/update/check`: fetches `origin/main` and returns the new status; at most one real fetch every 30 seconds,
-  otherwise the cached status. The core also checks 30 seconds after it starts and every 6 hours.
+- `POST /api/update/check`: fetches the branch of the chosen channel (`origin/main`, or `origin/develop` for the beta,
+  from the `updateChannel` setting, `betaUpdates` in `/api/settings`) and returns the new status; at most one real fetch
+  every 30 seconds for the same channel, otherwise the cached status. A result is never shown for another channel than
+  the one it was measured for. The core also checks 30 seconds after it starts and every hour; the window polls the
+  cached status every 5 minutes and asks for a check when it comes back after 15 minutes. The menu's **Check for
+  Updates…** uses this route too.
+- "Behind" is measured from the installed build's commit to the channel's branch. A checkout with commits that are on no
+  branch of `origin` is blocked (`diverged`), and so is one on another branch than `main` or `develop`
+  (`other-branch`): the update script switches between those two itself (`git switch`), never away from the user's work.
 
 ```json
-{"supported":true,"reason":"","message":"","installed":{"version":"0.1.0","commit":"abc1234","installedAt":"2026-11-01T09:30:00Z"},
+{"channel":"stable","branch":"main","supported":true,"reason":"","message":"","installed":{"version":"0.1.0","commit":"abc1234","installedAt":"2026-11-01T09:30:00Z"},
  "latest":{"commit":"def5678"},"available":true,"behind":3,"changes":["subject"],
  "blockers":[{"code":"local-changes","message":"..."}],"checkedAt":"2026-11-06T12:00:00Z","checking":false,"error":null}
 ```

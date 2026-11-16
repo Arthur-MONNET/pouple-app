@@ -92,3 +92,19 @@ func TestGitLabPipelinesAreAllByDefaultAndChangeOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("another change must not reset it: %s", r.Body)
 	}
 }
+
+func TestTheBetaIsOffByDefaultAndChangesOnlyWhenAsked(t *testing.T) {
+	s := settingsServer(t)
+	if got := call(s, "GET", "/api/settings", "", nil).Body.String(); !strings.Contains(got, `"betaUpdates":false`) {
+		t.Fatalf("the stable builds by default: %s", got)
+	}
+	if r := put(s, `{"betaUpdates":true}`); r.Code != 200 || !strings.Contains(r.Body.String(), `"betaUpdates":true`) {
+		t.Fatalf("%d %s", r.Code, r.Body)
+	}
+	if r := put(s, `{"dailyTurnLimit":20}`); !strings.Contains(r.Body.String(), `"betaUpdates":true`) {
+		t.Fatalf("another change must not leave the beta: %s", r.Body)
+	}
+	if r := put(s, `{"betaUpdates":false}`); !strings.Contains(r.Body.String(), `"betaUpdates":false`) {
+		t.Fatalf("%s", r.Body)
+	}
+}

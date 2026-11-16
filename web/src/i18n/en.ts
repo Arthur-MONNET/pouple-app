@@ -238,7 +238,7 @@ export const en: MessageTree = {
     blockersTitle: 'Sort this out first, or the update may fail',
     blockerHint: {
       'local-changes': 'Set your changes aside (commit or stash) in the code folder.',
-      'not-on-main': 'Go back to the main branch: git switch main.',
+      'other-branch': 'Switch the source folder back to main, or develop for the beta: git switch main.',
       diverged: 'Your copy has diverged from the main branch: bring it back in line before updating.',
     },
     now: 'Update now',
@@ -248,6 +248,13 @@ export const en: MessageTree = {
     copied: 'Copied',
     copyAria: 'Copy the command {command}',
     badge: 'Update available',
+    badgeBeta: 'Beta update',
+    channel: 'Channel: {channel} ({branch})',
+    channelStable: 'stable',
+    channelBeta: 'beta',
+    beta: 'Beta version',
+    betaHelp: 'Get what lands on the develop branch before everyone else. It may be less stable.',
+    betaStay: 'You keep your current version until the next stable release.',
     badgeAria: 'A Pouple update is available: see Settings',
     dialog: {
       title: 'Update Pouple',

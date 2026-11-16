@@ -1,0 +1,78 @@
+name: Version
+
+# Every change that reaches main is a new stable version, once CI passed on it: the next vMAJOR.MINOR.PATCH tag
+# (scripts/next-version.sh: a feat commit bumps the minor number, anything else the patch number) and its release.
+# The installed copies on the stable channel see the new commits on main and offer the update; the beta (develop)
+# gets no tag. A tag pushed by this job does not start the Release workflow (GitHub never chains workflows on its own
+# token), so the release is published here.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One version at a time: two merges in a row are tagged in order, never with the same number.
+concurrency:
+  group: version
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Pick the next version
+        id: next
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if git tag --points-at "$SHA" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "This commit already has a version."
+            echo "tag=" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*[-+]*' "$SHA" 2>/dev/null || true)"
+          if [[ -n "$last" ]]; then
+            range="$last..$SHA"
+          else
+            range="$SHA"
+          fi
+          if [[ "$(git rev-list --count "$range")" == 0 ]]; then
+            echo "Nothing new since $last."
+            echo "tag=" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tag="$(git log --format=%s "$range" | bash scripts/next-version.sh "$last")"
+          if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag already exists on another commit."
+            exit 1
+          fi
+          echo "Next version: $tag (after ${last:-no version})"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+      - name: Tag and publish the release
+        if: steps.next.outputs.tag != ''
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "Pouple ${TAG#v}" "$SHA"
+          git push origin "refs/tags/$TAG"
+          gh release create "$TAG" --verify-tag --generate-notes \
+            --title "Pouple ${TAG#v}" \
+            --notes 'Build and install Pouple on your Mac with the [installation instructions](https://arthur-monnet.github.io/pouple-app/#install).'

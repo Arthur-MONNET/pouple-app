@@ -16,13 +16,38 @@ const (
 	ReasonCheckoutBad     Reason = "checkout-invalid"
 )
 
+// Channel is the line of builds a copy follows: the stable one (main) or the beta (develop).
+type Channel string
+
+const (
+	ChannelStable Channel = "stable"
+	ChannelBeta   Channel = "beta"
+)
+
+// Branch is the branch of the Pouple repository a channel follows.
+func (c Channel) Branch() string {
+	if c == ChannelBeta {
+		return "develop"
+	}
+	return "main"
+}
+
+// ParseChannel reads a stored channel; anything but "beta" is the stable channel.
+func ParseChannel(value string) Channel {
+	if Channel(value) == ChannelBeta {
+		return ChannelBeta
+	}
+	return ChannelStable
+}
+
 // BlockerCode names something in the source checkout that would stop the update from going through.
 type BlockerCode string
 
 const (
 	BlockerLocalChanges BlockerCode = "local-changes"
-	BlockerNotOnMain    BlockerCode = "not-on-main"
-	BlockerDiverged     BlockerCode = "diverged"
+	// BlockerOtherBranch: the checkout is on a branch of its own (or none), which the update would leave.
+	BlockerOtherBranch BlockerCode = "other-branch"
+	BlockerDiverged    BlockerCode = "diverged"
 )
 
 // failure is why the last check could not finish.
@@ -38,12 +63,14 @@ const (
 
 // Result is what the last check found, before it is worded for a language.
 type Result struct {
+	// Channel is the channel the result was measured for: a result of another channel is never shown.
+	Channel   Channel
 	Supported bool
 	Reason    Reason
 	Installed *Installed
-	// Latest is the short commit of origin/main, empty before the first successful check.
+	// Latest is the short commit of the channel's branch on origin, empty before the first successful check.
 	Latest string
-	// Behind is how many commits of origin/main the running build does not have.
+	// Behind is how many commits of the channel's branch the running build does not have.
 	Behind    int
 	Changes   []string
 	Blockers  []BlockerCode
@@ -74,6 +101,9 @@ type Blocker struct {
 
 // Status is the JSON of GET /api/update and POST /api/update/check.
 type Status struct {
+	// Channel and Branch say what is followed: "stable" and main, or "beta" and develop.
+	Channel   Channel    `json:"channel"`
+	Branch    string     `json:"branch"`
 	Supported bool       `json:"supported"`
 	Reason    Reason     `json:"reason"`
 	Message   string     `json:"message"`
@@ -90,7 +120,9 @@ type Status struct {
 
 // Status words the result in a language.
 func (r Result) Status(lang i18n.Lang) Status {
+	channel := ParseChannel(string(r.Channel))
 	status := Status{
+		Channel: channel, Branch: channel.Branch(),
 		Supported: r.Supported, Reason: r.Reason, Installed: r.Installed,
 		Available: r.Supported && r.Behind > 0, Behind: r.Behind,
 		Changes: append([]string{}, r.Changes...), Blockers: []Blocker{}, Checking: r.Checking,
@@ -133,10 +165,10 @@ func blockerText(code BlockerCode) string {
 	switch code {
 	case BlockerLocalChanges:
 		return "The source folder has local changes. Commit or discard them before updating."
-	case BlockerNotOnMain:
-		return "The source folder is not on the main branch. Switch it to main before updating."
+	case BlockerOtherBranch:
+		return "The source folder is on a branch of its own. Switch it back to main, or to develop for the beta, before updating."
 	default:
-		return "The source folder has commits that are not on origin/main, so it cannot be fast-forwarded. Push or move them first."
+		return "The source folder has commits that are on no branch of origin, so it cannot be fast-forwarded. Push or move them first."
 	}
 }
 

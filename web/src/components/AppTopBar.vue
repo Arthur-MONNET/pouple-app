@@ -5,7 +5,7 @@ import LanguageSwitch from './LanguageSwitch.vue';
 
 defineProps<{ attention: number }>();
 
-const { available } = useUpdate();
+const { available, info } = useUpdate();
 </script>
 
 <template>
@@ -52,7 +52,7 @@ const { available } = useUpdate();
       data-testid="update-badge"
     >
       <span class="size-1.5 rounded-full bg-accent" aria-hidden="true" />
-      {{ $t('update.badge') }}
+      {{ info?.channel === 'beta' ? $t('update.badgeBeta') : $t('update.badge') }}
     </RouterLink>
     <LanguageSwitch :class="available ? '' : 'ml-auto'" />
   </header>
