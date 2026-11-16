@@ -3,6 +3,7 @@ package engine
 import (
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Topic is a subject several conversations are about, whatever the channel, the person or the tool they come from. The AI
@@ -21,7 +22,15 @@ const maxTopicTitleRunes = 80
 
 // cleanTitle makes what the AI wrote a title: one line, no quotes around it and no final period, short.
 func cleanTitle(text string) string {
-	line := strings.TrimRight(strings.Join(strings.Fields(text), " "), ".")
+	// Whitespace is made a single space first; what remains of control and format characters (a right-to-left override, a
+	// zero-width space) would make a title read differently from what it says.
+	line := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, strings.Join(strings.Fields(text), " "))
+	line = strings.TrimRight(line, ".")
 	line = strings.Trim(line, " \"'`«»“”")
 	return clipRunes(strings.TrimSpace(line), maxTopicTitleRunes)
 }

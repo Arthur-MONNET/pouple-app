@@ -53,6 +53,11 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 	if err := os.WriteFile(organizeSchemaFile, []byte(engine.OrganizeSchema), 0o600); err != nil {
 		return nil, nil, err
 	}
+	// The turns that sort conversations run here: an empty folder, since they need no file.
+	topicDir := filepath.Join(dir, "topics")
+	if err := os.MkdirAll(topicDir, 0o700); err != nil {
+		return nil, nil, err
+	}
 	scratch := filepath.Join(dir, "workspace")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		return nil, nil, err
@@ -169,7 +174,7 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			}
 			return scratch
 		},
-		SchemaFile: schemaFile, TopicSchemaFile: topicSchemaFile, OrganizeSchemaFile: organizeSchemaFile,
+		SchemaFile: schemaFile, Topics: &engine.TopicConfig{SortSchemaFile: topicSchemaFile, OrganizeSchemaFile: organizeSchemaFile, Dir: topicDir},
 		Redact: func() engine.Redactor {
 			secrets := append(codexSecrets(filepath.Join(codexHome, "auth.json")), claudeSecrets(filepath.Join(claudeHome, ".credentials.json"))...)
 			if values, err := registry.Values("slack"); err == nil {

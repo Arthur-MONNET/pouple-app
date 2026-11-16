@@ -27,19 +27,29 @@ const (
 	organizeRounds = 8
 )
 
-// topicsOn says whether conversations are sorted into topics: it needs the schemas the sorting turns answer with.
-func (s *Service) topicsOn() bool {
-	return s.deps.TopicSchemaFile != "" && s.deps.OrganizeSchemaFile != ""
+// TopicConfig is what the turns that sort conversations into topics need.
+type TopicConfig struct {
+	// SortSchemaFile and OrganizeSchemaFile hold the schemas their answers follow: one new conversation, the whole set.
+	SortSchemaFile, OrganizeSchemaFile string
+	// Dir is the folder these turns run in. They need no file, so it holds none: what a stranger wrote in a message
+	// cannot make them read a project.
+	Dir string
 }
 
-// ask runs one read-only turn of the AI that belongs to no conversation, and returns what it answered.
+// topicsOn says whether conversations are sorted into topics.
+func (s *Service) topicsOn() bool { return s.deps.Topics != nil }
+
+// ask runs one read-only turn of the AI that belongs to no conversation, in an empty folder, and returns what it answered.
 func (s *Service) ask(ctx context.Context, prompt, schemaFile string) (string, error) {
+	if s.deps.Topics == nil {
+		return "", i18n.NewError("invalid input")
+	}
 	selection := s.deps.Selection()
 	provider, ok := s.deps.Providers[selection.Provider]
 	if !ok {
 		return "", i18n.NewError("%s is not available", selection.Provider.Name())
 	}
-	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), Turn{Prompt: prompt, Dir: s.workDir(), Sandbox: ReadOnly, Model: selection.Model, SchemaFile: schemaFile})
+	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), Turn{Prompt: prompt, Dir: s.deps.Topics.Dir, Sandbox: ReadOnly, Model: selection.Model, SchemaFile: schemaFile})
 	return result.FinalMessage, err
 }
 
@@ -55,7 +65,8 @@ func ParseTopicChoice(text string) (TopicChoice, error) {
 	if err := json.Unmarshal([]byte(text), &choice); err != nil {
 		return TopicChoice{}, i18n.Wrap(ErrOutcome, "The AI did not answer with the expected JSON")
 	}
-	choice.TopicID, choice.Title = strings.TrimSpace(choice.TopicID), cleanTitle(choice.Title)
+	// The title is made a title by title(), after the secrets are taken out of it.
+	choice.TopicID, choice.Title = strings.TrimSpace(choice.TopicID), strings.TrimSpace(choice.Title)
 	return choice, nil
 }
 
@@ -71,7 +82,7 @@ func (s *Service) sortIntoTopic(ctx context.Context, id string) {
 	}
 	topics := s.deps.Store.Topics()
 	prompt := s.deps.Persona().TopicPrompt(request, topicList(topics, s.deps.Store.List()))
-	answer, err := s.ask(ctx, prompt, s.deps.TopicSchemaFile)
+	answer, err := s.ask(ctx, prompt, s.deps.Topics.SortSchemaFile)
 	if err == nil {
 		var choice TopicChoice
 		if choice, err = ParseTopicChoice(answer); err == nil {
@@ -85,26 +96,30 @@ func (s *Service) sortIntoTopic(ctx context.Context, id string) {
 	}
 }
 
+// title makes what the AI wrote a title: the secrets Pouple holds are taken out before the text is shortened, which could
+// cut one in two and leave it unrecognizable.
+func (s *Service) title(raw string) string { return cleanTitle(s.deps.Redact()(raw)) }
+
 // place applies where the AI sorted a conversation: into the topic it named when that exists (possibly with a better
 // title), otherwise into a new topic, titled by the AI or, failing that, by the start of the message.
 func (s *Service) place(id string, choice TopicChoice, topics []Topic) {
 	now := s.now()
 	if i := slices.IndexFunc(topics, func(t Topic) bool { return t.ID == choice.TopicID }); i >= 0 {
-		if s.deps.Store.PlaceInTopic(id, choice.TopicID, now) && choice.Title != "" {
-			s.deps.Store.RetitleTopic(choice.TopicID, s.deps.Redact()(choice.Title), now)
+		if title := s.title(choice.Title); s.deps.Store.PlaceInTopic(id, choice.TopicID, now) && title != "" {
+			s.deps.Store.RetitleTopic(choice.TopicID, title, now)
 		}
 		return
 	}
-	title := choice.Title
+	title := s.title(choice.Title)
 	if title == "" {
 		if request, ok := s.deps.Store.Get(id); ok {
-			title = cleanTitle(oneLine(request.Text, maxTopicTitleRunes))
+			title = s.title(request.Text)
 		}
 	}
 	if title == "" {
 		return
 	}
-	topic := Topic{ID: newID(), Title: s.deps.Redact()(title), CreatedAt: now, UpdatedAt: now}
+	topic := Topic{ID: newID(), Title: title, CreatedAt: now, UpdatedAt: now}
 	s.deps.Store.AddTopic(topic)
 	if !s.deps.Store.PlaceInTopic(id, topic.ID, now) {
 		// The conversation was removed while the AI answered: its topic would be empty.
@@ -114,25 +129,53 @@ func (s *Service) place(id string, choice TopicChoice, topics []Topic) {
 
 // relatedConversationsOf are the other conversations of the topic of a request that carry something to read, oldest
 // first, and whether any of them holds text written by other people.
+//
+// What the AI writes in a conversation that came from someone else may be sent to that person: it then reads only the
+// conversations of its own channel, as it did before topics, since the others may be private (a direct message, a note to
+// oneself). A note to oneself, a reminder and the events of a service have no such reader and read the whole topic.
 func (s *Service) relatedConversationsOf(request Stored) (related []Stored, foreign bool) {
 	if !s.topicsOn() || request.TopicID == "" {
 		return nil, false
 	}
+	shared := request.Source.Origin != "note-to-self" && !IsEvent(request.Source.Origin)
 	for _, other := range s.deps.Store.List() {
-		if other.ID != request.ID && other.TopicID == request.TopicID && other.Status != StatusIgnored && !other.Status.Pending() {
-			related = append(related, other)
+		if other.ID == request.ID || other.TopicID != request.TopicID || other.Status == StatusIgnored || other.Status.Pending() {
+			continue
 		}
+		if shared && other.Source.ChannelID != request.Source.ChannelID {
+			continue
+		}
+		related = append(related, other)
 	}
 	if len(related) > relatedConversations {
 		related = related[len(related)-relatedConversations:]
 	}
 	for _, other := range related {
-		// What the user wrote to themselves, and what Pouple wrote to them, is theirs; the rest was written by others.
-		if other.Source.Origin != "note-to-self" && other.Source.Origin != OriginReminder {
+		if !s.ownText(other, 0) {
 			foreign = true
 		}
 	}
 	return related, foreign
+}
+
+// maxOwnDepth bounds how far a reminder is followed back to the conversation it came from.
+const maxOwnDepth = 3
+
+// ownText says whether a conversation holds only what the user wrote or approved: a note to themselves that no service or
+// web page shaped, or a reminder set from such a note. Anything else carries text written by other people.
+func (s *Service) ownText(r Stored, depth int) bool {
+	if r.ServicesUsed || r.WebUsed || r.ForeignSinceGrant {
+		return false
+	}
+	switch r.Source.Origin {
+	case "note-to-self":
+		return true
+	case OriginReminder:
+		// A reminder's title and note were written by the AI from the conversation it was suggested in.
+		origin, ok := s.deps.Store.Get(r.Source.RelatedRequestID)
+		return ok && depth < maxOwnDepth && s.ownText(origin, depth+1)
+	}
+	return false
 }
 
 // OrganizeAnswer is what the AI decided when it looked at all the topics.
@@ -224,7 +267,7 @@ func (s *Service) organize(ctx context.Context) error {
 			break
 		}
 		prompt := s.deps.Persona().OrganizePrompt(topicList(topics, s.deps.Store.List()), unsortedList(waiting))
-		text, err := s.ask(ctx, prompt, s.deps.OrganizeSchemaFile)
+		text, err := s.ask(ctx, prompt, s.deps.Topics.OrganizeSchemaFile)
 		if err != nil {
 			return err
 		}
@@ -246,7 +289,7 @@ func (s *Service) organize(ctx context.Context) error {
 // applyOrganization carries out what the AI decided, keeping only what refers to things that exist: an id it made up
 // changes nothing.
 func (s *Service) applyOrganization(answer OrganizeAnswer, waiting []Stored) {
-	now, redact := s.now(), s.deps.Redact()
+	now := s.now()
 	asked := map[string]bool{}
 	for _, request := range waiting {
 		asked[request.ID] = true
@@ -261,11 +304,11 @@ func (s *Service) applyOrganization(answer OrganizeAnswer, waiting []Stored) {
 		topicID := key
 		if !slices.ContainsFunc(s.deps.Store.Topics(), func(t Topic) bool { return t.ID == key }) {
 			if made[key] == "" {
-				title := cleanTitle(place.Title)
+				title := s.title(place.Title)
 				if title == "" {
 					continue
 				}
-				topic := Topic{ID: newID(), Title: redact(title), CreatedAt: now, UpdatedAt: now}
+				topic := Topic{ID: newID(), Title: title, CreatedAt: now, UpdatedAt: now}
 				s.deps.Store.AddTopic(topic)
 				made[key] = topic.ID
 			}
@@ -279,8 +322,8 @@ func (s *Service) applyOrganization(answer OrganizeAnswer, waiting []Stored) {
 		s.deps.Store.MergeTopics(strings.TrimSpace(merge.From), strings.TrimSpace(merge.Into), now)
 	}
 	for _, rename := range answer.Renames {
-		if title := cleanTitle(rename.Title); title != "" {
-			s.deps.Store.RetitleTopic(strings.TrimSpace(rename.ID), redact(title), now)
+		if title := s.title(rename.Title); title != "" {
+			s.deps.Store.RetitleTopic(strings.TrimSpace(rename.ID), title, now)
 		}
 	}
 }

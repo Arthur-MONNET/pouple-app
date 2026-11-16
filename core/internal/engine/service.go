@@ -107,12 +107,11 @@ type Deps struct {
 	// WorkDir is where read-only investigations run (usually ProjectsRoot, or a scratch folder).
 	WorkDir    func() string
 	SchemaFile string
-	// TopicSchemaFile and OrganizeSchemaFile hold the schemas of the turns that sort conversations into topics (one new
-	// conversation; the whole set). Conversations are not sorted when either is empty.
-	TopicSchemaFile, OrganizeSchemaFile string
-	Notify                              func(title, body string)
-	Redact                              func() Redactor
-	Usage                               func() Usage
+	// Topics sorts the conversations into topics; nil leaves them unsorted.
+	Topics *TopicConfig
+	Notify func(title, body string)
+	Redact func() Redactor
+	Usage  func() Usage
 	// Inactive returns why the assistant cannot run ("" when it can).
 	Inactive func() string
 	Now      func() time.Time

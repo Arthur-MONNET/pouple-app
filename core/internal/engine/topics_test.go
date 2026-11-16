@@ -26,7 +26,7 @@ func sortedTo(topicID, title string) step {
 func topicsHarness(t *testing.T, steps ...step) *harness {
 	t.Helper()
 	h := newHarness(t, steps...)
-	h.svc.deps.TopicSchemaFile, h.svc.deps.OrganizeSchemaFile = "/topic.json", "/organize.json"
+	h.svc.deps.Topics = &TopicConfig{SortSchemaFile: "/topic.json", OrganizeSchemaFile: "/organize.json", Dir: t.TempDir()}
 	return h
 }
 
@@ -36,6 +36,11 @@ func (h *harness) firstTopic() Topic {
 		return Topic{}
 	}
 	return topics[0]
+}
+
+// sameChannel is a message of another time, in the same channel as message().
+func sameChannel(ts string) func(*Incoming) {
+	return func(in *Incoming) { in.Source.TS = ts }
 }
 
 // later is a message of another time and place than message().
@@ -54,8 +59,8 @@ func TestANewConversationStartsATopicNamedByTheAI(t *testing.T) {
 	if h.codex.turns[0].SchemaFile != "/topic.json" || h.codex.turns[1].SchemaFile != "/schema.json" {
 		t.Fatalf("the sorting turn and the analysis answer with their own schema: %q, %q", h.codex.turns[0].SchemaFile, h.codex.turns[1].SchemaFile)
 	}
-	if h.codex.turns[0].Sandbox != ReadOnly {
-		t.Fatalf("sorting must not be able to write: %v", h.codex.turns[0].Sandbox)
+	if h.codex.turns[0].Sandbox != ReadOnly || h.codex.turns[0].Dir != h.svc.deps.Topics.Dir || h.codex.turns[0].Dir == h.svc.workDir() {
+		t.Fatalf("sorting reads nothing and writes nothing: %v in %q", h.codex.turns[0].Sandbox, h.codex.turns[0].Dir)
 	}
 }
 
@@ -66,7 +71,7 @@ func TestAConversationOfTheSameSubjectJoinsItsTopicAndReadsTheOthers(t *testing.
 	}
 	h = topicsHarness(t, sortedTo("", "Login bug"), reply(nil), joinFirst, reply(nil))
 	h.receive(message("The login page crashes on Safari, can you look?"))
-	h.receive(message("Any news on the Safari crash?", later("2.2")))
+	h.receive(message("Any news on the Safari crash?", sameChannel("2.2")))
 
 	requests := h.svc.Snapshot().Requests
 	if len(requests) != 2 || requests[0].TopicID == "" || requests[0].TopicID != requests[1].TopicID {
@@ -292,8 +297,74 @@ func TestParsingWhatTheAIAnsweredRefusesWhatIsNotJSON(t *testing.T) {
 	if _, err := ParseOrganizeAnswer("{"); !errors.Is(err, ErrOutcome) {
 		t.Fatalf("err %v", err)
 	}
-	choice, err := ParseTopicChoice(`{"topicId":" t1 ","title":"  “Login\n bug”."}`)
+	choice, err := ParseTopicChoice(`{"topicId":" t1 ","title":"  Login bug "}`)
 	if err != nil || choice.TopicID != "t1" || choice.Title != "Login bug" {
 		t.Fatalf("choice %+v, err %v", choice, err)
+	}
+}
+
+func TestATitleIsOneCleanLine(t *testing.T) {
+	cases := map[string]string{
+		"  “Login\n bug”.":            "Login bug",
+		"Pay\u202ebill\u200b now\x07": "Paybill now",
+		strings.Repeat("a", 200):      clipRunes(strings.Repeat("a", 200), maxTopicTitleRunes),
+		"\"\"":                        "",
+	}
+	for raw, want := range cases {
+		if got := cleanTitle(raw); got != want {
+			t.Errorf("%q became %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestASecretIsTakenOutOfATitleBeforeItIsShortened(t *testing.T) {
+	secret := "sk-live-abcdefghijklmnopqrstuvwxyz0123456789"
+	h := topicsHarness(t, sortedTo("", strings.Repeat("x", 60)+" "+secret), reply(nil))
+	h.svc.deps.Redact = func() Redactor { return NewRedactor(secret) }
+	h.receive(message("Where are the March invoices?"))
+	title := h.firstTopic().Title
+	if strings.Contains(title, "sk-live") || !strings.Contains(title, "[redacted]") {
+		t.Fatalf("the secret is redacted whole, before the title is cut: %q", title)
+	}
+}
+
+func TestAConversationOfSomeoneElseReadsOnlyTheConversationsOfItsOwnChannel(t *testing.T) {
+	var h *harness
+	joinFirst := func(ctx context.Context, turn Turn) (TurnResult, error) {
+		return sortedTo(h.firstTopic().ID, "")(ctx, turn)
+	}
+	own := func(in *Incoming) { in.Source.Origin = "note-to-self"; in.Source.ChannelID = "D-self" }
+	h = topicsHarness(t, sortedTo("", "Reorganisation"), reply(nil), joinFirst, reply(nil), joinFirst, reply(nil))
+	h.receive(message("Draft my answer about the reorganisation, it is private", own))
+	h.receive(message("What do you think of the reorganisation?", later("2.2")))
+	if strings.Contains(h.codex.turns[3].Prompt, "it is private") {
+		t.Fatalf("what the user wrote to themselves must not reach a conversation whose reply goes to someone else:\n%s", h.codex.turns[3].Prompt)
+	}
+	h.receive(message("Anything to add on the reorganisation?", own))
+	if !strings.Contains(h.codex.turns[5].Prompt, "What do you think of the reorganisation?") {
+		t.Fatalf("a note to oneself reads the whole topic:\n%s", h.codex.turns[5].Prompt)
+	}
+}
+
+func TestANoteShapedByAServiceOrAReminderOfAForeignConversationIsNotTheUsersOwnText(t *testing.T) {
+	h := topicsHarness(t)
+	h.svc.deps.Store.Add(Stored{Request: Request{ID: "n1", Source: Source{Origin: "note-to-self"}, Status: StatusDone}, ServicesUsed: true})
+	h.svc.deps.Store.Add(Stored{Request: Request{ID: "n2", Source: Source{Origin: "note-to-self"}, Status: StatusDone}})
+	h.svc.deps.Store.Add(Stored{Request: Request{ID: "m1", Source: Source{Origin: "mention"}, Status: StatusDone}})
+	reminder := func(id, from string) Stored {
+		return Stored{Request: Request{ID: id, Source: Source{Origin: OriginReminder, RelatedRequestID: from}, Status: StatusDone}}
+	}
+	cases := map[string]bool{"n1": false, "n2": true, "m1": false}
+	for id, want := range cases {
+		request, _ := h.svc.deps.Store.Get(id)
+		if got := h.svc.ownText(request, 0); got != want {
+			t.Errorf("%s: own %v, want %v", id, got, want)
+		}
+	}
+	for id, want := range map[string]bool{"r-own": true, "r-foreign": false, "r-service": false, "r-lost": false} {
+		from := map[string]string{"r-own": "n2", "r-foreign": "m1", "r-service": "n1", "r-lost": "gone"}[id]
+		if got := h.svc.ownText(reminder(id, from), 0); got != want {
+			t.Errorf("%s: own %v, want %v", id, got, want)
+		}
 	}
 }

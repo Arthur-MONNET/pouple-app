@@ -286,21 +286,25 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   conversations were sorted since), and every `Request` carries its `topicId` (empty until sorted, and for a message that
   needed nothing). The snapshot (and its stream) has `topics`, each with at least one conversation: `Store.Remove` and the
   merges drop the empty ones.
-- Sorting is on only when `Deps.TopicSchemaFile` and `OrganizeSchemaFile` are set (`cmd/pouple-core` writes `TopicSchema` and
-  `OrganizeSchema` next to the outcome schema). `analyze` first runs `sortIntoTopic`: one short read-only turn that belongs to
-  no conversation (`Service.ask`, no tool, no write), given the topics with their latest conversations and the new message;
-  it answers `{topicId, title}` (an existing id, or "" with a title for a new topic; with an id, a title only to rename). An
-  id the AI made up makes a new topic, a missing title falls back on the start of the message, and a turn that fails is
-  reported once and never stops the analysis: the conversation waits for the next reorganization.
+- Sorting is on only when `Deps.Topics` (a `TopicConfig`: the two schema files and a folder) is set; `cmd/pouple-core` writes
+  `TopicSchema` and `OrganizeSchema` next to the outcome schema. `analyze` first runs `sortIntoTopic`: one short read-only turn
+  that belongs to no conversation (`Service.ask`, in the empty `topics` folder of the data directory, so it can read no
+  project), given the topics with their latest conversations and the new message; it answers `{topicId, title}` (an existing
+  id, or "" with a title for a new topic; with an id, a title only to rename). An id the AI made up makes a new topic, a
+  missing title falls back on the start of the message, and a turn that fails is reported once and never stops the analysis:
+  the conversation waits for the next reorganization. Titles go through `Service.title`: redacted first, then one clean line
+  (no control or format character, no final period, 80 characters at most).
 - `maybeOrganize` (called by every `Poll`) queues `organize` in the background when conversations wait for a topic (those saved
   before topics, or that could not be sorted), or when five were sorted since the last look and half an hour passed. One turn
   places up to 25 waiting conversations (new topics are named by a key of the AI's own, shared by the conversations placed
   under it), merges topics (`Store.MergeTopics` keeps the older start and moves the conversations) and renames them; only ids
   that exist count. A round that places nothing ends the run, and a failed attempt is retried after ten minutes.
 - The analysis of a conversation in a topic reads the others of the topic (`relatedConversationsOf`: at most six, not ignored,
-  not being worked on) through `AnalysisPromptWithTopic`. If any of them holds text written by someone other than the user (a
-  note to oneself and a reminder are the user's own), the request is flagged `ServicesUsed` and `ForeignSinceGrant` like any
-  text of strangers, so nothing runs on its own after it.
+  not being worked on) through `AnalysisPromptWithTopic`. A conversation that came from someone else, whose reply may be sent to
+  them, reads only the conversations of its own channel (the others may be private); a note to oneself and the events of a
+  service read the whole topic. If any conversation read holds text written by other people, the request is flagged
+  `ServicesUsed` and `ForeignSinceGrant` like any text of strangers, so nothing runs on its own after it. `ownText` decides: only
+  a note to oneself that no service or web page shaped, or a reminder set from such a note, is the user's own.
 - Web: `lib/topicGroups.ts` groups by topic (`groupByTopic`, an unknown or missing topic goes to the `unsorted` group) and names
   a row by its source (`sourceLabel`); `lib/topicFolds.ts` and `composables/useTopicFolds.ts` hold the fold state (folded by
   default, open for the selected conversation and up to three topics that wait for the user, explicit choices kept in

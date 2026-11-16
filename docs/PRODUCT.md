@@ -68,8 +68,9 @@ channel, in a direct message and in a pipeline failure is one topic. A conversat
   that exist (with their latest conversations) and either picks one or starts a new one with a short title. Nothing to
   maintain by hand.
 - **Shared context.** When a conversation belongs to a topic, the analysis also reads the other conversations of that topic
-  (what was asked, concluded and decided), so it reasons from the whole subject. Text others wrote in those conversations
-  counts like any text of theirs: nothing is then done on its own.
+  (what was asked, concluded and decided), so it reasons from the whole subject. A message from someone else only reads the
+  conversations of its own channel, never your direct messages or notes to yourself, since what Pouple drafts for them could
+  repeat it. Text others wrote in what it reads counts like any text of theirs: nothing is then done on its own.
 - **Kept in order.** From time to time (after a few new conversations, and for the conversations that existed before topics
   did) the AI looks at all the topics again: it merges two that are one subject, renames the ones whose subject moved on, and
   sorts what could not be sorted. A topic with no conversation left disappears. A message that needed nothing stays under
