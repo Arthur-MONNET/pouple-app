@@ -32,6 +32,7 @@ export const en: MessageTree = {
   format: {
     now: 'now',
     yesterday: 'yesterday',
+    gigabytes: '{size} GB',
   },
   files: {
     tooMany: 'At most {max} files per message',
@@ -348,6 +349,13 @@ export const en: MessageTree = {
     weekLabel: 'Week',
     windowTitle: '{name}: {used} of the {window} window used, starts again {when}',
     windowTitleNoReset: '{name}: {used} of the {window} window used',
+    machineName: 'Mac',
+    machineLabel: 'Disk and memory of the Mac',
+    diskFree: '{free} free',
+    diskLabel: 'Disk',
+    memoryLabel: 'Memory',
+    diskTitle: 'Disk: {free} free of {total}. Below 2 GB the AIs fail, without saying why.',
+    memoryTitle: 'Memory: {used} in use of {total}. When the Mac runs short, the AIs can fail without saying why.',
   },
   groups: {
     notes: "Notes to self",

@@ -109,7 +109,9 @@ The AI and its model can be changed at any time in the settings, with no restart
 A usage limit or a sign-in problem pauses only the AI that reported it, and the daily limit counts the turns of both.
 When one AI reaches its limit and the other is connected, the failed request offers to continue with the other one.
 The window and the menu bar menu show the tokens of the day and how much of each AI's current five-hour window and week
-is used; each conversation shows the tokens it took.
+is used; each conversation shows the tokens it took. Below them, the Mac's free disk space and memory in use: when
+either runs out, the AIs fail with errors that never say so. A failed request therefore says whether the disk or the
+memory was short when it failed, or that neither was the cause.
 
 ### Live updates from Slack
 

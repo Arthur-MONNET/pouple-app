@@ -36,6 +36,7 @@ export const fr: MessageTree = {
   format: {
     now: "à l'instant",
     yesterday: 'hier',
+    gigabytes: '{size} Go',
   },
   files: {
     tooMany: "{max} fichiers au maximum par message",
@@ -352,6 +353,13 @@ export const fr: MessageTree = {
     weekLabel: 'Semaine',
     windowTitle: '{name} : {used} de la fenêtre {window} utilisés, repart {when}',
     windowTitleNoReset: '{name} : {used} de la fenêtre {window} utilisés',
+    machineName: 'Mac',
+    machineLabel: 'Disque et mémoire du Mac',
+    diskFree: '{free} libres',
+    diskLabel: 'Disque',
+    memoryLabel: 'Mémoire',
+    diskTitle: 'Disque : {free} libres sur {total}. Sous 2 Go, les IA échouent sans dire pourquoi.',
+    memoryTitle: 'Mémoire : {used} utilisée sur {total}. Quand le Mac en manque, les IA peuvent échouer sans dire pourquoi.',
   },
   groups: {
     notes: "Notes à moi-même",

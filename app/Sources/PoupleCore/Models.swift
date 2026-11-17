@@ -265,6 +265,54 @@ public struct UsageLimits: Codable, Equatable, Sendable {
     }
 }
 
+/// How tight a resource of the Mac is, with the same steps as the AIs' windows.
+public enum MachineLevel: String, Codable, Equatable, Sendable {
+    case normal, high, critical
+
+    /// A level a newer core may add reads as normal, so it never makes the whole snapshot unreadable.
+    public init(from decoder: Decoder) throws {
+        self = MachineLevel(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .normal
+    }
+}
+
+/// The volume holding Pouple's data, where the AIs keep their conversations.
+public struct MachineDisk: Codable, Equatable, Sendable {
+    public let freeBytes: Int64
+    public let totalBytes: Int64
+    public let level: MachineLevel
+
+    public init(freeBytes: Int64, totalBytes: Int64, level: MachineLevel) {
+        self.freeBytes = freeBytes
+        self.totalBytes = totalBytes
+        self.level = level
+    }
+}
+
+/// The Mac's memory; its level is macOS's own memory pressure.
+public struct MachineMemory: Codable, Equatable, Sendable {
+    /// From 0 to 100.
+    public let usedPercent: Double
+    public let totalBytes: Int64
+    public let level: MachineLevel
+
+    public init(usedPercent: Double, totalBytes: Int64, level: MachineLevel) {
+        self.usedPercent = usedPercent
+        self.totalBytes = totalBytes
+        self.level = level
+    }
+}
+
+/// The Mac's disk and memory; a part the core could not read is absent.
+public struct MachineState: Codable, Equatable, Sendable {
+    public let disk: MachineDisk?
+    public let memory: MachineMemory?
+
+    public init(disk: MachineDisk? = nil, memory: MachineMemory? = nil) {
+        self.disk = disk
+        self.memory = memory
+    }
+}
+
 public struct AssistantUsage: Codable, Equatable, Sendable {
     public let today: Int
     public let limit: Int?
@@ -272,12 +320,15 @@ public struct AssistantUsage: Codable, Equatable, Sendable {
     public let tokensByAI: [String: TokenCount]?
     /// By AI; an AI that never reported its windows is absent.
     public let limits: [String: UsageLimits]?
+    /// The Mac's disk and memory: when either runs out, the AIs fail with errors that never say so. Older cores omit it.
+    public let machine: MachineState?
 
-    public init(today: Int, limit: Int? = nil, tokensByAI: [String: TokenCount]? = nil, limits: [String: UsageLimits]? = nil) {
+    public init(today: Int, limit: Int? = nil, tokensByAI: [String: TokenCount]? = nil, limits: [String: UsageLimits]? = nil, machine: MachineState? = nil) {
         self.today = today
         self.limit = limit
         self.tokensByAI = tokensByAI
         self.limits = limits
+        self.machine = machine
     }
 }
 

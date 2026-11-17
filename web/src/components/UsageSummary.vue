@@ -1,13 +1,35 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Tokens, Usage, UsageWindow } from '../api/types';
-import { compactCount, percent, untilTime } from '../lib/format';
-import { totalTokens, usageLevel, usageRows, type WindowKey } from '../lib/usage';
+import type { MachineLevel, Tokens, Usage, UsageWindow } from '../api/types';
+import { compactCount, gigabytes, percent, untilTime } from '../lib/format';
+import { machineGauges, totalTokens, usageLevel, usageRows, type MachineGauge, type WindowKey } from '../lib/usage';
 import { t } from '../i18n';
 
 const props = defineProps<{ usage: Usage }>();
 
 const rows = computed(() => usageRows(props.usage));
+const gauges = computed(() => machineGauges(props.usage.machine));
+const disk = computed(() => props.usage.machine?.disk);
+
+function gaugeTitle(gauge: MachineGauge): string {
+  const { disk: diskState, memory } = props.usage.machine ?? {};
+  if (gauge.key === 'disk' && diskState) {
+    return t('home.diskTitle', { free: gigabytes(diskState.freeBytes), total: gigabytes(diskState.totalBytes) });
+  }
+  return t('home.memoryTitle', { used: percent(gauge.usedPercent), total: memory ? gigabytes(memory.totalBytes) : '?' });
+}
+
+const barClass = (level: MachineLevel): Record<string, boolean> => ({
+  'bg-lavender': level === 'normal',
+  'bg-warn': level === 'high',
+  'bg-fail': level === 'critical',
+});
+
+const valueClass = (level: MachineLevel): Record<string, boolean> => ({
+  'text-ink-muted': level === 'normal',
+  'font-medium text-warn': level === 'high',
+  'font-semibold text-fail': level === 'critical',
+});
 
 function windowTitle(name: string, key: WindowKey, window: UsageWindow): string {
   const values = { name, used: percent(window.usedPercent), window: t(`home.${key}`) };
@@ -48,21 +70,13 @@ const tokensTitle = (tokens: Tokens): string =>
           <span class="h-1.5 overflow-hidden rounded-full bg-raised" aria-hidden="true">
             <span
               class="block h-full rounded-full transition-[width] motion-reduce:transition-none"
-              :class="{
-                'bg-lavender': usageLevel(item.window) === 'normal',
-                'bg-warn': usageLevel(item.window) === 'high',
-                'bg-fail': usageLevel(item.window) === 'critical',
-              }"
+              :class="barClass(usageLevel(item.window))"
               :style="{ width: `${item.window.usedPercent}%` }"
             />
           </span>
           <span
             class="text-right tabular-nums"
-            :class="{
-              'text-ink-muted': usageLevel(item.window) === 'normal',
-              'font-medium text-warn': usageLevel(item.window) === 'high',
-              'font-semibold text-fail': usageLevel(item.window) === 'critical',
-            }"
+            :class="valueClass(usageLevel(item.window))"
             aria-hidden="true"
           >
             {{ percent(item.window.usedPercent) }}
@@ -70,5 +84,32 @@ const tokensTitle = (tokens: Tokens): string =>
         </div>
       </li>
     </ul>
+
+    <div v-if="gauges.length > 0" class="flex flex-col gap-1.5" role="group" :aria-label="$t('home.machineLabel')" data-testid="usage-machine">
+      <div class="flex items-baseline justify-between gap-2">
+        <p class="text-sm font-medium text-ink">{{ $t('home.machineName') }}</p>
+        <p v-if="disk" class="text-xs tabular-nums" :class="valueClass(disk.level)">
+          {{ $t('home.diskFree', { free: gigabytes(disk.freeBytes) }) }}
+        </p>
+      </div>
+      <div
+        v-for="gauge in gauges"
+        :key="gauge.key"
+        class="grid grid-cols-[3.25rem_minmax(0,1fr)_2.5rem] items-center gap-2 text-xs"
+        :title="gaugeTitle(gauge)"
+        :data-testid="`machine-${gauge.key}`"
+      >
+        <span class="sr-only">{{ gaugeTitle(gauge) }}</span>
+        <span class="text-ink-dim" aria-hidden="true">{{ $t(`home.${gauge.key}Label`) }}</span>
+        <span class="h-1.5 overflow-hidden rounded-full bg-raised" aria-hidden="true">
+          <span
+            class="block h-full rounded-full transition-[width] motion-reduce:transition-none"
+            :class="barClass(gauge.level)"
+            :style="{ width: `${gauge.usedPercent}%` }"
+          />
+        </span>
+        <span class="text-right tabular-nums" :class="valueClass(gauge.level)" aria-hidden="true">{{ percent(gauge.usedPercent) }}</span>
+      </div>
+    </div>
   </section>
 </template>

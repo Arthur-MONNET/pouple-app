@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { compactCount, percent, untilTime } from './format';
-import { totalTokens, usageLevel, usageRows } from './usage';
+import { compactCount, gigabytes, percent, untilTime } from './format';
+import { machineGauges, totalTokens, usageLevel, usageRows } from './usage';
 
 const seenAt = '2026-11-13T12:00:00.000Z';
 
@@ -67,5 +67,34 @@ describe('counts', () => {
     expect(compactCount(1250, 'fr')).toMatch(/^1,3\s?k$/);
     expect(percent(9, 'en')).toBe('9%');
     expect(percent(9, 'fr')).toMatch(/^9\s%$/);
+  });
+});
+
+describe('the Mac', () => {
+  const GiB = 2 ** 30;
+
+  it('shows the disk then the memory, each with the level the core judged', () => {
+    const gauges = machineGauges({
+      memory: { usedPercent: 61, totalBytes: 24 * GiB, level: 'high' },
+      disk: { freeBytes: 2 * GiB, totalBytes: 500 * GiB, level: 'critical' },
+    });
+    expect(gauges.map((gauge) => [gauge.key, gauge.level])).toEqual([
+      ['disk', 'critical'],
+      ['memory', 'high'],
+    ]);
+    expect(gauges[0]?.usedPercent).toBeCloseTo(99.6, 1);
+    expect(gauges[1]?.usedPercent).toBe(61);
+  });
+
+  it('leaves out what the core could not read, and an older core that sends nothing', () => {
+    expect(machineGauges({ memory: { usedPercent: 40, totalBytes: 24 * GiB, level: 'normal' } }).map((gauge) => gauge.key)).toEqual(['memory']);
+    expect(machineGauges({ disk: { freeBytes: 0, totalBytes: 0, level: 'critical' } })).toEqual([]);
+    expect(machineGauges(undefined)).toEqual([]);
+  });
+
+  it('writes sizes in gigabytes, with one decimal under 100', () => {
+    expect(gigabytes(2.5 * GiB, 'en')).toBe('2.5 GB');
+    expect(gigabytes(212 * GiB, 'en')).toBe('212 GB');
+    expect(gigabytes(2 * GiB, 'fr')).toBe('2,0 Go');
   });
 });

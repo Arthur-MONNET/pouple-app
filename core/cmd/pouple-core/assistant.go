@@ -18,6 +18,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/devserver"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/machine"
 	"github.com/Arthur-MONNET/pouple/core/internal/mrwatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/pipelinewatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
@@ -28,7 +29,7 @@ import (
 
 // newAssistant builds the engine on top of the connectors and the settings.
 // ownPort is the port Pouple itself listens on: the browser it starts for a picture never opens it.
-func newAssistant(dir string, ownPort int, registry *connector.Registry, settings *config.File, hints *slackinbox.ThreadHints, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
+func newAssistant(dir string, ownPort int, registry *connector.Registry, settings *config.File, hints *slackinbox.ThreadHints, resources *machine.Monitor, logf func(format string, args ...any)) (*engine.Service, *engine.Attachments, error) {
 	store, err := engine.OpenStore(filepath.Join(dir, "requests.json"), func(err error) { logf("conversations not saved: %v", err) })
 	if err != nil {
 		return nil, nil, err
@@ -189,11 +190,17 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			return engine.NewRedactor(secrets...)
 		},
 		Usage: func() engine.Usage {
-			usage := engine.Usage{Today: meter.Today(), TokensByAI: meter.TokensToday(), Limits: meter.Limits()}
+			current := resources.Current()
+			usage := engine.Usage{Today: meter.Today(), TokensByAI: meter.TokensToday(), Limits: meter.Limits(), Machine: &current}
 			if limit := load().DailyTurnLimit; limit > 0 {
 				usage.Limit = &limit
 			}
 			return usage
+		},
+		// A failure is judged on the machine as it is now, not as it was at the last reading.
+		Machine: func() machine.State {
+			resources.Refresh()
+			return resources.Current()
 		},
 		Inactive:            func() string { return inactiveReason(registry, language()) },
 		AutoApproveOwnNotes: func() bool { return load().AutoApprove == "own-notes" },

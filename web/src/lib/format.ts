@@ -40,6 +40,13 @@ export function formatReceived(iso: string, now: Date = new Date(), locale: Lang
     : `${date.toLocaleDateString(tag(locale), { month: 'short', day: 'numeric' })}, ${time}`;
 }
 
+/** "2,5 Go" in French, "2.5 GB" in English: a size in gigabytes, without decimals from 100. */
+export function gigabytes(bytes: number, locale: Lang = lang.value): string {
+  const value = bytes / 2 ** 30;
+  const number = new Intl.NumberFormat(tag(locale), { minimumFractionDigits: value < 100 ? 1 : 0, maximumFractionDigits: value < 100 ? 1 : 0 }).format(value);
+  return t('format.gigabytes', { size: number }, { locale });
+}
+
 /** "1,2 k", "3,4 M" in French, "1.2K", "3.4M" in English: a count short enough for a status line. */
 export function compactCount(value: number, locale: Lang = lang.value): string {
   return new Intl.NumberFormat(tag(locale), { notation: 'compact', maximumFractionDigits: 1 }).format(value);

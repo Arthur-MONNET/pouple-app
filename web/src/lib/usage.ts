@@ -1,4 +1,4 @@
-import type { Tokens, Usage, UsageWindow } from '../api/types';
+import type { MachineLevel, MachineState, Tokens, Usage, UsageWindow } from '../api/types';
 
 /** The names of the AIs, kept as they are in every language. */
 const NAMES: Record<string, string> = { codex: 'Codex', claude: 'Claude' };
@@ -54,4 +54,26 @@ export function usageLevel(window: UsageWindow): UsageLevel {
   if (window.usedPercent >= 90) return 'critical';
   if (window.usedPercent >= 75) return 'high';
   return 'normal';
+}
+
+export type GaugeKey = 'disk' | 'memory';
+
+/** One resource of the Mac, as a bar like the AIs' windows. */
+export interface MachineGauge {
+  key: GaugeKey;
+  /** From 0 to 100. */
+  usedPercent: number;
+  level: MachineLevel;
+}
+
+/** The disk, then the memory; a part the core could not read is left out. */
+export function machineGauges(machine: MachineState | undefined): MachineGauge[] {
+  const gauges: MachineGauge[] = [];
+  const disk = machine?.disk;
+  if (disk && disk.totalBytes > 0) {
+    gauges.push({ key: 'disk', usedPercent: ((disk.totalBytes - disk.freeBytes) / disk.totalBytes) * 100, level: disk.level });
+  }
+  const memory = machine?.memory;
+  if (memory) gauges.push({ key: 'memory', usedPercent: memory.usedPercent, level: memory.level });
+  return gauges;
 }

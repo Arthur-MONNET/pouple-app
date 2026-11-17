@@ -35,7 +35,7 @@ public enum L10n {
         case reminderQuestion, reminderHint, reminderConfirmOne, reminderConfirmOther, reminderConfirmNone, reminderSkip, reminderPast, reminderTimeLabel
         case bubbleApprovePlan, bubbleSeePlan, bubbleChoosePlan, badgePlan, planChoices
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
-        case usageTokens, usageFiveHour, usageWeek
+        case usageTokens, usageFiveHour, usageWeek, usageMachine, usageDiskFree, usageMemory, usageGigabytes
         case bubbleIgnore, bubbleStop, bubbleWorking, bubbleContinueWith
         case activityOne, activityOther
         case handleName, handleWorking, handleOverflow, handleDrag, handleOffline
@@ -211,6 +211,10 @@ public enum L10n {
         .usageTokens: "%@ tokens",
         .usageFiveHour: "5 h : %@",
         .usageWeek: "semaine : %@",
+        .usageMachine: "Mac",
+        .usageDiskFree: "disque : %@ libres",
+        .usageMemory: "mémoire : %@",
+        .usageGigabytes: "%@ Go",
         .bubbleIgnore: "Ignorer",
         .bubbleStop: "Arrêter",
         .bubbleWorking: "Huit bras sur le coup.",
@@ -362,6 +366,10 @@ public enum L10n {
         .usageTokens: "%@ tokens",
         .usageFiveHour: "5 h: %@",
         .usageWeek: "week: %@",
+        .usageMachine: "Mac",
+        .usageDiskFree: "disk: %@ free",
+        .usageMemory: "memory: %@",
+        .usageGigabytes: "%@ GB",
         .bubbleIgnore: "Ignore",
         .bubbleStop: "Stop",
         .bubbleWorking: "Eight arms on it.",

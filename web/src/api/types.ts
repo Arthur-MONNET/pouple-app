@@ -361,6 +361,30 @@ export interface UsageLimits {
   seenAt: string;
 }
 
+/** How tight a resource of the Mac is, with the same steps as the AIs' windows. */
+export type MachineLevel = 'normal' | 'high' | 'critical';
+
+/** The volume holding Pouple's data, where the AIs keep their conversations. */
+export interface MachineDisk {
+  freeBytes: number;
+  totalBytes: number;
+  level: MachineLevel;
+}
+
+/** The Mac's memory; its level is macOS's own memory pressure. */
+export interface MachineMemory {
+  /** From 0 to 100. */
+  usedPercent: number;
+  totalBytes: number;
+  level: MachineLevel;
+}
+
+/** The Mac's disk and memory; a part the core could not read is absent. */
+export interface MachineState {
+  disk?: MachineDisk;
+  memory?: MachineMemory;
+}
+
 export interface Usage {
   today: number;
   limit: number | null;
@@ -368,6 +392,8 @@ export interface Usage {
   tokensByAI?: Record<string, Tokens>;
   /** By AI ("codex", "claude"); an AI that never reported its windows, or whose windows started again, is absent. */
   limits?: Record<string, UsageLimits>;
+  /** The Mac's disk and memory: when either runs out, the AIs fail with errors that never say so. Older cores do not send it. */
+  machine?: MachineState;
 }
 
 /** GET /api/assistant, and the payload of every `data:` frame of GET /api/assistant/stream. */

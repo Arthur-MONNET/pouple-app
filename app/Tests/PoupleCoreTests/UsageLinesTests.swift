@@ -26,6 +26,30 @@ final class UsageLinesTests: XCTestCase {
         XCTAssertEqual(UsageLines.lines(usage, language: .en, now: now), ["Codex · week: 30%"])
     }
 
+    func testTheMacComesLastWithItsDiskAndMemory() {
+        let gib = Int64(1) << 30
+        let usage = AssistantUsage(today: 0, machine: MachineState(
+            disk: MachineDisk(freeBytes: 2 * gib, totalBytes: 500 * gib, level: .critical),
+            memory: MachineMemory(usedPercent: 61, totalBytes: 24 * gib, level: .high)
+        ))
+        XCTAssertEqual(UsageLines.lines(usage, language: .en), ["Mac ⚠︎ · disk: 2.0 GB free · memory: 61%"])
+        let french = UsageLines.lines(usage, language: .fr)
+        XCTAssertTrue(french[0].contains("2,0") && french[0].contains("Go libres"), french[0])
+        let calm = AssistantUsage(today: 0, machine: MachineState(memory: MachineMemory(usedPercent: 40, totalBytes: 24 * gib, level: .normal)))
+        XCTAssertEqual(UsageLines.lines(calm, language: .en), ["Mac · memory: 40%"])
+        XCTAssertEqual(UsageLines.lines(AssistantUsage(today: 0, machine: MachineState()), language: .en), [])
+    }
+
+    func testTheMacIsReadFromTheSnapshot() throws {
+        let json = ModelsTests.snapshotJSON.replacingOccurrences(
+            of: #""notices": ["Group chats: missing scope"] }"#,
+            with: #""notices": ["Group chats: missing scope"], "usage": { "today": 0, "limit": null, "machine": { "disk": { "freeBytes": 2147483648, "totalBytes": 536870912000, "level": "critical" }, "memory": { "usedPercent": 61, "totalBytes": 25769803776, "level": "someday" } } } }"#
+        )
+        let machine = try XCTUnwrap(SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(json.utf8)).status.usage?.machine)
+        XCTAssertEqual(machine.disk?.level, .critical)
+        XCTAssertEqual(machine.memory?.level, .normal)
+    }
+
     func testNothingIsShownWithoutUsage() {
         XCTAssertEqual(UsageLines.lines(nil, language: .en), [])
         XCTAssertEqual(UsageLines.lines(AssistantUsage(today: 0, tokensByAI: ["codex": TokenCount(input: 0, cached: 0, output: 0)], limits: ["codex": UsageLimits()]), language: .en), [])

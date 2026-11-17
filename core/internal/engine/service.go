@@ -17,6 +17,7 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
+	"github.com/Arthur-MONNET/pouple/core/internal/machine"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
@@ -112,6 +113,8 @@ type Deps struct {
 	Notify func(title, body string)
 	Redact func() Redactor
 	Usage  func() Usage
+	// Machine reads the Mac's disk and memory now, to tell whether they explain a failure; nil reads nothing.
+	Machine func() machine.State
 	// Inactive returns why the assistant cannot run ("" when it can).
 	Inactive func() string
 	Now      func() time.Time
@@ -749,6 +752,11 @@ func (s *Service) fail(id string, cause error) {
 	}
 	if _, ok := s.deps.Store.Get(id); !ok {
 		return
+	}
+	if !login && !quiet && s.deps.Machine != nil {
+		if note := machine.Diagnose(lang, i18n.ErrorText(i18n.EN, cause), s.deps.Machine()); note != "" {
+			message += "\n\n" + note
+		}
 	}
 	failure := i18n.T(lang, "Failed: %s", message)
 	limitedBy := providers.ID("")

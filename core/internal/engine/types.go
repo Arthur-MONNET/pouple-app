@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
+	"github.com/Arthur-MONNET/pouple/core/internal/machine"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
@@ -220,6 +221,8 @@ type Usage struct {
 	// Limits are each AI's own usage windows (five hours, week), as it last reported them; an AI that never did is
 	// absent.
 	Limits map[providers.ID]Limits `json:"limits,omitempty"`
+	// Machine is the Mac's disk and memory: when either runs out, the AIs fail with errors that never say so.
+	Machine *machine.State `json:"machine,omitempty"`
 }
 
 // Snapshot is what GET /api/assistant returns and the stream repeats.

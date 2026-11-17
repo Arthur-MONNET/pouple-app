@@ -110,6 +110,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
           codex: { fiveHour: { usedPercent: 9, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString() }, week: { usedPercent: 78, resetsAt: new Date(Date.now() + 2 * 86400_000).toISOString() }, seenAt: nowIso() },
           claude: { fiveHour: { usedPercent: 92, resetsAt: new Date(Date.now() + 1 * 3600_000).toISOString() }, week: { usedPercent: 64, resetsAt: new Date(Date.now() + 4 * 86400_000).toISOString() }, seenAt: nowIso() },
         },
+        machine: {
+          disk: { freeBytes: 1_847_410_688, totalBytes: 494_384_795_648, level: 'critical' },
+          memory: { usedPercent: 61, totalBytes: 25_769_803_776, level: 'high' },
+        },
       },
     },
     requests: structuredClone(requests),

@@ -32,6 +32,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
+	"github.com/Arthur-MONNET/pouple/core/internal/machine"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 	"github.com/Arthur-MONNET/pouple/core/internal/ui"
@@ -140,7 +141,8 @@ func run() error {
 		}
 	}
 	hints := slackinbox.NewThreadHints()
-	service, attachments, err := newAssistant(dir, port, registry, settings, hints, log.Printf)
+	resources := machine.NewMonitor(dir)
+	service, attachments, err := newAssistant(dir, port, registry, settings, hints, resources, log.Printf)
 	if err != nil {
 		return err
 	}
@@ -210,6 +212,8 @@ func run() error {
 	wake := make(chan struct{}, 1)
 	go watchSlackLive(ctx, registry, wake, hints)
 	go updateChecker.Run(ctx)
+	// The disk and the memory are shown with the AIs' usage, and followed as they change.
+	go resources.Run(ctx, 15*time.Second, service.UsageChanged)
 	go runAssistant(ctx, service, settings, wake)
 	shutdownComplete := make(chan struct{})
 	go func() {
