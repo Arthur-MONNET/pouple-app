@@ -154,27 +154,66 @@ public struct ReminderOffer: Codable, Equatable, Sendable {
     public var isProposed: Bool { status == "proposed" && !items.isEmpty }
 }
 
-/// The facts the assistant suggests remembering, for the user to pick from. Nothing is written until they confirm.
-public struct MemoryOffer: Codable, Equatable, Sendable {
-    public struct Item: Codable, Equatable, Identifiable, Sendable {
-        public let id: String
-        /// The note the fact goes to; absent for a new note.
-        public let note: String?
-        public let noteTitle: String
-        public let fact: String
-        /// The older fact this one replaces, when there is one.
-        public let replaces: String?
-        /// Whether the fact starts ticked.
-        public let ticked: Bool
+/// One change the assistant made to the memory along with its answer, kept so it can be undone.
+public struct MemoryChange: Codable, Equatable, Identifiable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        case add, update, remove, unknown
+
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .unknown
+        }
     }
 
-    /// Names this exact offer: a decision carries it, so it can only answer the offer that was read.
-    public let id: String
-    public let status: String
-    public let items: [Item]
-    public let chosen: [String]?
+    public struct Item: Codable, Equatable, Identifiable, Sendable {
+        public let id: String
+        public let kind: Kind
+        public var note: String? = nil
+        public var noteTitle: String? = nil
+        public var fact: String? = nil
+        /// The older fact an update replaced.
+        public var previous: String? = nil
+        public var line: String? = nil
+        public var shared: Bool? = nil
+        public var unconfirmed: Bool? = nil
+        /// The day the fact is due for review.
+        public var review: String? = nil
+    }
 
-    public var isProposed: Bool { status == "proposed" && !items.isEmpty }
+    /// The git commit of the change; may be empty, in which case it cannot be undone.
+    public var id: String = ""
+    public var at: Date? = nil
+    public var undone: Bool? = nil
+    public var items: [Item] = []
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        at = try c.decodeIfPresent(Date.self, forKey: .at)
+        undone = try c.decodeIfPresent(Bool.self, forKey: .undone)
+        items = try c.decodeIfPresent([Item].self, forKey: .items) ?? []
+    }
+
+    public var isUndone: Bool { undone == true }
+    public var canUndo: Bool { !id.isEmpty && !isUndone }
+    public func count(_ kind: Kind) -> Int { items.filter { $0.kind == kind }.count }
+    public var unconfirmedCount: Int { items.filter { $0.unconfirmed == true }.count }
+
+    /// "Mémoire mise à jour : 2 ajoutés, 1 modifié · 1 non confirmé": only the non-zero counts.
+    public func summary(language: Language? = nil) -> String {
+        func part(_ kind: Kind, _ one: L10n.Key, _ other: L10n.Key) -> String? {
+            let n = count(kind)
+            return n == 0 ? nil : L10n.plural(one: one, other: other, count: n, language: language)
+        }
+        let counts = [part(.add, .memoryAddedOne, .memoryAddedOther),
+                      part(.update, .memoryUpdatedOne, .memoryUpdatedOther),
+                      part(.remove, .memoryRemovedOne, .memoryRemovedOther)].compactMap { $0 }
+        var line = L10n.text(.memoryChanged, counts.joined(separator: ", "), language: language)
+        if unconfirmedCount > 0 {
+            line += " · " + L10n.plural(one: .memoryUnconfirmedOne, other: .memoryUnconfirmedOther, count: unconfirmedCount, language: language)
+        }
+        return line
+    }
 }
 
 public struct ChatEntry: Codable, Equatable, Identifiable, Sendable {
@@ -210,8 +249,8 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public var plan: AssistantPlan? = nil
     /// The alerts the assistant suggests, waiting for the user's pick or already decided; absent from older cores.
     public var reminders: ReminderOffer? = nil
-    /// The facts the assistant suggests remembering, waiting for the user's pick or already decided; absent from older cores.
-    public var memories: MemoryOffer? = nil
+    /// The changes made to the memory with the answers, oldest first; absent from older cores.
+    public var memoryChanges: [MemoryChange]? = nil
 
     /// The name of the AI that can take over, as shown in a button.
     public var switchToName: String? {

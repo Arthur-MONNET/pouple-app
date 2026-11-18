@@ -39,7 +39,34 @@ func remember(facts ...map[string]any) map[string]any {
 }
 
 func fact(note, title, text string) map[string]any {
-	return map[string]any{"note": note, "title": title, "fact": text, "replaces": ""}
+	return map[string]any{"note": note, "title": title, "fact": text, "replaces": "", "remove": false, "lasts": ""}
+}
+
+func correct(note, replaces, text string) map[string]any {
+	return map[string]any{"note": note, "title": "", "fact": text, "replaces": replaces, "remove": false, "lasts": ""}
+}
+
+func forget(note, replaces string) map[string]any {
+	return map[string]any{"note": note, "title": "", "fact": "", "replaces": replaces, "remove": true, "lasts": ""}
+}
+
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+}
+
+// only1 is the one request of the harness, as stored.
+func stored(t *testing.T, h *harness, origin string) Stored {
+	t.Helper()
+	for _, request := range h.svc.deps.Store.List() {
+		if request.Source.Origin == origin {
+			return request
+		}
+	}
+	t.Fatalf("no request from %s", origin)
+	return Stored{}
 }
 
 func noteToSelf(text string) Incoming {
@@ -68,110 +95,132 @@ func TestTheFirstPromptListsTheMemoryAndHidesPrivateNotesFromOthers(t *testing.T
 	}
 }
 
-func TestNoMemoryNoSectionAndNoOffer(t *testing.T) {
+func TestNoMemoryNoSectionAndNoChange(t *testing.T) {
 	h := newHarness(t, reply(remember(fact("", "Preprod", "Preprod 2 is reset every Monday."))))
 	h.receive(message("Is preprod 2 free?"))
 	if strings.Contains(h.codex.turns[0].Prompt, "## Memory") {
 		t.Fatal("the memory is described while there is none")
 	}
-	if request := only(t, h); request.Memories != nil {
-		t.Fatalf("an offer without memory: %+v", request.Memories)
+	if request := only(t, h); len(request.MemoryChanges) != 0 {
+		t.Fatalf("a change without memory: %+v", request.MemoryChanges)
 	}
 }
 
-func TestSuggestedFactsWaitForTheTickAndAreTickedOnlyForTheUsersOwnText(t *testing.T) {
-	h := newHarness(t,
-		reply(remember(fact("preprod.md", "", "Preprod 2 is free on Thursdays."), fact("ghost.md", "Ghost", "A note that does not exist."))),
-		reply(remember(fact("", "Payments", "Refunds go through Stripe."))),
-	)
-	dir := withMemory(t, h, map[string]string{"preprod.md": preprodNote})
-	h.receive(message("Is preprod 2 free?"))
-	offer := only(t, h).Memories
-	if offer == nil || offer.Status != MemoryProposed || offer.ID == "" || len(offer.Items) != 2 {
-		t.Fatalf("offer %+v", offer)
-	}
-	if offer.Items[0].Note != "preprod.md" || offer.Items[0].NoteTitle != "Preprod" || offer.Items[0].Ticked {
-		t.Fatalf("a fact that rests on someone else's message is not ticked in advance: %+v", offer.Items[0])
-	}
-	if offer.Items[1].Note != "" || offer.Items[1].NoteTitle != "Ghost" {
-		t.Fatalf("a path that is no note makes a new note: %+v", offer.Items[1])
-	}
-	if raw, _ := os.ReadFile(filepath.Join(dir, "preprod.md")); string(raw) != preprodNote {
-		t.Fatal("nothing may be written before the user ticks")
-	}
-	h.receive(noteToSelf("Note: refunds go through Stripe"))
-	for _, request := range h.svc.Snapshot().Requests {
-		if request.Source.Origin == "note-to-self" && (request.Memories == nil || !request.Memories.Items[0].Ticked) {
-			t.Fatalf("a note to oneself is ticked in advance: %+v", request.Memories)
-		}
-	}
-}
-
-func TestConfirmingWritesTheTickedFactsPrivateUnlessShared(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
+func TestAnAnswerChangesTheMemoryAtOnceAndListsWhatChanged(t *testing.T) {
+	requireGit(t)
+	weeks := fact("", "Payments", "Lina has preprod 1 for the payment tests.")
+	weeks["lasts"] = "weeks"
 	h := newHarness(t, reply(remember(
-		fact("preprod.md", "", "Preprod 2 is free on Thursdays."),
-		fact("", "Payments", "Refunds go through Stripe."),
-		fact("", "Skipped", "Not ticked."),
+		correct("preprod.md", "Preprod 2 is reset every Monday.", "Preprod 2 is reset every Tuesday since November."),
+		forget("preprod.md", "Lina takes preprod 1 for the payment tests."),
+		weeks,
 	)))
 	dir := withMemory(t, h, map[string]string{"preprod.md": preprodNote})
-	h.receive(message("Is preprod 2 free?", func(in *Incoming) { in.Source.Permalink = ptr("https://team.slack.com/archives/C1/p11") }))
-	request := only(t, h)
-	offer := request.Memories
-	if err := h.svc.DecideMemories(request.ID, true, offer.ID, []MemoryPick{{ID: "m1", Shared: true}, {ID: "m2"}}); err != nil {
-		t.Fatal(err)
-	}
-	preprod, _ := os.ReadFile(filepath.Join(dir, "preprod.md"))
-	if !strings.Contains(string(preprod), "- Preprod 2 is free on Thursdays. ([Slack #front, 2026-11-05](https://team.slack.com/archives/C1/p11))\n") {
-		t.Fatalf("a shared fact:\n%s", preprod)
+	h.receive(noteToSelf("Preprod 2 resets on Tuesdays now, and Lina moved to the payments"))
+	note, _ := os.ReadFile(filepath.Join(dir, "preprod.md"))
+	if strings.Contains(string(note), "every Monday") || strings.Contains(string(note), "Lina takes") || !strings.Contains(string(note), "- Preprod 2 is reset every Tuesday since November. (Note to self, 2026-11-05)\n") {
+		t.Fatalf("a correction keeps the sharing of the fact it replaces, and a fact taken out is gone:\n%s", note)
 	}
 	payments, _ := os.ReadFile(filepath.Join(dir, "payments.md"))
-	if !strings.HasPrefix(string(payments), "# Payments\n\n") || !strings.Contains(string(payments), "Refunds go through Stripe.") || !strings.HasSuffix(string(payments), memory.PrivateMark+"\n") {
-		t.Fatalf("a fact is private unless shared:\n%s", payments)
+	if !strings.Contains(string(payments), "(Note to self, 2026-11-05) (review 2026-12-03) [private]") || strings.Contains(string(payments), memory.UnconfirmedMark) {
+		t.Fatalf("a new fact is private, reviewed after its lifetime, and the user's own word is not unconfirmed:\n%s", payments)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "skipped.md")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("a fact that was not ticked was written")
+	changes := only(t, h).MemoryChanges
+	if len(changes) != 1 || len(changes[0].ID) < 7 || len(changes[0].Items) != 3 {
+		t.Fatalf("changes %+v", changes)
 	}
-	decided := only(t, h)
-	if decided.Memories.Status != MemoryAccepted || strings.Join(decided.Memories.Chosen, ",") != "m1,m2" {
-		t.Fatalf("offer %+v", decided.Memories)
-	}
-	if last := decided.Entries[len(decided.Entries)-1]; last.Role != "user" || !strings.Contains(last.Text, "Refunds go through Stripe.") {
-		t.Fatalf("the journal does not say what was kept: %+v", last)
-	}
-	if err := h.svc.DecideMemories(request.ID, true, offer.ID, []MemoryPick{{ID: "m3"}}); !errors.Is(err, ErrState) {
-		t.Fatalf("a suggestion is decided once: %v", err)
+	items := changes[0].Items
+	if items[0].Kind != memory.Updated || items[0].Previous != "Preprod 2 is reset every Monday." || items[0].Fact != "Preprod 2 is reset every Tuesday since November." || !items[0].Shared ||
+		items[1].Kind != memory.Removed || items[2].Kind != memory.Added || items[2].Shared || items[2].Review != "2026-12-03" || items[2].NoteTitle != "Payments" {
+		t.Fatalf("items %+v", items)
 	}
 }
 
-func TestADecisionThatCannotBeMadeWritesNothing(t *testing.T) {
+func TestFactsFromOthersAreUnconfirmedAndReadingThemIsReadingTheirText(t *testing.T) {
+	requireGit(t)
+	h := newHarness(t,
+		reply(remember(fact("", "Deploys", "Deploys go through GitLab CI."))),
+		lookupReply(Lookup{Service: "notes", Action: "read", Target: "deploys.md"}),
+		reply(map[string]any{"outcome": Answered}),
+	)
+	dir := withMemory(t, h, nil)
+	h.receive(message("FYI deploys go through GitLab CI now"))
+	note, _ := os.ReadFile(filepath.Join(dir, "deploys.md"))
+	if !strings.Contains(string(note), memory.UnconfirmedMark) || !only(t, h).MemoryChanges[0].Items[0].Unconfirmed {
+		t.Fatalf("a fact from someone else's message is unconfirmed:\n%s", note)
+	}
+	h.receive(noteToSelf("How do we deploy?"))
+	if own := stored(t, h, "note-to-self"); !own.ServicesUsed || !own.ForeignSinceGrant {
+		t.Fatal("reading an unconfirmed fact is reading text of others: nothing may run on its own after it")
+	}
+}
+
+func TestARequestOfOthersCannotChangeAPrivateFact(t *testing.T) {
+	requireGit(t)
+	h := newHarness(t, reply(remember(
+		correct("preprod.md", "Lina takes preprod 1 for the payment tests.", "Nobody has preprod 1."),
+		forget("preprod.md", "Lina takes preprod 1 for the payment tests."),
+	)))
+	dir := withMemory(t, h, map[string]string{"preprod.md": preprodNote})
+	h.receive(message("Who has preprod 1?"))
+	note, _ := os.ReadFile(filepath.Join(dir, "preprod.md"))
+	if !strings.Contains(string(note), "Lina takes preprod 1 for the payment tests.") || !strings.Contains(string(note), "Nobody has preprod 1.") {
+		t.Fatalf("a private fact the request never saw stays, and the correction is added beside it:\n%s", note)
+	}
+}
+
+func TestAChangeCanBeUndoneAndAFactShared(t *testing.T) {
+	requireGit(t)
 	h := newHarness(t, reply(remember(fact("", "Payments", "Refunds go through Stripe."))))
 	dir := withMemory(t, h, nil)
-	h.receive(message("How are refunds made?"))
+	h.receive(noteToSelf("Note: refunds go through Stripe"))
 	request := only(t, h)
-	id := request.Memories.ID
-	for name, c := range map[string]struct {
-		offer string
-		picks []MemoryPick
-		want  error
-	}{
-		"nothing ticked":     {id, nil, ErrInput},
-		"unknown fact":       {id, []MemoryPick{{ID: "m9"}}, ErrInput},
-		"fact twice":         {id, []MemoryPick{{ID: "m1"}, {ID: "m1"}}, ErrInput},
-		"another suggestion": {"stale", []MemoryPick{{ID: "m1"}}, ErrState},
-		"unnamed suggestion": {"", []MemoryPick{{ID: "m1"}}, ErrInput},
-	} {
-		if err := h.svc.DecideMemories(request.ID, true, c.offer, c.picks); !errors.Is(err, c.want) {
-			t.Errorf("%s: err %v, want %v", name, err, c.want)
-		}
+	change := request.MemoryChanges[0]
+	if err := h.svc.ShareMemoryFact(request.ID, change.ID, "m1", true); err != nil {
+		t.Fatal(err)
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-		t.Fatalf("a refused decision wrote %d files", len(entries))
+	note, _ := os.ReadFile(filepath.Join(dir, "payments.md"))
+	if strings.Contains(string(note), memory.PrivateMark) || !only(t, h).MemoryChanges[0].Items[0].Shared {
+		t.Fatalf("a shared fact:\n%s", note)
 	}
-	if err := h.svc.DecideMemories(request.ID, false, id, nil); err != nil || only(t, h).Memories.Status != MemoryDeclined {
-		t.Fatalf("declining: %v", err)
+	if err := h.svc.ShareMemoryFact(request.ID, change.ID, "m9", true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an unknown fact: %v", err)
+	}
+	// The fact was shared after it was written: undoing its write meets that later change.
+	if err := h.svc.UndoMemoryChange(request.ID, change.ID); !errors.Is(err, ErrState) {
+		t.Fatalf("undoing a change the notes moved on from: %v", err)
+	}
+	if err := h.svc.ShareMemoryFact(request.ID, change.ID, "m1", false); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := RunGit(context.Background(), dir, "-c", "user.name=t", "-c", "user.email=t@t", "revert", "--no-edit", "HEAD", "HEAD~1"); err != nil {
+		t.Fatalf("git revert: %v %s", err, out)
+	}
+	if err := h.svc.UndoMemoryChange(request.ID, change.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "payments.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("undoing the write of a new note takes the note away")
+	}
+	if !only(t, h).MemoryChanges[0].Undone {
+		t.Fatal("the change is not marked undone")
+	}
+	if err := h.svc.UndoMemoryChange(request.ID, change.ID); !errors.Is(err, ErrState) {
+		t.Fatalf("undoing twice: %v", err)
+	}
+}
+
+func TestTheReviewComesAsAnAlertAtMostOnceAWeek(t *testing.T) {
+	h := newHarness(t)
+	withMemory(t, h, map[string]string{"deploys.md": "# Deploys\n\n- Deploys go through Jenkins. (Slack #ops, 2026-01-10)\n- Lina has preprod 1. (Slack #qa, 2026-10-01) (review 2026-10-29)\n"})
+	h.svc.Poll(context.Background())
+	alerts := h.svc.Snapshot().Alerts
+	if len(alerts) != 1 || alerts[0].Title != "Memory: 2 facts to review" || !strings.Contains(alerts[0].Note, "Deploys go through Jenkins.") {
+		t.Fatalf("alerts %+v", alerts)
+	}
+	h.svc.Poll(context.Background())
+	if got := len(h.svc.Snapshot().Alerts); got != 1 {
+		t.Fatalf("a second alert in the same week: %d", got)
 	}
 }
 
@@ -201,19 +250,23 @@ func TestNotesLookupsReadTheMemoryWithoutPrivateFactsForOthers(t *testing.T) {
 	}
 }
 
-func TestParseOutcomeKeepsOnlyFactsTheMemoryCanHold(t *testing.T) {
+func TestParseOutcomeKeepsOnlyChangesTheMemoryCanMake(t *testing.T) {
+	odd := fact("", "A", "1")
+	odd["lasts"] = "decades"
 	raw, _ := json.Marshal(map[string]any{"outcome": Answered, "summary": "s", "memories": []any{
 		fact("preprod.md", "", "  One\nfact  on two lines. "),
 		fact("../escape.md", "", "Climbs out."),
 		fact("", "", "No note and no title."),
 		fact("", "Long", strings.Repeat("x", memory.MaxFact+1)),
-		fact("", "A", "1"), fact("", "B", "2"), fact("", "C", "3"), fact("", "D", "4"),
+		forget("preprod.md", ""),
+		odd, forget("preprod.md", "Preprod 2 is reset"), fact("", "C", "3"), fact("", "D", "4"),
 	}})
 	outcome, err := ParseOutcome(string(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(outcome.Memories) != maxMemories || outcome.Memories[0].Fact != "One fact on two lines." || outcome.Memories[0].Note != "preprod.md" || outcome.Memories[1].Title != "A" {
+	if len(outcome.Memories) != maxMemories || outcome.Memories[0].Fact != "One fact on two lines." || outcome.Memories[1].Lasts != "" ||
+		!outcome.Memories[2].Remove || outcome.Memories[2].Fact != "" || outcome.Memories[2].Replaces != "Preprod 2 is reset" {
 		t.Fatalf("%+v", outcome.Memories)
 	}
 }

@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -16,73 +14,74 @@ import (
 )
 
 // The memory keeps what lasts beyond a conversation, as notes on the user's computer (see the memory package). The AI
-// reads it like a service, through "notes" lookups, and suggests facts with its answers; nothing is written until the
-// user ticks the facts and confirms. A request that came from someone else never sees a private fact, for the reason
-// topics read only its own channel: what the AI drafts for that person could repeat it.
+// reads it like a service, through "notes" lookups, and changes it with its answers: it adds facts, corrects them and
+// takes out those that no longer hold. The changes are made at once, one commit each, which the conversation lists with
+// a way to undo them. A fact written from a conversation that held text of other people is marked unconfirmed: nobody
+// vouched for it, so reading it counts as reading their text. A request that came from someone else never sees a private
+// fact (and so can change none), for the reason topics read only its own channel: what the AI drafts for that person
+// could repeat it.
 
 const (
-	// maxMemories is how many facts one answer may suggest.
+	// maxMemories is how many changes one answer may make.
 	maxMemories = 4
 	// maxMemoryNote bounds the text of one note handed to the AI, maxIndexNotes how many notes its index lists.
 	maxMemoryNote = 8000
 	maxIndexNotes = 200
-	// memoryWriteTimeout bounds writing the facts the user confirmed, git included.
+	// memoryWriteTimeout bounds one write of the memory, git included.
 	memoryWriteTimeout = 30 * time.Second
+	// maxMemoryChanges is how many writes a conversation keeps the record of, to undo them.
+	maxMemoryChanges = 10
 )
+
+// lifetimes are how long a fact lives before it is reviewed, by what the AI says of it.
+var lifetimes = map[string]time.Duration{"weeks": 28 * 24 * time.Hour, "months": 91 * 24 * time.Hour, "years": 365 * 24 * time.Hour}
 
 // IsNotes reports a lookup in the memory instead of a connected service.
 func (l Lookup) IsNotes() bool { return l.Service == "notes" }
 
-// OutcomeMemory is one fact the AI suggests keeping.
+// OutcomeMemory is one change the AI makes to the memory: a fact to add, one that replaces another (Replaces), or one to
+// take out (Remove, with Replaces naming it).
 type OutcomeMemory struct {
 	// Note is the path of a note of the index; "" for a new note named Title.
 	Note  string `json:"note"`
 	Title string `json:"title"`
 	Fact  string `json:"fact"`
-	// Replaces is the text of a fact the AI read that this one makes wrong; "" otherwise.
+	// Replaces is how a fact the AI read starts: the one this change corrects or takes out; "" otherwise.
 	Replaces string `json:"replaces"`
+	Remove   bool   `json:"remove"`
+	// Lasts says how long the fact holds: "weeks", "months", "years", or "" when the AI cannot tell.
+	Lasts string `json:"lasts"`
 }
 
-// MemoryStatus is where a suggestion of facts stands.
-type MemoryStatus string
+// MemoryChange is one write of the memory made with an answer, as the conversation lists it.
+type MemoryChange struct {
+	// ID is the commit that holds it: undoing reverts it.
+	ID     string             `json:"id"`
+	At     string             `json:"at"`
+	Undone bool               `json:"undone,omitempty"`
+	Items  []MemoryChangeItem `json:"items"`
+}
 
-const (
-	MemoryProposed MemoryStatus = "proposed"
-	MemoryAccepted MemoryStatus = "accepted"
-	MemoryDeclined MemoryStatus = "declined"
-)
-
-// MemoryOption is one fact as the user sees it.
-type MemoryOption struct {
+// MemoryChangeItem is one fact changed.
+type MemoryChangeItem struct {
 	ID string `json:"id"`
-	// Note is the path of the note it goes to; "" for a new note.
-	Note string `json:"note,omitempty"`
-	// NoteTitle names the note it goes to, new or not.
+	// Kind is "add", "update" or "remove".
+	Kind      string `json:"kind"`
+	Note      string `json:"note"`
 	NoteTitle string `json:"noteTitle"`
-	Fact      string `json:"fact"`
-	Replaces  string `json:"replaces,omitempty"`
-	// Ticked is the suggested choice: only for a conversation that never read text written by others.
-	Ticked bool `json:"ticked"`
+	// Fact is what the fact says now (what it said, for one taken out); Previous what it said before an update.
+	Fact     string `json:"fact"`
+	Previous string `json:"previous,omitempty"`
+	// Line is the line as it is in the note, which names the fact to share it.
+	Line        string `json:"line"`
+	Shared      bool   `json:"shared"`
+	Unconfirmed bool   `json:"unconfirmed,omitempty"`
+	// Review is when the fact will be looked at again, YYYY-MM-DD; "" for the default.
+	Review string `json:"review,omitempty"`
 }
 
-// MemoryOffer is what the assistant suggests remembering. Nothing is written until the user picks.
-type MemoryOffer struct {
-	// ID names this exact suggestion (a fingerprint): a decision that carries it cannot answer another one.
-	ID     string         `json:"id"`
-	Status MemoryStatus   `json:"status"`
-	Items  []MemoryOption `json:"items"`
-	// Chosen are the ids of the facts the user kept, once accepted.
-	Chosen []string `json:"chosen,omitempty"`
-}
-
-// MemoryPick is one fact the user ticked. Shared lets it reach the requests of others; a fact is private otherwise.
-type MemoryPick struct {
-	ID     string `json:"id"`
-	Shared bool   `json:"shared,omitempty"`
-}
-
-// parseMemories keeps the suggested facts the memory could hold as written; the others are dropped, like a lookup that
-// names nothing, so the answer stays usable.
+// parseMemories keeps the changes the memory could make as written; the others are dropped, like a lookup that names
+// nothing, so the answer stays usable.
 func parseMemories(raw []OutcomeMemory) []OutcomeMemory {
 	kept := []OutcomeMemory{}
 	for _, suggestion := range raw {
@@ -90,12 +89,17 @@ func parseMemories(raw []OutcomeMemory) []OutcomeMemory {
 			break
 		}
 		fact, err := memory.CheckFact(memory.Fact{
-			Note: suggestion.Note, Title: oneLineText(suggestion.Title), Text: oneLineText(suggestion.Fact), Replaces: oneLineText(suggestion.Replaces),
+			Note: suggestion.Note, Title: oneLineText(suggestion.Title), Text: oneLineText(suggestion.Fact),
+			Replaces: oneLineText(suggestion.Replaces), Remove: suggestion.Remove,
 		})
 		if err != nil {
 			continue
 		}
-		kept = append(kept, OutcomeMemory{Note: fact.Note, Title: fact.Title, Fact: fact.Text, Replaces: fact.Replaces})
+		lasts := suggestion.Lasts
+		if _, known := lifetimes[lasts]; !known {
+			lasts = ""
+		}
+		kept = append(kept, OutcomeMemory{Note: fact.Note, Title: fact.Title, Fact: fact.Text, Replaces: fact.Replaces, Remove: fact.Remove, Lasts: lasts})
 	}
 	return kept
 }
@@ -129,8 +133,8 @@ func (s *Service) memorySection(r Stored) string {
 	return s.deps.Persona().MemorySection(index, shared)
 }
 
-// runNotes answers the "notes" lookups: a search in the memory, or a note. The memory holds only what the user confirmed
-// or wrote, so what it returns is theirs: it does not count as text of others.
+// runNotes answers the "notes" lookups: a search in the memory, or a note. What it returns is the user's own text, unless
+// it holds a fact marked unconfirmed.
 func (s *Service) runNotes(id string, lookups []Lookup) string {
 	if !s.memoryOn() {
 		return "Memory, unavailable: it is switched off in Settings."
@@ -155,8 +159,16 @@ func (s *Service) runNotes(id string, lookups []Lookup) string {
 	for i, step := range steps {
 		entries[i] = s.entry("assistant", "step", step)
 	}
-	s.update(id, func(r *Stored) { r.Entries = append(r.Entries, entries...) })
-	return strings.Join(parts, "\n\n")
+	text := strings.Join(parts, "\n\n")
+	// A fact nobody vouched for rests on text of other people: having read it counts like reading their text.
+	unconfirmed := memory.IsUnconfirmed(text)
+	s.update(id, func(r *Stored) {
+		r.Entries = append(r.Entries, entries...)
+		if unconfirmed {
+			r.ServicesUsed, r.ForeignSinceGrant = true, true
+		}
+	})
+	return text
 }
 
 func (s *Service) searchNotes(query string, shared bool) string {
@@ -182,171 +194,188 @@ func (s *Service) readNote(target string, shared bool) string {
 	return fmt.Sprintf("Memory, note %s (%s):\n%s", note.Path, oneLine(note.Title, memory.MaxTitle), clipRunes(content, maxMemoryNote))
 }
 
-// attachMemories shows the facts an answer suggested keeping. Like reminders, only an answer that reaches the user can
-// carry them, and a new answer without any takes away a suggestion nobody picked from.
-func (s *Service) attachMemories(id string, outcome Outcome) {
-	if !s.memoryOn() || !slices.Contains([]string{Answered, NeedsInput, ProposesChange, ProposesPlan}, outcome.Outcome) {
+// applyMemories makes the changes an answer asked for, at once, in one commit, and lists them in the conversation. Only an
+// answer that reaches the user changes the memory. A fact rests on the user's own word only when the conversation holds
+// their text alone; otherwise it is marked unconfirmed. A new fact is private; the user shares it from the list.
+func (s *Service) applyMemories(id string, outcome Outcome) {
+	if !s.memoryOn() || len(outcome.Memories) == 0 || !slices.Contains([]string{Answered, NeedsInput, ProposesChange, ProposesPlan}, outcome.Outcome) {
 		return
 	}
 	request, err := s.require(id)
 	if err != nil {
 		return
 	}
-	offer := s.memoryOfferOf(outcome.Memories, s.ownText(request, 0), sharedReader(request))
-	s.update(id, func(r *Stored) {
-		switch {
-		case offer != nil:
-			r.Memories = offer
-		case r.Memories != nil && r.Memories.Status == MemoryProposed:
-			r.Memories = nil
+	shared := sharedReader(request)
+	facts := s.memoryFacts(outcome.Memories, !s.ownText(request, 0), shared)
+	if len(facts) == 0 {
+		return
+	}
+	source := memorySource(request, s.deps.Now())
+	ctx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
+	defer cancel()
+	change, err := s.deps.Memory.Remember(ctx, facts, source, memory.RememberMessage(source.Label))
+	if err != nil {
+		s.deps.OnError(fmt.Errorf("could not write the memory: %w", err))
+		if !errors.Is(err, memory.ErrNotCommitted) {
+			s.update(id, func(r *Stored) {
+				r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("The memory could not be written: %s", err)))
+			})
+			return
 		}
+	}
+	if len(change.Written) == 0 {
+		return
+	}
+	record := MemoryChange{ID: change.Commit, At: s.now()}
+	for i, written := range change.Written {
+		record.Items = append(record.Items, changeItem(fmt.Sprintf("m%d", i+1), written))
+	}
+	s.update(id, func(r *Stored) {
+		r.MemoryChanges = append(r.MemoryChanges, record)
+		if len(r.MemoryChanges) > maxMemoryChanges {
+			r.MemoryChanges = r.MemoryChanges[len(r.MemoryChanges)-maxMemoryChanges:]
+		}
+		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Memory: %s", changeSummary(record.Items))))
 	})
 }
 
-// memoryOfferOf turns suggested facts into an offer. A fact is ticked in advance only when the conversation holds the
-// user's own text alone; the note it names is shown by its title, and a path that is not a note (or that a request of
-// someone else cannot see) makes a new note instead.
-func (s *Service) memoryOfferOf(suggested []OutcomeMemory, own, shared bool) *MemoryOffer {
-	if len(suggested) == 0 {
-		return nil
-	}
+// memoryFacts turns what the AI asked into changes the memory can make. A note the reader cannot see is a new note: a
+// request of someone else may not reach into a note that holds only private facts.
+func (s *Service) memoryFacts(asked []OutcomeMemory, unconfirmed, shared bool) []memory.Fact {
 	titles := map[string]string{}
 	if notes, err := s.deps.Memory.Notes(shared); err == nil {
 		for _, note := range notes {
 			titles[note.Path] = note.Title
 		}
 	}
-	offer := &MemoryOffer{Status: MemoryProposed}
-	for _, suggestion := range suggested {
-		option := MemoryOption{Fact: suggestion.Fact, Replaces: suggestion.Replaces, Ticked: own}
-		if title, ok := titles[suggestion.Note]; ok {
-			option.Note, option.NoteTitle = suggestion.Note, title
-		} else {
-			option.NoteTitle = suggestion.Title
-			if option.NoteTitle == "" {
-				option.NoteTitle = strings.ReplaceAll(strings.TrimSuffix(path.Base(suggestion.Note), path.Ext(suggestion.Note)), "-", " ")
+	now := s.deps.Now()
+	var facts []memory.Fact
+	for _, item := range asked {
+		fact := memory.Fact{Note: item.Note, Text: item.Fact, Replaces: item.Replaces, Remove: item.Remove, Private: true, Unconfirmed: unconfirmed, SharedOnly: shared}
+		if _, known := titles[item.Note]; !known {
+			if item.Remove {
+				continue
 			}
-			option.Replaces = ""
+			fact.Note, fact.Replaces, fact.Title = "", "", item.Title
+			if fact.Title == "" {
+				fact.Title = strings.ReplaceAll(strings.TrimSuffix(path.Base(item.Note), path.Ext(item.Note)), "-", " ")
+			}
 		}
-		// Only what could be written is offered: a decision on it never fails on the fact itself.
-		candidate := memory.Fact{Note: option.Note, Text: option.Fact}
-		if option.Note == "" {
-			// The title of an existing note is whatever the user wrote; only a new one must be plain words.
-			candidate.Title = option.NoteTitle
+		if life, ok := lifetimes[item.Lasts]; ok && !item.Remove {
+			fact.Review = now.Add(life)
 		}
-		if _, err := memory.CheckFact(candidate); err != nil {
+		if _, err := memory.CheckFact(fact); err != nil {
 			continue
 		}
-		option.ID = fmt.Sprintf("m%d", len(offer.Items)+1)
-		offer.Items = append(offer.Items, option)
+		facts = append(facts, fact)
 	}
-	if len(offer.Items) == 0 {
-		return nil
-	}
-	offer.ID = memoryFingerprint(*offer)
-	return offer
+	return facts
 }
 
-func memoryFingerprint(offer MemoryOffer) string {
-	hash := sha256.New()
-	for _, item := range offer.Items {
-		fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s\x00%s\x01", item.ID, item.Note, item.NoteTitle, item.Fact, item.Replaces)
+func changeItem(id string, written memory.Written) MemoryChangeItem {
+	item := MemoryChangeItem{
+		ID: id, Kind: written.Kind, Note: written.Note.Path, NoteTitle: written.Note.Title, Line: written.Line,
+		Fact: memory.FactText(written.Line), Shared: !memory.IsPrivate(written.Line), Unconfirmed: memory.IsUnconfirmed(written.Line),
 	}
-	return hex.EncodeToString(hash.Sum(nil))[:16]
+	if written.Previous != "" {
+		item.Previous = memory.FactText(written.Previous)
+	}
+	if due, ok := memory.ReviewDate(written.Line); ok && strings.Contains(written.Line, "(review ") {
+		item.Review = due.Format(time.DateOnly)
+	}
+	return item
 }
 
-// DecideMemories writes the facts the user ticked in the memory, or declines the suggestion. offerID names the
-// suggestion the user read; it must be the one waiting now. All the facts are written, or none.
-func (s *Service) DecideMemories(id string, approve bool, offerID string, picks []MemoryPick) error {
-	if offerID == "" {
-		return i18n.Wrap(ErrInput, "the suggestion that was read must be named")
+// changeSummary says in one line what a write changed.
+func changeSummary(items []MemoryChangeItem) string {
+	parts := make([]string, len(items))
+	for i, item := range items {
+		verb := map[string]string{memory.Added: "+", memory.Updated: "~", memory.Removed: "−"}[item.Kind]
+		parts[i] = verb + " " + item.NoteTitle + " · " + item.Fact
 	}
-	if approve && !s.memoryOn() {
-		return i18n.Wrap(ErrState, "the memory is switched off in Settings")
-	}
+	return "\n" + strings.Join(parts, "\n")
+}
+
+// UndoMemoryChange reverts a write of the memory listed in a conversation.
+func (s *Service) UndoMemoryChange(id, changeID string) error {
 	s.memoryMu.Lock()
 	defer s.memoryMu.Unlock()
-	request, err := s.require(id)
-	if err != nil {
+	if _, err := s.memoryChange(id, changeID); err != nil {
 		return err
 	}
-	offer := request.Memories
-	switch {
-	case offer == nil || offer.Status != MemoryProposed:
-		return i18n.Wrap(ErrState, "nothing waits to be remembered")
-	case offer.ID != offerID:
-		return i18n.Wrap(ErrState, "the suggested facts changed since you read them")
-	}
-	if !approve {
-		if !s.settleMemories(id, offerID, func(r *Stored) {
-			r.Memories.Status = MemoryDeclined
-			r.Entries = append(r.Entries, s.entry("user", "text", s.text("Declined the facts to remember")))
-		}) {
-			return i18n.Wrap(ErrState, "the suggested facts changed since you read them")
-		}
-		return nil
-	}
-	facts, chosen, err := factsFor(*offer, picks)
-	if err != nil {
-		return err
-	}
-	source := memorySource(request, s.deps.Now())
-	// Writing is a few files and git commands on this computer: a bound keeps a stuck git from holding the decision.
 	ctx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
 	defer cancel()
-	written, err := s.deps.Memory.Remember(ctx, facts, source, memory.RememberMessage(source.Label))
-	if err != nil && !errors.Is(err, memory.ErrNotCommitted) {
+	if err := s.deps.Memory.Undo(ctx, changeID); err != nil {
+		if errors.Is(err, memory.ErrChanged) {
+			return i18n.Wrap(ErrState, "these facts changed since: change them on the Memory page or in the notes")
+		}
 		return memoryError(err)
 	}
-	journal := s.text("Remembered:\n%s", factLines(written))
-	if err != nil {
-		s.deps.OnError(err)
-		journal += "\n" + s.text("Git could not commit it: the notes are written, but their history does not show it yet.")
-	}
-	if !s.settleMemories(id, offerID, func(r *Stored) {
-		r.Memories.Status, r.Memories.Chosen = MemoryAccepted, chosen
-		r.Entries = append(r.Entries, s.entry("user", "text", journal))
-	}) {
-		// The facts are in the notes: the conversation moved on meanwhile, so the journal is all that is lost.
-		return i18n.Wrap(ErrState, "the suggested facts changed since you read them")
-	}
+	s.update(id, func(r *Stored) {
+		for i := range r.MemoryChanges {
+			if r.MemoryChanges[i].ID == changeID {
+				r.MemoryChanges[i].Undone = true
+			}
+		}
+		r.Entries = append(r.Entries, s.entry("user", "text", s.text("Undid the changes to the memory")))
+	})
 	return nil
 }
 
-// settleMemories applies change only while the suggestion offerID still waits for a choice, and reports whether it did.
-func (s *Service) settleMemories(id, offerID string, change func(*Stored)) bool {
-	settled := false
+// ShareMemoryFact lets a fact written in a conversation reach the requests of others, or keeps it from them again.
+func (s *Service) ShareMemoryFact(id, changeID, itemID string, shared bool) error {
+	s.memoryMu.Lock()
+	defer s.memoryMu.Unlock()
+	change, err := s.memoryChange(id, changeID)
+	if err != nil {
+		return err
+	}
+	index := slices.IndexFunc(change.Items, func(item MemoryChangeItem) bool { return item.ID == itemID })
+	if index < 0 || change.Items[index].Kind == memory.Removed {
+		return ErrNotFound
+	}
+	item := change.Items[index]
+	ctx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
+	defer cancel()
+	line, err := s.deps.Memory.SetShared(ctx, item.Note, item.Line, shared)
+	if errors.Is(err, memory.ErrChanged) {
+		return i18n.Wrap(ErrState, "this fact changed since you read it")
+	}
+	if err != nil {
+		return memoryError(err)
+	}
 	s.update(id, func(r *Stored) {
-		if r.Memories == nil || r.Memories.ID != offerID || r.Memories.Status != MemoryProposed {
-			return
+		for i := range r.MemoryChanges {
+			if r.MemoryChanges[i].ID != changeID {
+				continue
+			}
+			for j := range r.MemoryChanges[i].Items {
+				if r.MemoryChanges[i].Items[j].ID == itemID {
+					r.MemoryChanges[i].Items[j].Line, r.MemoryChanges[i].Items[j].Shared = line, shared
+				}
+			}
 		}
-		change(r)
-		settled = true
 	})
-	return settled
+	return nil
 }
 
-// factsFor checks the user's picks against the suggestion and turns them into facts to write.
-func factsFor(offer MemoryOffer, picks []MemoryPick) ([]memory.Fact, []string, error) {
-	if len(picks) == 0 {
-		return nil, nil, i18n.Wrap(ErrInput, "choose at least one fact, each only once")
+// memoryChange is a write listed in a conversation that can still be acted on.
+func (s *Service) memoryChange(id, changeID string) (MemoryChange, error) {
+	if !s.memoryOn() {
+		return MemoryChange{}, i18n.Wrap(ErrState, "the memory is switched off in Settings")
 	}
-	var facts []memory.Fact
-	var chosen []string
-	for _, pick := range picks {
-		index := slices.IndexFunc(offer.Items, func(item MemoryOption) bool { return item.ID == pick.ID })
-		if index < 0 || slices.Contains(chosen, pick.ID) {
-			return nil, nil, i18n.Wrap(ErrInput, "choose at least one fact, each only once")
-		}
-		item := offer.Items[index]
-		fact := memory.Fact{Note: item.Note, Text: item.Fact, Replaces: item.Replaces, Private: !pick.Shared}
-		if item.Note == "" {
-			fact.Title = item.NoteTitle
-		}
-		facts = append(facts, fact)
-		chosen = append(chosen, pick.ID)
+	request, err := s.require(id)
+	if err != nil {
+		return MemoryChange{}, err
 	}
-	return facts, chosen, nil
+	index := slices.IndexFunc(request.MemoryChanges, func(change MemoryChange) bool { return change.ID == changeID })
+	switch {
+	case changeID == "" || index < 0:
+		return MemoryChange{}, ErrNotFound
+	case request.MemoryChanges[index].Undone:
+		return MemoryChange{}, i18n.Wrap(ErrState, "these changes were undone already")
+	}
+	return request.MemoryChanges[index], nil
 }
 
 // memorySource says where the facts of a conversation were learned, as the notes show it.
@@ -376,14 +405,6 @@ func memorySource(r Stored, now time.Time) memory.Source {
 		source.Label = "Slack #" + oneLine(name, 40)
 	}
 	return source
-}
-
-func factLines(written []memory.Written) string {
-	lines := make([]string, len(written))
-	for i, fact := range written {
-		lines[i] = "- " + fact.Note.Title + " · " + strings.TrimPrefix(fact.Line, "- ")
-	}
-	return strings.Join(lines, "\n")
 }
 
 // memoryError maps what the memory refuses to the errors the API understands.

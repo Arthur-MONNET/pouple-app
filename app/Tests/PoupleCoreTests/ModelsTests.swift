@@ -87,6 +87,37 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(request.isEngaged)
     }
 
+    func testMemoryChangesDecodeLeniently() throws {
+        let json = """
+        {
+          "id": "m", "source": { "origin": "mention", "channelId": "C", "channelName": null, "senderId": "U", "senderName": "A", "ts": "1", "permalink": null },
+          "text": "x", "context": "", "receivedAt": "2026-11-05T14:00:00Z", "updatedAt": "2026-11-05T14:00:00Z",
+          "status": "ready", "summary": null, "draftReply": null, "questions": [], "proposal": null, "entries": [], "error": null,
+          "memoryChanges": [
+            { "id": "", "at": "2026-11-05T14:00:00Z", "undone": true, "items": [{ "id": "m1", "kind": "add" }] },
+            { "id": "abc123", "at": "2026-11-05T15:00:00Z", "items": [
+              { "id": "m1", "kind": "add", "note": "deploys.md", "noteTitle": "Deploys", "fact": "A", "line": "- A", "shared": false, "review": "2027-01-01" },
+              { "id": "m2", "kind": "add", "fact": "B", "unconfirmed": true },
+              { "id": "m3", "kind": "update", "fact": "C", "previous": "c" },
+              { "id": "m4", "kind": "remove" },
+              { "id": "m5", "kind": "teleport" }
+            ] }
+          ]
+        }
+        """
+        let request = try SnapshotDecoder.make().decode(AssistantRequest.self, from: Data(json.utf8))
+        let changes = try XCTUnwrap(request.memoryChanges)
+        XCTAssertTrue(changes[0].isUndone)
+        XCTAssertFalse(changes[0].canUndo)
+        let last = try XCTUnwrap(changes.last)
+        XCTAssertTrue(last.canUndo)
+        XCTAssertEqual(last.items.map(\.kind), [.add, .add, .update, .remove, .unknown])
+        XCTAssertEqual(last.items[2].previous, "c")
+        XCTAssertEqual(last.summary(language: .en), "Memory updated: 2 added, 1 updated, 1 removed · 1 unconfirmed")
+        XCTAssertEqual(last.summary(language: .fr), "Mémoire mise à jour\u{00A0}: 2 ajoutés, 1 modifié, 1 retiré · 1 non confirmé")
+        XCTAssertNil(try SnapshotDecoder.make().decode(AssistantRequest.self, from: Data(json.replacingOccurrences(of: "\"memoryChanges\"", with: "\"other\"").utf8)).memoryChanges)
+    }
+
     func testOnlyAPlanOfOneActionCanBeApprovedFromTheBubble() throws {
         func plan(id: String?, status: String = "proposed", actions: Int) throws -> AssistantPlan {
             let action = #"{"kind":"code.edit","scope":{"service":"code","id":"login-app"},"summary":"Keep the page","branch":"fix/login"}"#

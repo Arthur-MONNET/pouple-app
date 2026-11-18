@@ -58,11 +58,14 @@ async function tidy(): Promise<void> {
           <ul v-else class="mt-2 flex flex-col divide-y divide-line border-y border-line" :aria-label="$t('memory.review.listLabel')">
             <li v-for="item in view.review" :key="item.note + item.line" class="flex flex-col gap-2 py-3 min-[560px]:flex-row min-[560px]:items-center min-[560px]:justify-between" data-testid="memory-review-item">
               <div class="min-w-0">
-                <p class="text-sm text-ink">{{ item.fact }}</p>
+                <p class="text-sm text-ink">
+                  {{ item.fact }}
+                  <span v-if="item.unconfirmed" class="ml-1 rounded border border-line-strong px-1.5 py-0.5 text-xs text-ink-muted" data-testid="memory-unconfirmed">{{ $t('memory.review.unconfirmed') }}</span>
+                </p>
                 <p class="text-xs text-ink-muted">{{ $t('memory.review.from', { note: item.noteTitle, date: formatPlainDay(item.date) }) }}</p>
               </div>
               <div class="flex shrink-0 gap-2">
-                <AppButton variant="primary" :disabled="memory.busy.value" :aria-label="$t('memory.review.keepLabel', { fact: item.fact })" data-testid="memory-keep" @click="memory.review(item.note, item.line, 'keep')">{{ $t('memory.review.keep') }}</AppButton>
+                <AppButton variant="primary" :disabled="memory.busy.value" :aria-label="$t(item.unconfirmed ? 'memory.review.confirmLabel' : 'memory.review.keepLabel', { fact: item.fact })" data-testid="memory-keep" @click="memory.review(item.note, item.line, 'keep')">{{ $t(item.unconfirmed ? 'memory.review.confirm' : 'memory.review.keep') }}</AppButton>
                 <AppButton variant="outline" :disabled="memory.busy.value" :aria-label="$t('memory.review.dropLabel', { fact: item.fact })" data-testid="memory-drop" @click="memory.review(item.note, item.line, 'drop')">{{ $t('memory.review.drop') }}</AppButton>
               </div>
             </li>

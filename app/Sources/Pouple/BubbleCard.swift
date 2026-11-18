@@ -172,13 +172,7 @@ struct BubbleCard: View {
                 ReminderPicker(offer: offer, busy: busy, onConfirm: { store.decideReminders(request, picks: $0) }, onSkip: { store.decideReminders(request, picks: nil) })
                     .id(offer.id)
             }
-            // One choice at a time: the bubble grows with what it holds, so the facts come once the reminders are settled
-            // (the window shows both at once).
-            if let offer = request.memories, offer.isProposed, request.reminders?.isProposed != true {
-                // A new offer starts over, with the facts ticked as proposed and all of them private.
-                MemoryPicker(offer: offer, busy: busy, onConfirm: { store.decideMemories(request, picks: $0) }, onSkip: { store.decideMemories(request, picks: nil) })
-                    .id(offer.id)
-            }
+            if let change = request.memoryChanges?.last, !change.items.isEmpty { memoryLine(change) }
             HStack {
                 Button(L10n.text(.bubbleDone)) { store.dismiss(request) }.buttonStyle(PillButtonStyle(role: .primary))
                 openButton
@@ -186,6 +180,24 @@ struct BubbleCard: View {
         case .done:
             if let summary = request.summary { MarkdownView(source: summary) }
             openButton
+        }
+    }
+
+    /// One quiet line for the last change made to the memory; the details stay in the window.
+    @ViewBuilder private func memoryLine(_ change: MemoryChange) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "brain").font(.system(size: 11)).foregroundStyle(Theme.dim)
+            Text(change.isUndone ? L10n.text(.memoryUndone) : change.summary())
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            if !change.isUndone {
+                Spacer(minLength: 4)
+                Button(L10n.text(.memoryUndo)) { store.undoMemoryChange(request) }
+                    .buttonStyle(PillButtonStyle(role: .quiet))
+                    .fixedSize()
+                    .disabled(busy || change.id.isEmpty)
+            }
         }
     }
 

@@ -23,19 +23,25 @@ const (
 )
 
 var (
-	datePattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-	keptPattern = regexp.MustCompile(` \(kept \d{4}-\d{2}-\d{2}\)`)
+	datePattern   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+	keptPattern   = regexp.MustCompile(` \(kept \d{4}-\d{2}-\d{2}\)`)
+	reviewPattern = regexp.MustCompile(` \(review (\d{4}-\d{2}-\d{2})\)`)
+	commitPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+	// minLife is the shortest a fact lives before it is reviewed again once kept.
+	minLife = 14 * 24 * time.Hour
 )
 
-// ToReview is a fact that nothing confirmed for a long time.
+// ToReview is a fact to look at again: its time came, or nobody vouched for it.
 type ToReview struct {
 	Note Note `json:"note"`
-	// Line is the line as it is in the note: the identity of the fact for Review.
+	// Line is the line as it is in the note: the identity of the fact for Keep and Drop.
 	Line string `json:"line"`
-	// Fact is what it says, without its list marker and its private mark.
+	// Fact is what it says, without its list marker, its review date and its marks.
 	Fact string `json:"fact"`
-	// Date is the last date the fact carries (learned, or kept since), YYYY-MM-DD.
+	// Date is when it was learned or last kept, YYYY-MM-DD.
 	Date string `json:"date"`
+	// Unconfirmed is set for a fact the AI wrote from text of other people.
+	Unconfirmed bool `json:"unconfirmed"`
 }
 
 // CountFacts is how many list items a note holds.
@@ -49,9 +55,10 @@ func CountFacts(content string) int {
 	return count
 }
 
-// FactDate is the last date a line carries, the one that says how recent it is; false when it has none.
+// FactDate is when a fact was learned or last kept: the last date of its line, its review date aside. False when it has
+// none.
 func FactDate(line string) (time.Time, bool) {
-	dates := datePattern.FindAllString(line, -1)
+	dates := datePattern.FindAllString(reviewPattern.ReplaceAllString(line, ""), -1)
 	if len(dates) == 0 {
 		return time.Time{}, false
 	}
@@ -59,14 +66,25 @@ func FactDate(line string) (time.Time, bool) {
 	return at, err == nil
 }
 
-// Review lists the facts older than StaleAfter, the oldest first. A fact written by hand without a date is never listed:
-// nothing says how old it is.
+// ReviewDate is when a fact is due: its own review date, or StaleAfter after it was learned or kept. False when the line
+// says neither: nothing tells how old a fact written by hand without a date is.
+func ReviewDate(line string) (time.Time, bool) {
+	if match := reviewPattern.FindStringSubmatch(line); match != nil {
+		if at, err := time.Parse(time.DateOnly, match[1]); err == nil {
+			return at, true
+		}
+	}
+	learned, ok := FactDate(line)
+	return learned.Add(StaleAfter), ok
+}
+
+// Review lists the facts to look at again: those whose time came, and those nobody vouched for, the oldest first.
 func (s *Store) Review(now time.Time) ([]ToReview, error) {
 	notes, err := s.Notes(false)
 	if err != nil {
 		return nil, err
 	}
-	var stale []ToReview
+	var listed []ToReview
 	for _, note := range notes {
 		_, content, err := s.Read(note.Path, false)
 		if err != nil {
@@ -74,20 +92,45 @@ func (s *Store) Review(now time.Time) ([]ToReview, error) {
 		}
 		for line := range strings.SplitSeq(content, "\n") {
 			text := factText(line)
-			at, dated := FactDate(line)
-			if text == "" || !dated || now.Sub(at) < StaleAfter {
+			due, dated := ReviewDate(line)
+			unconfirmed := IsUnconfirmed(line)
+			if text == "" || (!unconfirmed && (!dated || now.Before(due))) {
 				continue
 			}
-			display := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), PrivateMark))
-			stale = append(stale, ToReview{Note: note, Line: line, Fact: display, Date: at.Format(time.DateOnly)})
+			learned, _ := FactDate(line)
+			item := ToReview{Note: note, Line: line, Fact: FactText(line), Unconfirmed: unconfirmed}
+			if !learned.IsZero() {
+				item.Date = learned.Format(time.DateOnly)
+			}
+			listed = append(listed, item)
 		}
 	}
-	slices.SortStableFunc(stale, func(a, b ToReview) int { return strings.Compare(a.Date, b.Date) })
-	return stale[:min(len(stale), maxReview)], nil
+	slices.SortStableFunc(listed, func(a, b ToReview) int { return strings.Compare(a.Date, b.Date) })
+	return listed[:min(len(listed), maxReview)], nil
 }
 
-// Keep marks a fact confirmed today, so it leaves the review for six months; Drop takes it out of its note, with the
-// lines indented under it. line must be the line as it was read: ErrChanged otherwise.
+// FactText is what a line of a note says: no list marker, no marks, and none of the dated parentheses that follow the
+// fact (where and when it was learned, kept, reviewed).
+func FactText(line string) string {
+	text := strings.TrimSpace(line)
+	if item := factText(text); item != "" {
+		text = item
+	}
+	for _, mark := range []string{PrivateMark, UnconfirmedMark} {
+		text = strings.TrimSpace(strings.ReplaceAll(text, mark, ""))
+	}
+	for strings.HasSuffix(text, ")") {
+		open := strings.LastIndex(text, " (")
+		if open < 0 || !datePattern.MatchString(text[open:]) {
+			break
+		}
+		text = strings.TrimSpace(text[:open])
+	}
+	return text
+}
+
+// Keep confirms a fact: it is no longer unconfirmed, and it is due again after as long as it lived since it was learned
+// (at least two weeks; StaleAfter when it had no review date). line must be the line as it was read: ErrChanged otherwise.
 func (s *Store) Keep(ctx context.Context, note, line string, now time.Time) error {
 	return s.reviewLine(ctx, note, line, "Kept a fact", func(lines []string, at int) []string {
 		lines[at] = keptLine(lines[at], now)
@@ -98,12 +141,72 @@ func (s *Store) Keep(ctx context.Context, note, line string, now time.Time) erro
 // Drop takes a fact out of its note; see Keep.
 func (s *Store) Drop(ctx context.Context, note, line string) error {
 	return s.reviewLine(ctx, note, line, "Dropped a fact", func(lines []string, at int) []string {
-		end := at + 1
-		for end < len(lines) && strings.TrimSpace(lines[end]) != "" && indentWidth(lines[end]) > indentWidth(lines[at]) {
-			end++
-		}
-		return slices.Delete(lines, at, end)
+		return slices.Delete(lines, at, itemEnd(lines, at))
 	})
+}
+
+// SetShared lets a fact reach the requests of others, or keeps it from them; it returns the line as it is now.
+func (s *Store) SetShared(ctx context.Context, note, line string, shared bool) (string, error) {
+	message := "Made a fact private"
+	if shared {
+		message = "Shared a fact"
+	}
+	var changed string
+	err := s.reviewLine(ctx, note, line, message, func(lines []string, at int) []string {
+		lines[at] = withPrivate(lines[at], !shared)
+		changed = lines[at]
+		return lines
+	})
+	return changed, err
+}
+
+func withPrivate(line string, private bool) string {
+	trimmed := strings.TrimRight(line, " ")
+	if !private {
+		return strings.TrimRight(strings.ReplaceAll(trimmed, " "+PrivateMark, ""), " ")
+	}
+	if IsPrivate(trimmed) {
+		return trimmed
+	}
+	return trimmed + " " + PrivateMark
+}
+
+// Undo reverts one change Pouple made, by its commit. A change the notes moved on from since (a later edit of the same
+// lines) cannot be undone: ErrChanged.
+func (s *Store) Undo(ctx context.Context, commit string) error {
+	if !commitPattern.MatchString(commit) {
+		return ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.dir()
+	if dir == "" {
+		return ErrNotFound
+	}
+	if err := s.commitOutside(ctx, dir); err != nil {
+		return err
+	}
+	subject, err := s.git(ctx, dir, "log", "-1", "--format=%s", commit)
+	if err != nil || !strings.HasPrefix(subject, rememberMessage) {
+		return ErrNotFound
+	}
+	args := append(append([]string{}, gitIdentity...), "revert", "--no-edit", commit)
+	if out, err := s.git(ctx, dir, args...); err != nil {
+		_, _ = s.git(ctx, dir, "revert", "--abort")
+		if strings.Contains(out, "conflict") || strings.Contains(out, "CONFLICT") {
+			return ErrChanged
+		}
+		return i18n.Wrap(ErrNotCommitted, "git could not commit the memory: %s", out)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return i18n.Wrap(err, "The memory folder cannot be read")
+	}
+	defer root.Close()
+	if err := s.writeIndex(root); err != nil {
+		return err
+	}
+	return s.commit(ctx, dir, "Index written again")
 }
 
 func (s *Store) reviewLine(ctx context.Context, raw, line, message string, change func([]string, int) []string) error {
@@ -146,14 +249,26 @@ func (s *Store) reviewLine(ctx context.Context, raw, line, message string, chang
 	return s.commit(ctx, dir, message+" in "+name)
 }
 
-// keptLine says when a fact was last confirmed: one "(kept …)" mark, before the private mark.
+// keptLine confirms a fact today: no unconfirmed mark, no older kept mark, and a review date as far ahead as the fact had
+// lived when it was kept (at least minLife; StaleAfter when it had no review date).
 func keptLine(line string, now time.Time) string {
-	line = keptPattern.ReplaceAllString(line, "")
-	mark := " (kept " + now.Format(time.DateOnly) + ")"
-	trimmed := strings.TrimRight(line, " ")
-	if strings.HasSuffix(strings.ToLower(trimmed), PrivateMark) {
-		base := strings.TrimRight(trimmed[:len(trimmed)-len(PrivateMark)], " ")
-		return base + mark + " " + trimmed[len(trimmed)-len(PrivateMark):]
+	life := StaleAfter
+	if match := reviewPattern.FindStringSubmatch(line); match != nil {
+		review, errReview := time.Parse(time.DateOnly, match[1])
+		learned, dated := FactDate(line)
+		if errReview == nil && dated {
+			life = max(review.Sub(learned), minLife)
+		}
 	}
-	return trimmed + mark
+	private := IsPrivate(line)
+	line = keptPattern.ReplaceAllString(line, "")
+	line = reviewPattern.ReplaceAllString(line, "")
+	for _, mark := range []string{" " + UnconfirmedMark, " " + PrivateMark} {
+		line = strings.ReplaceAll(line, mark, "")
+	}
+	line = strings.TrimRight(line, " ") + " (kept " + now.Format(time.DateOnly) + ") (review " + now.Add(life).Format(time.DateOnly) + ")"
+	if private {
+		line += " " + PrivateMark
+	}
+	return line
 }

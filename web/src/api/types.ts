@@ -233,33 +233,35 @@ export interface ReminderPick {
   at?: string;
 }
 
-/** One fact the assistant suggests to remember, and the note it goes to. Nothing is written until the user ticks it. */
-export interface MemoryOption {
+/** One fact the assistant changed in the memory with its answer. */
+export interface MemoryChangeItem {
   id: string;
-  /** Path of the existing note the fact is added to; absent when a new note is made. */
-  note?: string;
+  kind: 'add' | 'update' | 'remove';
+  /** Path of the note. */
+  note: string;
   noteTitle: string;
+  /** What the fact says now (what it said, for a removal). */
   fact: string;
-  /** The text of an older fact this one replaces. */
-  replaces?: string;
-  /** The assistant's suggestion: whether the fact starts ticked. */
-  ticked: boolean;
+  /** For an update: what it said before. */
+  previous?: string;
+  /** The exact line of the note. */
+  line: string;
+  /** Private until the user shares it. */
+  shared: boolean;
+  /** Written from other people's words and not confirmed yet. */
+  unconfirmed?: boolean;
+  /** YYYY-MM-DD: when the fact should be looked at again. */
+  review?: string;
 }
 
-/** What the assistant suggests to remember, waiting for the user's pick or already decided. */
-export interface MemoryOffer {
-  /** Names this exact suggestion: a decision carries it, so it can only answer the suggestion that was read. */
+/** What the assistant changed in the memory at once, with its answer. It can be undone as a whole. */
+export interface MemoryChange {
+  /** The git commit of the change; empty when git failed: then it cannot be undone. */
   id: string;
-  status: 'proposed' | 'accepted' | 'declined';
-  items: MemoryOption[];
-  /** Once accepted: the ids of the facts that were written. */
-  chosen?: string[];
-}
-
-/** A fact the user ticked. It is private (never used to answer other people) unless `shared` is true. */
-export interface MemoryPick {
-  id: string;
-  shared?: boolean;
+  /** RFC 3339. */
+  at: string;
+  undone?: boolean;
+  items: MemoryChangeItem[];
 }
 
 /** An upcoming alert. When it comes due it becomes a conversation with a bubble. */
@@ -326,8 +328,8 @@ export interface AssistantRequest {
   plan?: AssistantPlan;
   /** The alerts the assistant suggests, waiting for the user's pick or already decided. */
   reminders?: ReminderOffer;
-  /** The facts the assistant suggests to remember, waiting for the user's pick or already decided. */
-  memories?: MemoryOffer;
+  /** What the assistant changed in the memory with its answers, oldest first (at most 10). */
+  memoryChanges?: MemoryChange[];
   source: RequestSource;
   /** The topic the core sorted this conversation into. Absent or empty: not sorted yet (small talk, or not looked at yet). */
   topicId?: string;
@@ -590,7 +592,7 @@ export interface MemoryNote {
   facts: number;
 }
 
-/** A fact older than six months that nothing confirmed since. */
+/** A fact to look at: its own review date came, or it was written from other people's words and nobody confirmed it. */
 export interface MemoryReviewItem {
   note: string;
   noteTitle: string;
@@ -599,6 +601,8 @@ export interface MemoryReviewItem {
   fact: string;
   /** YYYY-MM-DD. */
   date: string;
+  /** Written by the AI from other people's text: keeping it confirms it. */
+  unconfirmed: boolean;
 }
 
 export type MemoryCliId = 'claude' | 'codex';

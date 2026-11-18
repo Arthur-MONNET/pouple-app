@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/memory"
 )
@@ -63,6 +64,8 @@ type ReviewItem struct {
 	Line      string `json:"line"`
 	Fact      string `json:"fact"`
 	Date      string `json:"date"`
+	// Unconfirmed is set for a fact the AI wrote from text of other people: keeping it confirms it.
+	Unconfirmed bool `json:"unconfirmed"`
 }
 
 // MemoryView reads the memory for the Memory page: the user's own view, private facts included.
@@ -86,7 +89,7 @@ func (s *Service) MemoryView(ctx context.Context) (MemoryView, error) {
 		return view, err
 	}
 	for _, fact := range stale {
-		view.Review = append(view.Review, ReviewItem{Note: fact.Note.Path, NoteTitle: fact.Note.Title, Line: fact.Line, Fact: fact.Fact, Date: fact.Date})
+		view.Review = append(view.Review, ReviewItem{Note: fact.Note.Path, NoteTitle: fact.Note.Title, Line: fact.Line, Fact: fact.Fact, Date: fact.Date, Unconfirmed: fact.Unconfirmed})
 	}
 	if state, err := s.deps.Memory.State(ctx); err == nil && !state.At.IsZero() {
 		view.TidiedAt = state.At.Format(time.RFC3339)
@@ -208,6 +211,46 @@ func (s *Service) tidyList(notes []memory.Note) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// memoryReviewGap is the least time between two alerts that ask to review the memory, and memoryReviewShown how many facts
+// such an alert names.
+const (
+	memoryReviewGap   = 7 * 24 * time.Hour
+	memoryReviewShown = 8
+)
+
+// maybeAskMemoryReview sets an alert, at most once a week, when facts wait to be reviewed: the review comes to the user,
+// who would not open the Memory page on their own. The alert becomes a bubble like any other.
+func (s *Service) maybeAskMemoryReview() {
+	if !s.memoryOn() || s.deps.Alerts == nil {
+		return
+	}
+	now := s.deps.Now()
+	if last, err := time.Parse(time.RFC3339, s.deps.Store.MemoryReviewAt()); err == nil && now.Sub(last) < memoryReviewGap {
+		return
+	}
+	due, err := s.deps.Memory.Review(now)
+	if err != nil || len(due) == 0 {
+		return
+	}
+	lines := make([]string, 0, memoryReviewShown+1)
+	for _, fact := range due[:min(len(due), memoryReviewShown)] {
+		lines = append(lines, "- "+fact.Fact+" ("+fact.Note.Title+")")
+	}
+	if len(due) > memoryReviewShown {
+		lines = append(lines, s.text("…and %d more.", len(due)-memoryReviewShown))
+	}
+	note := clipRunes(s.text("Keep or drop them on the Memory page.")+"\n"+strings.Join(lines, "\n"), alerts.MaxNote)
+	title := s.text("Memory: %d facts to review", len(due))
+	if len(due) == 1 {
+		title = s.text("Memory: 1 fact to review")
+	}
+	if _, err := s.deps.Alerts.Add(alerts.Draft{Title: title, Note: note, At: now.Add(time.Minute)}, now); err != nil {
+		s.deps.OnError(fmt.Errorf("could not ask to review the memory: %w", err))
+		return
+	}
+	s.deps.Store.MemoryReviewed(now.Format(time.RFC3339))
 }
 
 // ParseMemoryTidy validates the final message of a tidy-up turn.

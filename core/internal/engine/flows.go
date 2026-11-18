@@ -341,7 +341,7 @@ func (s *Service) webAllowed() bool { return s.deps.WebAccess != nil && s.deps.W
 func (s *Service) applyOutcome(id string, outcome Outcome) {
 	s.showOutcome(id, outcome)
 	s.attachReminders(id, outcome)
-	s.attachMemories(id, outcome)
+	s.applyMemories(id, outcome)
 }
 
 func (s *Service) showOutcome(id string, outcome Outcome) {

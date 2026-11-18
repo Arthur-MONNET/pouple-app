@@ -16,7 +16,6 @@ import type {
   Profile,
   PlanDecision,
   ProposalDecision,
-  MemoryPick,
   ReminderPick,
   QuestionAnswer,
   ProviderModels,
@@ -77,8 +76,10 @@ export interface PoupleApi {
   decidePlan(requestId: string, decision: PlanDecision, planId: string, actions?: number[]): Promise<void>;
   /** Sets the alerts the user ticked in the suggestion they read (offerId), or declines it (no items). */
   decideReminders(requestId: string, decision: ProposalDecision, offerId: string, items?: ReminderPick[]): Promise<void>;
-  /** Writes the facts the user ticked in the suggestion they read (offerId), or declines it (no items). */
-  decideMemories(requestId: string, decision: ProposalDecision, offerId: string, items?: MemoryPick[]): Promise<void>;
+  /** Undoes a whole memory change of the conversation. Rejects with 409 when it was undone, when the facts changed since, or when the memory is off. */
+  undoMemoryChange(requestId: string, changeId: string): Promise<void>;
+  /** Shares a fact of a memory change, or makes it private again. */
+  shareMemoryFact(requestId: string, changeId: string, itemId: string, shared: boolean): Promise<void>;
   /** Makes an alert by hand. Rejects with an ApiError (400) when the title is empty or the moment is not in the future. */
   createAlert(input: AlertInput): Promise<AssistantAlert>;
   updateAlert(id: string, patch: AlertPatch): Promise<AssistantAlert>;
@@ -209,7 +210,8 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     decideProposal: (requestId, decision) => post(assistant(requestId, '/proposal'), { decision }),
     decidePlan: (requestId, decision, planId, actions) => post(assistant(requestId, '/plan'), { decision, planId, ...(actions && { actions }) }),
     decideReminders: (requestId, decision, offerId, items) => post(assistant(requestId, '/reminders'), { decision, offerId, ...(items && { items }) }),
-    decideMemories: (requestId, decision, offerId, items) => post(assistant(requestId, '/memories'), { decision, offerId, ...(items && { items }) }),
+    undoMemoryChange: (requestId, changeId) => post(assistant(requestId, '/memories'), { action: 'undo', changeId }),
+    shareMemoryFact: (requestId, changeId, item, shared) => post(assistant(requestId, '/memories'), { action: 'share', changeId, item, shared }),
     createAlert: (input) => read<AssistantAlert>('/api/alerts', { method: 'POST' }, input),
     updateAlert: (id, patch) => read<AssistantAlert>(`/api/alerts/${enc(id)}`, { method: 'PATCH' }, patch),
     deleteAlert: async (id) => void (await send(`/api/alerts/${enc(id)}`, { method: 'DELETE' })),

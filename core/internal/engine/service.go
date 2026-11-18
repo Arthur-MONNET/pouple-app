@@ -481,6 +481,7 @@ func (s *Service) Poll(ctx context.Context) {
 	s.expireStale()
 	s.maybeOrganize(ctx)
 	s.maybeTidyMemory(ctx)
+	s.maybeAskMemoryReview()
 }
 
 func (s *Service) pollSlack(ctx context.Context) {

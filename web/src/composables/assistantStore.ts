@@ -10,7 +10,6 @@ import type {
   PlanDecision,
   ProposalDecision,
   QuestionAnswer,
-  MemoryPick,
   ReminderPick,
 } from '../api/types';
 import { attentionCount, byRecentActivity } from '../lib/assistantRequests';
@@ -132,8 +131,8 @@ export function createAssistantStore(api: PoupleApi) {
       (forgetStopped(id), act(() => api.decidePlan(id, decision, planId, actions))),
     decideReminders: (id: string, decision: ProposalDecision, offerId: string, items?: ReminderPick[]) =>
       act(() => api.decideReminders(id, decision, offerId, items)),
-    decideMemories: (id: string, decision: ProposalDecision, offerId: string, items?: MemoryPick[]) =>
-      act(() => api.decideMemories(id, decision, offerId, items)),
+    undoMemoryChange: (id: string, changeId: string) => act(() => api.undoMemoryChange(id, changeId)),
+    shareMemoryFact: (id: string, changeId: string, itemId: string, shared: boolean) => act(() => api.shareMemoryFact(id, changeId, itemId, shared)),
     createAlert: (input: AlertInput) => act(() => api.createAlert(input)),
     updateAlert: (id: string, patch: AlertPatch) => act(() => api.updateAlert(id, patch)),
     deleteAlert: (id: string) => act(() => api.deleteAlert(id)),

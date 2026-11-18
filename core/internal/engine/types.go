@@ -128,11 +128,11 @@ type Request struct {
 	// Reminders are the alerts the assistant suggests setting, waiting for the user's pick or already decided; absent until
 	// it suggests some.
 	Reminders *ReminderOffer `json:"reminders,omitempty"`
-	// Memories are the facts the assistant suggests keeping in the memory, waiting for the user's pick or already decided;
-	// absent until it suggests some.
-	Memories *MemoryOffer `json:"memories,omitempty"`
-	Entries  []Entry      `json:"entries"`
-	Error    *string      `json:"error"`
+	// MemoryChanges are the writes of the memory made with the answers of this conversation, the latest last, each with a
+	// way to undo it; absent until one is made.
+	MemoryChanges []MemoryChange `json:"memoryChanges,omitempty"`
+	Entries       []Entry        `json:"entries"`
+	Error         *string        `json:"error"`
 	// Continuable is set when listed: the AI has a conversation a follow-up can continue.
 	Continuable bool `json:"continuable,omitempty"`
 	// Engaged is set once the request has reached the user (a question, an answer, a failure, an applied change).

@@ -92,39 +92,46 @@ learned helps you there, and what you write there helps Pouple.
   Never a secret: tokens, passwords and keys are removed before anything is written, as in answers.
 - **Where it lives.** `~/SecondBrain/` by default; Settings can choose another folder, an Obsidian vault for example. An
   `INDEX.md` lists every note in one line, and each note is one subject (a project, a service, a person, a decision). A fact
-  is one list item with its source and its date, and `[private]` unless you shared it when you confirmed it (by hand, the
-  mark covers its item and what is indented under it, or, on a heading, the whole section):
-  `- Preprod 2 is reset every Monday at 7:00. ([Slack #qa, 2026-11-12](https://…))`.
+  is one list item with its source and its date, when it should be looked at again, `[unconfirmed]` when it came from what
+  other people said, and `[private]` until you share it (by hand, a mark covers its item and what is indented under it,
+  or, on a heading, the whole section):
+  `- Lina has preprod 1. ([Slack #qa, 2026-11-12](https://…)) (review 2026-12-10) [unconfirmed] [private]`.
   The folder is a git repository on your computer only (never pushed: a folder whose repository has a remote, such as a
   vault synced with git, is refused). Pouple commits before each of its writes, which
   keeps what you or your CLIs changed apart, and after it: every change can be read and undone, and the history shows what
   was learned and when.
-- **Suggested, then confirmed.** When a conversation ends with something worth keeping, the investigating AI suggests facts
-  with its answer, each with the note it goes to. As for alerts, the conversation shows a list with a tick for each one, in
-  the window and in the bubble of a ready answer, and **nothing is written until you confirm**: confirming writes exactly the
-  ticked facts, "No thanks" writes none. A fact is ticked in advance only when the conversation never read text written by
-  others; a fact that rests on what others wrote waits for your tick. Each fact is **private** unless you switch it to
-  shared in the list: a private fact never reaches a request of someone else. A new fact that contradicts one already kept
-  replaces it, and the list says so. In the bubble, one choice at a time: the facts come once the suggested reminders are
-  settled, while the window shows both.
+- **Kept up to date by the AI.** With its answers, the investigating AI changes the memory **at once, without asking**: it
+  adds what the conversation established, corrects a fact the code, a service or you contradict (the new fact takes the
+  place of the old one), and takes out one that no longer holds. Before adding a fact, it searches the notes on its
+  subject, so it corrects instead of writing a second one. At most four changes per answer, each answer's changes being
+  one commit. The conversation lists them (added, changed with what it said before, taken out), with **Undo** for the whole
+  write and **Share** for each fact; the bubble says it in one line, with Undo. A new fact is **private**: a private fact
+  never reaches a request of someone else, and such a request can change none. A fact written from a conversation that held
+  text of other people is marked `[unconfirmed]`: nobody vouched for it.
+- **How long a fact holds.** The AI says it of each fact: weeks (who has an environment, a current assignment), months, or
+  years (a decision, a convention). The fact carries the date it should be looked at again; one with none is looked at six
+  months after it was learned.
 - **Read by the investigation.** The AI is given the index at the start of a request and reads the notes it needs with a
   lookup (`notes` / `search` or `read`), like any service. For a request that came
   from someone else, Pouple removes the `[private]` facts before the AI sees a note, for the reason given in
   [Topics](#topics): what it drafts for them could repeat it.
-- **Trust.** Only facts you confirmed or wrote reach the memory, so it counts as your own text: reading it never ends
-  level 2. Anything written there by hand, or by your Claude Code or Codex, is taken as yours too, and shared unless you
-  mark it `[private]`.
+- **Trust.** A fact that rests on your own words, or that you confirmed, counts as your own text. An `[unconfirmed]` fact
+  counts as text of others: having read one, nothing runs on its own afterwards, as after reading a Slack message, and
+  your CLIs are told never to act on one without checking. Anything written in the folder by hand, or by your Claude Code
+  or Codex, is taken as yours, and shared unless you mark it `[private]`.
 - **Kept in order.** After five writes of facts, and at most once a day, like topics, the AI rereads the memory: it names the
   notes that are one subject, and Pouple merges them (the facts of one go under a heading of its title in the other, never
-  rewritten) and writes the index again, in one commit. **Tidy up now** on the Memory page does it at once. Facts
-  older than six months that nothing confirmed since need no AI: their dates say it.
+  rewritten) and writes the index again, in one commit. **Tidy up now** on the Memory page does it at once.
+- **The review comes to you.** The facts whose date came, and the `[unconfirmed]` ones, wait for a review. At most once a
+  week, when some wait, Pouple sets an alert "Memory: N facts to review" that becomes a bubble like any reminder.
 - **The Memory page.** Next to Upcoming alerts, it shows the folder (and opens it in the Finder), when the memory was last
-  tidied, the facts to review, where you keep one (it is marked confirmed today) or drop it, and the notes with how many facts
-  each holds.
+  tidied, the facts to review, where you keep one (it is confirmed, and due again after as long as it had lived) or drop
+  it, and the notes with how many facts each holds.
 - **Outside Pouple.** Pouple never reads or changes `~/.claude` or `~/.codex` on its own (its turns run with their own
   folders and no MCP server). When you ask, Settings shows the exact lines that connect the memory, and adds them only when
   you accept: an import of the index in `~/.claude/CLAUDE.md` (`@~/SecondBrain/INDEX.md`), and in `~/.codex/AGENTS.md`
-  an instruction to read the index and the notes it points to. The lines sit between two markers, so the same screen takes
+  an instruction to read the index and the notes it points to. Both are told that an old fact may be wrong and that an
+  `[unconfirmed]` one is never acted on without checking. The lines sit between two markers, so the same screen takes
   them out and leaves the rest of the file as it was. It is only possible while the memory is on, and a file that is a
   symbolic link (a dotfiles repository) is never written through: add the lines yourself.
 - **Off by default.** The memory is off until you turn it on in Settings: whoever does not want it never sees it. While it
@@ -324,7 +331,7 @@ of the memory that an investigation reads are sent too.
 | Sources | Slack, finished GitLab pipelines, feedback on your merge requests (one request per merge request and per poll, holding its new comments), and Asana (a task assigned to you, a comment that mentions you on one of your tasks). | Done. |
 | Reading | Up to 12 lookup rounds per question (a bound so that an AI that never settles ends); no other limit, the usage is shown. | No limit. |
 | Replies | Written in your learned style: a short description of how you write, learned from about 80 of your own Slack messages (every two weeks; Settings can switch it off and make Pouple forget it). | Done. |
-| Memory | Done: the folder and its history, read by every investigation, private facts kept from requests of others, facts confirmed in the window and the bubble, the tidy-up, the facts to review and the Memory page, connecting your Claude Code and Codex from Settings. Off by default. | As described in [Memory](#memory). |
+| Memory | Done: the folder and its history, read by every investigation, private facts kept from requests of others, changes made by the AI at once with undo and sharing, unconfirmed facts, lifetimes and a weekly review alert, the tidy-up and the Memory page, connecting your Claude Code and Codex from Settings. Off by default. | As described in [Memory](#memory). |
 | Thread updates | A message in the Slack thread of a conversation that is still open (an answer or a question waiting) is read quietly in the conversation the assistant already has: it answers `no_change` and nothing reaches you, or it updates what it said and you are told. A closed or ignored conversation opens a new request. | Done. |
 
 ## Open points
@@ -360,3 +367,8 @@ These are not decided or not verified. None of them changes the decisions above,
   AI, and Claude's file tools cannot open the folder. Codex's read-only sandbox and a turn with full access can still read
   any file by its path, Pouple's data folder included. To decide whether a request of someone else should run without the
   memory folder on disk at all (another sandbox rule for Codex, no full access while the memory is on).
+- **Changes made without asking.** Your choice: the AI changes the memory at once, whoever the request came from. A message
+  of someone else can therefore change it (an instruction hidden in a Slack message, for one), and what it wrote reaches your
+  CLIs, which run with your full rights. What limits it: such a fact is `[unconfirmed]` and private, it cannot touch a
+  private fact, your CLIs are told never to act on it without checking, and each write can be undone. To decide later:
+  whether changes made from text of others should wait for your tick again.

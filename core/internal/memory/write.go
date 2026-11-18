@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -22,18 +23,38 @@ var ErrNotCommitted = i18n.NewError("the memory was written but git could not co
 // minReplaces is how long the text of a fact to replace must be: a few letters would match facts it does not mean.
 const minReplaces = 8
 
-// Fact is one thing to remember.
+// UnconfirmedMark ends a fact the AI wrote from a conversation that held text of other people: nobody vouched for it. It
+// stays until the user keeps it in the review.
+const UnconfirmedMark = "[unconfirmed]"
+
+// Change kinds.
+const (
+	Added   = "add"
+	Updated = "update"
+	Removed = "remove"
+)
+
+// Fact is one change to the memory: a fact to add, a fact that takes the place of another (Replaces), or a fact to take
+// out (Remove, with Replaces naming it).
 type Fact struct {
 	// Note is the path of the note it goes to; "" makes a new note named after Title. A note that does not exist yet is
 	// made, with Title (or its file name) as its heading.
 	Note  string
 	Title string
-	// Text is the fact, one line.
+	// Text is the fact, one line; "" only to remove one.
 	Text string
-	// Replaces is the text of a fact of the note that this one makes wrong; "" when it replaces nothing.
+	// Replaces is the text a fact of the note starts with, that this one makes wrong or that Remove takes out.
 	Replaces string
-	// Private keeps the fact from every request of someone else.
+	Remove   bool
+	// Private keeps a new fact from every request of someone else. A fact that takes the place of another keeps the
+	// other's choice: the user's sharing is never undone by the AI.
 	Private bool
+	// Unconfirmed marks a fact that rests on text of other people.
+	Unconfirmed bool
+	// Review is when the fact should be looked at again; zero leaves it to the default age (StaleAfter).
+	Review time.Time
+	// SharedOnly lets the change touch only facts that are not private: a request of someone else never saw the others.
+	SharedOnly bool
 }
 
 // Source is where the facts of one write were learned.
@@ -45,13 +66,21 @@ type Source struct {
 	Date time.Time
 }
 
-// Written is a fact as it was kept.
+// Written is a change as it was made.
 type Written struct {
 	Note Note `json:"note"`
-	// Line is the line written in the note.
+	// Kind is Added, Updated or Removed.
+	Kind string `json:"kind"`
+	// Line is the line written in the note, or the line taken out.
 	Line string `json:"line"`
-	// Replaced is set when it took the place of an earlier fact.
-	Replaced bool `json:"replaced,omitempty"`
+	// Previous is the line a fact took the place of; "" otherwise.
+	Previous string `json:"previous,omitempty"`
+}
+
+// Change is one write of the memory: what it changed, and the commit that holds it (the id to undo it).
+type Change struct {
+	Commit  string
+	Written []Written
 }
 
 // CheckFact cleans a fact as the AI or a client gives it, and refuses one the memory could not hold as written.
@@ -59,11 +88,20 @@ func CheckFact(fact Fact) (Fact, error) {
 	fact.Text = strings.TrimSpace(fact.Text)
 	fact.Title = strings.TrimSpace(fact.Title)
 	fact.Replaces = strings.TrimSpace(fact.Replaces)
+	if len([]rune(fact.Replaces)) < minReplaces {
+		fact.Replaces = ""
+	}
 	switch {
+	case fact.Remove && (fact.Replaces == "" || fact.Note == ""):
+		return Fact{}, i18n.Wrap(ErrInvalid, "a fact to take out is named by its note and its text")
+	case fact.Remove:
+		fact.Text = ""
 	case fact.Text == "":
 		return Fact{}, i18n.Wrap(ErrInvalid, "a fact to remember cannot be empty")
 	case len([]rune(fact.Text)) > MaxFact:
 		return Fact{}, i18n.Wrap(ErrInvalid, "a fact to remember is too long")
+	}
+	switch {
 	case len([]rune(fact.Title)) > MaxTitle:
 		return Fact{}, i18n.Wrap(ErrInvalid, "the title of a note is too long")
 	case hasHiddenRune(fact.Text) || hasHiddenRune(fact.Title) || hasHiddenRune(fact.Replaces):
@@ -80,25 +118,23 @@ func CheckFact(fact Fact) (Fact, error) {
 		}
 		fact.Note = clean
 	}
-	if len([]rune(fact.Replaces)) < minReplaces {
-		fact.Replaces = ""
-	}
 	return fact, nil
 }
 
-// Remember writes facts in their notes, writes the index again, and commits. Whatever was changed in the folder since
+// Remember makes changes in their notes, writes the index again, and commits. Whatever was changed in the folder since
 // Pouple's last commit (by hand, by the user's own Claude Code or Codex) is committed first, on its own, so the history
-// tells who changed what. All the facts are checked before anything is written. When only the last commit fails, the
-// facts written are returned with ErrNotCommitted.
-func (s *Store) Remember(ctx context.Context, facts []Fact, source Source, message string) ([]Written, error) {
+// tells who changed what. All the changes are checked before anything is written; a fact to update or remove that is not
+// found (or that SharedOnly keeps out of reach) changes nothing: an update then adds its fact. When only the last commit
+// fails, the changes made are returned with ErrNotCommitted.
+func (s *Store) Remember(ctx context.Context, facts []Fact, source Source, message string) (Change, error) {
 	if len(facts) == 0 {
-		return nil, nil
+		return Change{}, nil
 	}
 	checked := make([]Fact, len(facts))
 	for i, fact := range facts {
 		clean, err := CheckFact(fact)
 		if err != nil {
-			return nil, err
+			return Change{}, err
 		}
 		checked[i] = clean
 	}
@@ -106,41 +142,55 @@ func (s *Store) Remember(ctx context.Context, facts []Fact, source Source, messa
 	defer s.mu.Unlock()
 	dir := s.dir()
 	if dir == "" {
-		return nil, i18n.NewError("The memory has no folder: choose one in Settings")
+		return Change{}, i18n.NewError("The memory has no folder: choose one in Settings")
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, i18n.Wrap(err, "The memory folder cannot be created")
+		return Change{}, i18n.Wrap(err, "The memory folder cannot be created")
 	}
 	if err := s.commitOutside(ctx, dir); err != nil {
-		return nil, err
+		return Change{}, err
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return nil, i18n.Wrap(err, "The memory folder cannot be read")
+		return Change{}, i18n.Wrap(err, "The memory folder cannot be read")
 	}
 	defer root.Close()
-	var written []Written
+	var change Change
 	for _, fact := range checked {
 		kept, err := writeFact(root, fact, source)
 		if err != nil {
 			// What was written before stays in the notes: it is committed with the rest, and the caller is told.
-			if commitErr := s.commit(ctx, dir, message); commitErr != nil {
-				return written, errors.Join(err, commitErr)
-			}
-			return written, err
+			change.Commit, _ = s.commitHead(ctx, dir, message)
+			return change, err
 		}
-		written = append(written, kept)
+		if kept.Kind != "" {
+			change.Written = append(change.Written, kept)
+		}
+	}
+	if len(change.Written) == 0 {
+		return change, nil
 	}
 	if err := s.writeIndex(root); err != nil {
-		return written, err
+		return change, err
 	}
-	if err := s.commit(ctx, dir, message); err != nil {
-		return written, err
-	}
-	return written, nil
+	change.Commit, err = s.commitHead(ctx, dir, message)
+	return change, err
 }
 
-// writeFact adds one fact to its note, or puts it in the place of the fact it replaces.
+// commitHead commits and returns the id of the commit made.
+func (s *Store) commitHead(ctx context.Context, dir, message string) (string, error) {
+	if err := s.commit(ctx, dir, message); err != nil {
+		return "", err
+	}
+	head, err := s.git(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", i18n.Wrap(ErrNotCommitted, "git could not commit the memory: %s", head)
+	}
+	return strings.TrimSpace(head), nil
+}
+
+// writeFact makes one change in its note. It returns a Written with no Kind when there was nothing to change (a fact to
+// remove that is not there).
 func writeFact(root *os.Root, fact Fact, source Source) (Written, error) {
 	name := fact.Note
 	if name == "" {
@@ -150,6 +200,9 @@ func writeFact(root *os.Root, fact Fact, source Source) (Written, error) {
 	content, err := readNote(root, name)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
+		if fact.Remove {
+			return Written{}, nil
+		}
 		title := fact.Title
 		if title == "" {
 			title = titleOf(name, "")
@@ -160,18 +213,27 @@ func writeFact(root *os.Root, fact Fact, source Source) (Written, error) {
 	default:
 		lines = strings.Split(strings.TrimRight(content, "\n"), "\n")
 	}
-	line := FormatFact(fact, source)
-	replaced := false
+	written := Written{Kind: Added}
+	at := -1
 	if fact.Replaces != "" {
-		for i, existing := range lines {
-			if strings.HasPrefix(factText(existing), fact.Replaces) {
-				lines[i], replaced = line, true
-				break
-			}
-		}
+		at = slices.IndexFunc(lines, func(existing string) bool {
+			return strings.HasPrefix(factText(existing), fact.Replaces) && !(fact.SharedOnly && IsPrivate(existing))
+		})
 	}
-	if !replaced {
-		lines = append(lines, line)
+	switch {
+	case fact.Remove && at < 0:
+		return Written{}, nil
+	case fact.Remove:
+		written.Kind, written.Line = Removed, lines[at]
+		lines = slices.Delete(lines, at, itemEnd(lines, at))
+	case at >= 0:
+		// The user's choice to share a fact, or to keep it private, outlives what the AI writes in its place.
+		fact.Private = IsPrivate(lines[at])
+		written.Kind, written.Previous, written.Line = Updated, lines[at], FormatFact(fact, source)
+		lines[at] = written.Line
+	default:
+		written.Line = FormatFact(fact, source)
+		lines = append(lines, written.Line)
 	}
 	if dir := path.Dir(name); dir != "." {
 		if err := root.MkdirAll(dir, 0o700); err != nil {
@@ -182,7 +244,17 @@ func writeFact(root *os.Root, fact Fact, source Source) (Written, error) {
 	if err := replaceFile(root, name, text); err != nil {
 		return Written{}, err
 	}
-	return Written{Note: Note{Path: name, Title: titleOf(name, text)}, Line: line, Replaced: replaced}, nil
+	written.Note = Note{Path: name, Title: titleOf(name, text)}
+	return written, nil
+}
+
+// itemEnd is the end of the list item at index at: the lines indented under it belong to it.
+func itemEnd(lines []string, at int) int {
+	end := at + 1
+	for end < len(lines) && strings.TrimSpace(lines[end]) != "" && indentWidth(lines[end]) > indentWidth(lines[at]) {
+		end++
+	}
+	return end
 }
 
 // plainTitle says whether the title of a note is plain words: it goes into INDEX.md, which the user's own Claude Code may
@@ -207,7 +279,8 @@ func factText(line string) string {
 	return ""
 }
 
-// FormatFact is the line a fact is kept as: the fact, where and when it was learned, and the private mark.
+// FormatFact is the line a fact is kept as: the fact, where and when it was learned, when to look at it again, and its
+// marks.
 //
 //   - Preprod 2 is reset every Monday at 7:00. ([Slack #qa, 2026-11-12](https://…))
 func FormatFact(fact Fact, source Source) string {
@@ -226,10 +299,21 @@ func FormatFact(fact Fact, source Source) string {
 		where = "[" + where + "](" + link + ")"
 	}
 	line := fmt.Sprintf("- %s (%s)", strings.TrimSpace(fact.Text), where)
+	if !fact.Review.IsZero() {
+		line += " (review " + fact.Review.Format(time.DateOnly) + ")"
+	}
+	if fact.Unconfirmed && !IsUnconfirmed(line) {
+		line += " " + UnconfirmedMark
+	}
 	if fact.Private && !IsPrivate(line) {
 		line += " " + PrivateMark
 	}
 	return line
+}
+
+// IsUnconfirmed says whether a line holds a fact nobody vouched for.
+func IsUnconfirmed(line string) bool {
+	return strings.Contains(strings.ToLower(line), UnconfirmedMark)
 }
 
 // safeLink keeps a web address that can sit in a Markdown link as it is; anything else is left out.

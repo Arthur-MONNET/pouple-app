@@ -132,14 +132,14 @@ describe('http api', () => {
     expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'decline', offerId: 'o1' });
   });
 
-  it('names the suggestion that was read, and the ticked facts with their sharing, when deciding on memories', async () => {
+  it('undoes a memory change and shares a fact of it with POST on the memories route', async () => {
     const { fetch, calls } = recorder(() => new Response(null, { status: 202 }));
     const api = createHttpApi(fetch);
-    await api.decideMemories('r1', 'approve', 'o1', [{ id: 'm1', shared: true }, { id: 'm2' }]);
-    await api.decideMemories('r1', 'decline', 'o1');
+    await api.undoMemoryChange('r1', 'abc123');
+    await api.shareMemoryFact('r1', 'abc123', 'm1', true);
     expect(calls.map((c) => c.path)).toEqual(['/api/assistant/requests/r1/memories', '/api/assistant/requests/r1/memories']);
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ decision: 'approve', offerId: 'o1', items: [{ id: 'm1', shared: true }, { id: 'm2' }] });
-    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'decline', offerId: 'o1' });
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ action: 'undo', changeId: 'abc123' });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ action: 'share', changeId: 'abc123', item: 'm1', shared: true });
   });
 
   it('makes an alert with POST, moves it with PATCH and deletes it with DELETE (204 has no body)', async () => {

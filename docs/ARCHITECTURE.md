@@ -326,38 +326,43 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   but headings and front matter is not listed at all. `INDEX.md` is never a note, whatever its case.
 - `Remember` checks every fact first (`CheckFact`: one line, 300 characters, a note or the title of a new one, a title
   being plain words since `INDEX.md` may be imported into the user's own `CLAUDE.md`), then, under one lock: `git init`
-  when needed (a repository that already has a remote is refused: private facts could be pushed), a commit "Changes made outside Pouple" of what changed by hand, the facts appended (or put
-  in place of the fact whose text starts with `replaces`), `INDEX.md` written again, and one commit. Notes are written with
+  when needed (a repository that already has a remote is refused: private facts could be pushed), a commit "Changes made outside Pouple" of what changed by hand, each change made (a fact
+  appended; put in the place of the fact whose text starts with `replaces`, keeping that fact's private mark; or, with
+  `Remove`, taken out with what is indented under it; `SharedOnly` never touches a private fact), `INDEX.md` written again,
+  and one commit, whose id `Change.Commit` names it for `Undo` (`git revert` of a "Remember from" commit; a conflict is
+  `ErrChanged`). `SetShared` adds or removes the private mark of one line. Notes are written with
   a rename, so a reader sees the old note or the new one. git is `engine.RunGit` (no hook, no fsmonitor, no signing) with
   Pouple's own identity; a failed last commit returns the facts written with `ErrNotCommitted`.
 - The engine (`engine/memory.go`) is on while `Deps.Memory` is set and `Deps.MemoryOn()` says so (`memoryEnabled` in the
   settings, false by default: the memory is opt-in). The first prompt carries `Persona.MemorySection`: the index, the `notes` lookups (`search`, `read`) and the rules
-  of the `memories` field of the answer (four facts at most, `ParseOutcome` drops what the memory could not hold). `notes`
-  lookups are run by `runNotes`, outside the connected services: the memory holds what the user confirmed or wrote, so it
-  never sets `ServicesUsed` or `ForeignSinceGrant`. A request whose answer may reach someone else (`sharedReader`: all but a
+  of the `memories` field of the answer (four changes at most, `{note, title, fact, replaces, remove, lasts}`; `ParseOutcome`
+  drops what the memory could not make). `notes` lookups are run by `runNotes`, outside the connected services; what they
+  return is the user's own text unless it holds an `[unconfirmed]` fact, which sets `ServicesUsed` and
+  `ForeignSinceGrant` like any text of others. A request whose answer may reach someone else (`sharedReader`: all but a
   note to oneself, a finished pipeline and a reminder; an Asana comment and a merge request review get a reply drafted for
   their author) sees no private fact, in the index, the searches or the notes. Claude cannot read the folder with its own
   tools (`Guarded` denies it as written and with its links resolved, `config.ResolvePath`). Known limits: Codex's
   read-only sandbox can read the disk, and a turn with full access has a shell, so either could open a note by path, as
   they could Pouple's data folder; git runs without hooks or fsmonitor, but a filter driver set in the folder's own
   `.git/config` would still run, which needs someone who can already write there.
-- `attachMemories` turns the suggestions into `Request.memories`, a `MemoryOffer` with a fingerprint id and options `m1`,
-  `m2`…, each with the note it goes to (a path the index does not know makes a new note; a fact that could not be written
-  is not offered) and `ticked` set only when
-  `ownText` holds for the conversation. `POST /api/assistant/requests/{id}/memories`
-  (`{"decision","offerId","items":[{"id","shared"}]}`) names the offer read (409 for another one); `DecideMemories` checks
-  every pick, writes them all with the conversation's source (`memorySource`: "Slack #channel", "Note to self"… and its
-  permalink) and a 30 s bound, and a fact is `[private]` unless its pick says `shared`. The macOS bubble shows the offer
-  (`MemoryPicker`, the ticking rules in `PoupleCore/MemoryDraft`) once no reminder waits, since the panel grows with its
-  content.
-- Review and tidy-up (`memory/review.go`, `memory/tidy.go`, `engine/memory_tidy.go`). `Review` lists the dated facts older
-  than `StaleAfter` (183 days; the date is the last `YYYY-MM-DD` of the line, so a fact written by hand without one is never
-  listed); `Keep` adds `(kept <today>)` before the private mark, `Drop` removes the line and what is indented under it, each
+- `applyMemories` (after `showOutcome`, for an answer that reaches the user) makes the changes at once: a note the reader
+  cannot see becomes a new note, a new fact is private, a fact is `[unconfirmed]` unless `ownText` holds for the
+  conversation, `lasts` ("weeks", "months", "years") sets its `(review …)` date, a request of others gets `SharedOnly`.
+  The write is one commit with the conversation's source (`memorySource`: "Slack #channel", "Note to self"… and its
+  permalink) and a 30 s bound, recorded as `Request.memoryChanges` (the last ten; each `MemoryChange` is the commit id and
+  its items) and as a step of the journal. `POST /api/assistant/requests/{id}/memories` takes `{"action":"undo","changeId"}`
+  (`UndoMemoryChange`) or `{"action":"share","changeId","item","shared"}` (`ShareMemoryFact`). The macOS bubble says the
+  last change in one line, with Undo; the window lists it.
+- Review and tidy-up (`memory/review.go`, `memory/tidy.go`, `engine/memory_tidy.go`). `Review` lists the facts whose
+  `ReviewDate` came (their `(review …)` date, else `StaleAfter`, 183 days, after the last other date of the line; a fact
+  written by hand without any date is never due) and every `[unconfirmed]` one; `Keep` takes the unconfirmed mark out and
+  writes `(kept <today>) (review …)`, the new review as far ahead as the fact had lived (at least two weeks), `Drop` removes the line and what is indented under it, each
   naming the line read (`ErrChanged` otherwise) and making one commit. The git history is the tidy-up's state: `State` counts
   the "Remember from" commits since the last "Tidy up" one. `maybeTidyMemory` (every `Poll`) queues `tidyMemory` after five
   writes and a day; one read-only turn in the empty topics folder (`Service.ask`, `MemoryTidySchema`) sees each note's path,
   title and first facts and answers `{merges: [{from, into}]}`; `Store.Tidy` makes at most five merges of notes that exist,
-  writes the index and commits "Tidy up" even when nothing moved.
+  writes the index and commits "Tidy up" even when nothing moved. `maybeAskMemoryReview` (every `Poll`) sets an alert
+  "Memory: N facts to review", naming up to eight, when some wait and the last one is a week old (`Store.MemoryReviewAt`).
 - `core/internal/clilink` writes and removes the block that connects the user's own CLIs: `~/.claude/CLAUDE.md` imports
   the index (`@~/SecondBrain/INDEX.md`), `~/.codex/AGENTS.md` is told where to read. The block sits between
   `<!-- pouple-memory:start -->` and `<!-- pouple-memory:end -->`; connecting replaces an earlier block, disconnecting gives

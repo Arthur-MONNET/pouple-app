@@ -77,14 +77,15 @@ func TestOnlyNotesInsideTheFolderArePaths(t *testing.T) {
 func TestRememberWritesTheNoteTheIndexAndOneCommit(t *testing.T) {
 	store, dir := newStore(t)
 	ctx := context.Background()
-	written, err := store.Remember(ctx, []Fact{
+	change, err := store.Remember(ctx, []Fact{
 		{Title: "Pouple preprod", Text: "Preprod 2 is reset every Monday at 7:00."},
 		{Title: "Pouple preprod", Text: "Ask Lina before taking preprod 1.", Private: true},
 	}, learned, "Remember from Slack #qa")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(written) != 2 || written[0].Note.Path != "pouple-preprod.md" || written[0].Note.Title != "Pouple preprod" {
+	written := change.Written
+	if len(written) != 2 || written[0].Kind != Added || len(change.Commit) < 7 || written[0].Note.Path != "pouple-preprod.md" || written[0].Note.Title != "Pouple preprod" {
 		t.Fatalf("written = %+v", written)
 	}
 	want := "# Pouple preprod\n\n" +
@@ -107,16 +108,16 @@ func TestAFactReplacesTheOneItMakesWrong(t *testing.T) {
 	if _, err := store.Remember(ctx, []Fact{{Title: "Deploys", Text: "Deploys go through Jenkins."}}, learned, "first"); err != nil {
 		t.Fatal(err)
 	}
-	written, err := store.Remember(ctx, []Fact{{Note: "deploys.md", Text: "Deploys go through GitLab CI since November.", Replaces: "Deploys go through Jenkins."}}, learned, "second")
-	if err != nil || len(written) != 1 || !written[0].Replaced {
-		t.Fatalf("written %+v, err %v", written, err)
+	change, err := store.Remember(ctx, []Fact{{Note: "deploys.md", Text: "Deploys go through GitLab CI since November.", Replaces: "Deploys go through Jenkins."}}, learned, "second")
+	if err != nil || len(change.Written) != 1 || change.Written[0].Kind != Updated || !strings.Contains(change.Written[0].Previous, "Jenkins") {
+		t.Fatalf("change %+v, err %v", change, err)
 	}
 	note := read(t, dir, "deploys.md")
 	if strings.Contains(note, "Jenkins") || strings.Count(note, "\n- ") != 1 {
 		t.Fatalf("note:\n%s", note)
 	}
 	// A text too short to say which fact it means replaces nothing: the fact is added.
-	if written, _ := store.Remember(ctx, []Fact{{Note: "deploys.md", Text: "Another fact.", Replaces: "Deploys"}}, learned, "third"); written[0].Replaced {
+	if change, _ := store.Remember(ctx, []Fact{{Note: "deploys.md", Text: "Another fact.", Replaces: "Deploys"}}, learned, "third"); change.Written[0].Kind != Added {
 		t.Fatal("a short text replaced a fact")
 	}
 }
@@ -340,7 +341,7 @@ func TestOldFactsAreReviewedAndKeepingOrDroppingOneIsACommit(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
 	stale, err := store.Review(now)
-	if err != nil || len(stale) != 2 || stale[0].Date != "2026-01-10" || stale[1].Fact != "Preprod resets on Mondays. (Slack #qa, 2026-04-02)" {
+	if err != nil || len(stale) != 2 || stale[0].Date != "2026-01-10" || stale[1].Fact != "Preprod resets on Mondays." {
 		t.Fatalf("review %+v, err %v", stale, err)
 	}
 	if err := store.Keep(ctx, "deploys.md", stale[1].Line, now); err != nil {
@@ -350,7 +351,7 @@ func TestOldFactsAreReviewedAndKeepingOrDroppingOneIsACommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := read(t, dir, "deploys.md")
-	if strings.Contains(got, "Jenkins") || strings.Contains(got, "Ask Marc") || !strings.Contains(got, "- Preprod resets on Mondays. (Slack #qa, 2026-04-02) (kept 2026-11-18) [private]\n") {
+	if strings.Contains(got, "Jenkins") || strings.Contains(got, "Ask Marc") || !strings.Contains(got, "- Preprod resets on Mondays. (Slack #qa, 2026-04-02) (kept 2026-11-18) (review 2027-05-20) [private]\n") {
 		t.Fatalf("note:\n%s", got)
 	}
 	if again, _ := store.Review(now); len(again) != 0 {
@@ -406,5 +407,32 @@ func TestTidyingUpMergesNotesAndTheHistoryCountsSince(t *testing.T) {
 	}
 	if log := commits(t, dir); !strings.HasPrefix(log[0], "Tidy up") || !strings.HasPrefix(log[1], "Tidy up") {
 		t.Fatalf("commits = %q", log)
+	}
+}
+
+func TestAnUnconfirmedFactIsReviewedUntilKeptAndItsTextIsPlain(t *testing.T) {
+	store, dir := newStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	change, err := store.Remember(ctx, []Fact{{Title: "Deploys", Text: "Deploys go through GitLab CI.", Unconfirmed: true, Private: true, Review: now.Add(28 * 24 * time.Hour)}}, learned, RememberMessage("Slack #ops"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := change.Written[0].Line
+	if line != "- Deploys go through GitLab CI. ([Slack #qa, 2026-11-12](https://team.slack.com/archives/C1/p1)) (review 2026-12-16) [unconfirmed] [private]" || FactText(line) != "Deploys go through GitLab CI." {
+		t.Fatalf("line %q, text %q", line, FactText(line))
+	}
+	stale, _ := store.Review(now)
+	if len(stale) != 1 || !stale[0].Unconfirmed || stale[0].Fact != "Deploys go through GitLab CI." {
+		t.Fatalf("an unconfirmed fact is reviewed at once: %+v", stale)
+	}
+	if err := store.Keep(ctx, "deploys.md", line, now); err != nil {
+		t.Fatal(err)
+	}
+	if kept := read(t, dir, "deploys.md"); strings.Contains(kept, UnconfirmedMark) || !strings.Contains(kept, "(kept 2026-11-18) (review 2026-12-22) [private]") {
+		t.Fatalf("keeping confirms it and gives it its lifetime again:\n%s", kept)
+	}
+	if again, _ := store.Review(now); len(again) != 0 {
+		t.Fatalf("a kept fact is reviewed again: %+v", again)
 	}
 }

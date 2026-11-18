@@ -151,6 +151,20 @@ func (s *Store) Organization() organization {
 	return s.state.Organization
 }
 
+// MemoryReviewAt is when an alert last asked the user to review their memory; "" when none ever did.
+func (s *Store) MemoryReviewAt() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state.MemoryReviewAt
+}
+
+// MemoryReviewed records that an alert asked the user to review their memory.
+func (s *Store) MemoryReviewed(now string) {
+	s.mu.Lock()
+	s.state.MemoryReviewAt = now
+	s.changed()
+}
+
 // Organized records that the topics were looked at as a whole.
 func (s *Store) Organized(now string) {
 	s.mu.Lock()

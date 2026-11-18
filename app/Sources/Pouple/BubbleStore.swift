@@ -172,10 +172,10 @@ final class BubbleStore: ObservableObject {
         perform(request.id) { api in try await api.decideReminders(requestId: request.id, offerId: offerId, picks: picks) }
     }
 
-    /// Writes the facts the user ticked in the bubble, or declines the offer when `picks` is nil.
-    func decideMemories(_ request: AssistantRequest, picks: [MemoryPick]?) {
-        guard let offerId = request.memories?.id else { return }
-        perform(request.id) { api in try await api.decideMemories(requestId: request.id, offerId: offerId, picks: picks) }
+    /// Undoes a change the assistant made to the memory.
+    func undoMemoryChange(_ request: AssistantRequest) {
+        guard let changeId = request.memoryChanges?.last?.id, !changeId.isEmpty else { return }
+        perform(request.id) { api in try await api.undoMemoryChange(requestId: request.id, changeId: changeId) }
     }
 
     func send(_ request: AssistantRequest, _ text: String, attachmentIds: [String] = []) {

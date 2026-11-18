@@ -26,6 +26,8 @@ type state struct {
 	// Topics are the subjects the conversations are sorted into.
 	Topics       []Topic      `json:"topics,omitempty"`
 	Organization organization `json:"organization,omitempty"`
+	// MemoryReviewAt is when an alert last asked the user to review their memory (RFC 3339).
+	MemoryReviewAt string `json:"memoryReviewAt,omitempty"`
 }
 
 // Store keeps the conversations in memory and on disk. Writes are coalesced and happen in the background; Flush

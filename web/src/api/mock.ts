@@ -329,18 +329,26 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       request.entries.push({ id: `u${Date.now()}`, at: nowIso(), role: 'user', kind: 'text', text: made.map((alert) => `- ${alert.title}`).join('\n') });
       touch(request, { reminders: { ...offer, status: 'accepted', chosen: items.map((pick) => pick.id) } });
     },
-    async decideMemories(requestId, decision, offerId, items = []) {
+    async undoMemoryChange(requestId, changeId) {
       await wait();
       const request = find(requestId);
-      const offer = request.memories;
-      if (!offer || offer.status !== 'proposed' || offer.id !== offerId) throw new ApiError(409, 'no memory is waiting for a choice');
-      if (decision === 'decline') {
-        touch(request, { memories: { ...offer, status: 'declined' } });
-        return;
-      }
-      if (items.length === 0) throw new ApiError(400, 'choose at least one fact');
-      for (const pick of items) if (!offer.items.some((item) => item.id === pick.id)) throw new ApiError(400, 'unknown fact');
-      touch(request, { memories: { ...offer, status: 'accepted', chosen: items.map((pick) => pick.id) } });
+      const changes = request.memoryChanges ?? [];
+      const change = changes.find((entry) => entry.id === changeId);
+      if (changeId === '' || !change) throw new ApiError(404, 'unknown memory change');
+      if (!settings.memory) throw new ApiError(409, 'the memory is off');
+      if (change.undone) throw new ApiError(409, 'this change was undone already');
+      touch(request, { memoryChanges: changes.map((entry) => (entry === change ? { ...entry, undone: true } : entry)) });
+    },
+    async shareMemoryFact(requestId, changeId, itemId, shared) {
+      await wait();
+      const request = find(requestId);
+      const changes = request.memoryChanges ?? [];
+      const change = changes.find((entry) => entry.id === changeId);
+      if (!change || !change.items.some((item) => item.id === itemId)) throw new ApiError(404, 'unknown memory change or fact');
+      if (!settings.memory) throw new ApiError(409, 'the memory is off');
+      if (change.undone) throw new ApiError(409, 'this change was undone already');
+      const items = change.items.map((item) => (item.id === itemId ? { ...item, shared } : item));
+      touch(request, { memoryChanges: changes.map((entry) => (entry === change ? { ...entry, items } : entry)) });
     },
     async createAlert(input) {
       await wait();

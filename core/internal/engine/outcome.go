@@ -50,8 +50,8 @@ const OutcomeSchema = `{
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["note", "title", "fact", "replaces"],
-        "properties": {"note": {"type": "string"}, "title": {"type": "string"}, "fact": {"type": "string"}, "replaces": {"type": "string"}}
+        "required": ["note", "title", "fact", "replaces", "remove", "lasts"],
+        "properties": {"note": {"type": "string"}, "title": {"type": "string"}, "fact": {"type": "string"}, "replaces": {"type": "string"}, "remove": {"type": "boolean"}, "lasts": {"type": "string", "enum": ["weeks", "months", "years", ""]}}
       }
     },
     "questions": {
@@ -158,7 +158,7 @@ type Outcome struct {
 	Plan      *Plan             `json:"plan"`
 	// Reminders are alerts the assistant suggests, for the user to pick from; Pouple sets none by itself.
 	Reminders []OutcomeReminder `json:"reminders"`
-	// Memories are facts the assistant suggests keeping in the memory, for the user to pick from; none is written by itself.
+	// Memories are the changes the assistant makes to the memory: facts to add, correct or take out.
 	Memories    []OutcomeMemory `json:"memories"`
 	SourcesUsed []string        `json:"sourcesUsed"`
 	Lookups     []Lookup        `json:"lookups"`
@@ -297,7 +297,7 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 	}
 	out.Memories = make([]OutcomeMemory, len(o.Memories))
 	for i, fact := range o.Memories {
-		out.Memories[i] = OutcomeMemory{Note: fact.Note, Title: redact(fact.Title), Fact: redact(fact.Fact), Replaces: fact.Replaces}
+		out.Memories[i] = OutcomeMemory{Note: fact.Note, Title: redact(fact.Title), Fact: redact(fact.Fact), Replaces: fact.Replaces, Remove: fact.Remove, Lasts: fact.Lasts}
 	}
 	out.Lookups = make([]Lookup, len(o.Lookups))
 	for i, lookup := range o.Lookups {

@@ -143,24 +143,30 @@ describe('assistant store', () => {
     store.stop();
   });
 
-  it('remembers the ticked facts, and refuses an offer the user never read or one already decided', async () => {
+  it('shares a fact of a memory change and undoes it once, refusing unknown changes, a change already undone or a memory that is off', async () => {
     const api = createMockApi({ latency: 0 });
     const store = createAssistantStore(api);
     store.start();
     await tick();
-    const suggesting = store.requests.value.find((r) => r.memories?.status === 'proposed');
-    const id = suggesting?.id ?? '';
-    const offer = suggesting?.memories;
-    // The suggestion rests on someone else's direct message: like the core, the mock ticks nothing in advance.
-    expect(offer?.items.length).toBeGreaterThan(0);
-    expect(offer?.items.some((item) => item.ticked)).toBe(false);
-    await expect(store.decideMemories(id, 'approve', 'another-offer', [{ id: offer?.items[0]?.id ?? '' }])).rejects.toBeInstanceOf(ApiError);
-    await expect(store.decideMemories(id, 'approve', offer?.id ?? '', [{ id: 'unknown' }])).rejects.toBeInstanceOf(ApiError);
-    await store.decideMemories(id, 'approve', offer?.id ?? '', [{ id: offer?.items[0]?.id ?? '', shared: true }]);
+    const changed = store.requests.value.find((r) => (r.memoryChanges?.length ?? 0) > 0);
+    const id = changed?.id ?? '';
+    const change = changed?.memoryChanges?.[0];
+    expect(change?.items.some((item) => item.kind === 'update' && item.previous)).toBe(true);
+    expect(change?.items.some((item) => item.kind === 'add' && item.unconfirmed && item.review)).toBe(true);
+    const itemId = change?.items[0]?.id ?? '';
+    // The memory is off by default in the mock settings.
+    await expect(store.undoMemoryChange(id, change?.id ?? '')).rejects.toMatchObject({ status: 409 });
+    await api.updateSettings({ memory: true });
+    await expect(store.undoMemoryChange(id, 'unknown')).rejects.toMatchObject({ status: 404 });
+    await expect(store.shareMemoryFact(id, change?.id ?? '', 'unknown', true)).rejects.toMatchObject({ status: 404 });
+    await store.shareMemoryFact(id, change?.id ?? '', itemId, true);
     await tick();
-    expect(store.byId(id)?.memories?.status).toBe('accepted');
-    expect(store.byId(id)?.memories?.chosen).toEqual([offer?.items[0]?.id]);
-    await expect(store.decideMemories(id, 'decline', offer?.id ?? '')).rejects.toBeInstanceOf(ApiError);
+    expect(store.byId(id)?.memoryChanges?.[0]?.items[0]?.shared).toBe(true);
+    await store.undoMemoryChange(id, change?.id ?? '');
+    await tick();
+    expect(store.byId(id)?.memoryChanges?.[0]?.undone).toBe(true);
+    await expect(store.undoMemoryChange(id, change?.id ?? '')).rejects.toMatchObject({ status: 409 });
+    await expect(store.shareMemoryFact(id, change?.id ?? '', itemId, false)).rejects.toMatchObject({ status: 409 });
     store.stop();
   });
 

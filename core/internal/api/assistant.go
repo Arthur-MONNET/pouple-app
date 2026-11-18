@@ -26,8 +26,10 @@ type Assistant interface {
 	DecidePlanActions(id string, approve bool, planID string, actions []int) error
 	// DecideReminders sets the alerts the user ticked in the suggestion they read (offerID), or declines it.
 	DecideReminders(id string, approve bool, offerID string, picks []engine.ReminderPick) error
-	// DecideMemories writes in the memory the facts the user ticked in the suggestion they read (offerID), or declines it.
-	DecideMemories(id string, approve bool, offerID string, picks []engine.MemoryPick) error
+	// UndoMemoryChange reverts a write of the memory listed in a conversation; ShareMemoryFact shares one of its facts, or
+	// makes it private again.
+	UndoMemoryChange(id, changeID string) error
+	ShareMemoryFact(id, changeID, itemID string, shared bool) error
 	Ignore(id string) error
 	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
 	Close(id, seen string) error
@@ -158,19 +160,24 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 		})
 		handle("POST /api/assistant/requests/{id}/memories", func(w http.ResponseWriter, r *http.Request) error {
 			var body struct {
-				Decision string `json:"decision"`
-				OfferID  string `json:"offerId"`
-				// Items are the ticked facts, each shared or (by default) private.
-				Items []engine.MemoryPick `json:"items"`
+				Action   string `json:"action"`
+				ChangeID string `json:"changeId"`
+				Item     string `json:"item"`
+				Shared   *bool  `json:"shared"`
 			}
-			if err := decodeBody(r, &body); err != nil || (body.Decision != "approve" && body.Decision != "decline") {
-				return i18n.Wrap(engine.ErrInput, `"decision" must be "approve" or "decline"`)
+			if err := decodeBody(r, &body); err != nil || body.ChangeID == "" {
+				return i18n.Wrap(engine.ErrInput, `"changeId" is required`)
 			}
-			// A decision names the suggestion that was read: it can never answer one that changed meanwhile.
-			if body.OfferID == "" {
-				return i18n.Wrap(engine.ErrInput, `"offerId" is required`)
+			switch body.Action {
+			case "undo":
+				return accepted(w, assistant.UndoMemoryChange(r.PathValue("id"), body.ChangeID))
+			case "share":
+				if body.Item == "" || body.Shared == nil {
+					return i18n.Wrap(engine.ErrInput, `"item" and "shared" are required`)
+				}
+				return accepted(w, assistant.ShareMemoryFact(r.PathValue("id"), body.ChangeID, body.Item, *body.Shared))
 			}
-			return accepted(w, assistant.DecideMemories(r.PathValue("id"), body.Decision == "approve", body.OfferID, body.Items))
+			return i18n.Wrap(engine.ErrInput, `"action" must be "undo" or "share"`)
 		})
 		handle("POST /api/assistant/requests/{id}/ignore", func(w http.ResponseWriter, r *http.Request) error {
 			return noContent(w, assistant.Ignore(r.PathValue("id")))
