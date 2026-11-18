@@ -1,6 +1,6 @@
 import { ApiError, type PoupleApi } from './client';
 import { lang as activeLang, type Lang } from '../i18n';
-import { codexConnector, codexProfile, createAlerts, createFixtures, createTopics, slackConnector, slackProfile } from './mockFixtures';
+import { codexConnector, codexProfile, createAlerts, createFixtures, createMemory, createTopics, slackConnector, slackProfile } from './mockFixtures';
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
 import { mockProviderModels, mockProviderTest, mockProviders } from './mockProviders';
@@ -17,6 +17,7 @@ import type {
   ConnectorValues,
   Profile,
   QuestionAnswer,
+  MemoryView,
   Settings,
   UpdateChannel,
 } from './types';
@@ -64,10 +65,13 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   let topics: AssistantTopic[] = options.view === 'empty' ? [] : createTopics(lang);
   let alerts: AssistantAlert[] = options.view === 'empty' ? [] : createAlerts(lang);
   let alertCounter = 0;
+  let memory: MemoryView = createMemory();
+  /** The memory as the core shows it: on exactly when the setting says so. */
+  const view = (): MemoryView => structuredClone({ ...memory, enabled: settings.memory === true });
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
   const style = { learned: true };
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all', betaUpdates: false };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all', betaUpdates: false, memory: false, memoryFolder: '/Users/you/SecondBrain' };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
 
@@ -239,7 +243,9 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       const root = patch.projectsRoot?.trim();
       if (root && (!root.startsWith('/') || root.includes('missing'))) throw new ApiError(422, text().errors.notFolder(root));
       if (patch.dailyTurnLimit !== undefined && patch.dailyTurnLimit < 0) throw new ApiError(422, text().errors.negativeLimit);
-      Object.assign(settings, patch, root !== undefined && { projectsRoot: root });
+      const folder = patch.memoryFolder?.trim();
+      if (folder && (!folder.startsWith('/') || folder === '/')) throw new ApiError(422, text().errors.notFolder(folder));
+      Object.assign(settings, patch, root !== undefined && { projectsRoot: root }, folder !== undefined && { memoryFolder: folder === '' ? '/Users/you/SecondBrain' : folder });
       if (patch.uiLanguage && patch.uiLanguage !== lang) switchLanguage(patch.uiLanguage);
       return structuredClone(settings);
     },
@@ -322,6 +328,19 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       alerts = [...alerts, ...made].sort((a, b) => a.at.localeCompare(b.at));
       request.entries.push({ id: `u${Date.now()}`, at: nowIso(), role: 'user', kind: 'text', text: made.map((alert) => `- ${alert.title}`).join('\n') });
       touch(request, { reminders: { ...offer, status: 'accepted', chosen: items.map((pick) => pick.id) } });
+    },
+    async decideMemories(requestId, decision, offerId, items = []) {
+      await wait();
+      const request = find(requestId);
+      const offer = request.memories;
+      if (!offer || offer.status !== 'proposed' || offer.id !== offerId) throw new ApiError(409, 'no memory is waiting for a choice');
+      if (decision === 'decline') {
+        touch(request, { memories: { ...offer, status: 'declined' } });
+        return;
+      }
+      if (items.length === 0) throw new ApiError(400, 'choose at least one fact');
+      for (const pick of items) if (!offer.items.some((item) => item.id === pick.id)) throw new ApiError(400, 'unknown fact');
+      touch(request, { memories: { ...offer, status: 'accepted', chosen: items.map((pick) => pick.id) } });
     },
     async createAlert(input) {
       await wait();
@@ -412,6 +431,37 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       await wait();
       style.learned = false;
       return { learned: false };
+    },
+    async getMemory() {
+      await wait();
+      return view();
+    },
+    async reviewMemory(note, line, decision) {
+      await wait();
+      if (!settings.memory) throw new ApiError(409, 'the memory is off');
+      const item = memory.review.find((entry) => entry.note === note && entry.line === line);
+      if (!item) throw new ApiError(409, 'the line changed meanwhile');
+      memory.review = memory.review.filter((entry) => entry !== item);
+      const target = memory.notes.find((entry) => entry.path === note);
+      if (target && decision === 'drop') target.facts = Math.max(0, target.facts - 1);
+      return view();
+    },
+    async connectCli(id, connected) {
+      await wait();
+      const cli = memory.clis.find((entry) => entry.id === id);
+      if (!cli) throw new ApiError(404, 'unknown CLI');
+      if (connected && !settings.memory) throw new ApiError(409, 'the memory is off');
+      cli.connected = connected;
+      return view();
+    },
+    async revealMemory() {
+      await wait();
+      if (!memory.exists) throw new ApiError(404, 'the folder does not exist yet');
+    },
+    async tidyMemory() {
+      await wait();
+      if (!settings.memory) throw new ApiError(409, 'the memory is off');
+      memory = { ...memory, tidiedAt: nowIso() };
     },
     async getBrowserFrame() {
       await wait();

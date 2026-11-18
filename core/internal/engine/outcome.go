@@ -16,9 +16,9 @@ import (
 const OutcomeSchema = `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["outcome", "summary", "reply", "questions", "proposal", "plan", "reminders", "sourcesUsed", "lookups"],
+  "required": ["outcome", "summary", "reply", "questions", "proposal", "plan", "reminders", "memories", "sourcesUsed", "lookups"],
   "properties": {
-    "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
+    "sourcesUsed": {"type": "array", "items": {"type": "string", "enum": ["memory", "notes", "slack", "files", "docs", "asana", "gitlab", "slite"]}},
     "outcome": {"type": "string", "enum": ["not_a_request", "answered", "needs_input", "proposes_change", "lookup", "no_change", "proposes_plan"]},
     "summary": {"type": "string"},
     "lookups": {
@@ -28,7 +28,7 @@ const OutcomeSchema = `{
         "additionalProperties": false,
         "required": ["service", "action", "target", "text"],
         "properties": {
-          "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "slack", "screenshot"]},
+          "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "slack", "screenshot", "notes"]},
           "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "thread", "around", "capture", "serve"]},
           "target": {"type": "string"},
           "text": {"type": "string"}
@@ -43,6 +43,15 @@ const OutcomeSchema = `{
         "additionalProperties": false,
         "required": ["label", "note", "at"],
         "properties": {"label": {"type": "string"}, "note": {"type": "string"}, "at": {"type": "string"}}
+      }
+    },
+    "memories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["note", "title", "fact", "replaces"],
+        "properties": {"note": {"type": "string"}, "title": {"type": "string"}, "fact": {"type": "string"}, "replaces": {"type": "string"}}
       }
     },
     "questions": {
@@ -118,7 +127,7 @@ const (
 	NoChange = "no_change"
 )
 
-var contextSources = []string{"memory", "slack", "files", "docs", "asana", "gitlab", "slite"}
+var contextSources = []string{"memory", "notes", "slack", "files", "docs", "asana", "gitlab", "slite"}
 
 type OutcomeOption struct {
 	Label       string  `json:"label"`
@@ -148,9 +157,11 @@ type Outcome struct {
 	Proposal  *Proposal         `json:"proposal"`
 	Plan      *Plan             `json:"plan"`
 	// Reminders are alerts the assistant suggests, for the user to pick from; Pouple sets none by itself.
-	Reminders   []OutcomeReminder `json:"reminders"`
-	SourcesUsed []string          `json:"sourcesUsed"`
-	Lookups     []Lookup          `json:"lookups"`
+	Reminders []OutcomeReminder `json:"reminders"`
+	// Memories are facts the assistant suggests keeping in the memory, for the user to pick from; none is written by itself.
+	Memories    []OutcomeMemory `json:"memories"`
+	SourcesUsed []string        `json:"sourcesUsed"`
+	Lookups     []Lookup        `json:"lookups"`
 }
 
 // ErrOutcome is returned for a final message that does not follow the schema: a model that drifts is reported,
@@ -179,6 +190,8 @@ var lookupActions = map[string][]string{
 	// screenshot: "capture" opens a page in a browser (the lookup's text is the screen size, "" or "mobile"); "serve" starts
 	// a project's dev server and waits for it (the target is the project, the text the script to start, "" for the usual).
 	"screenshot": {"capture", "serve"},
+	// notes: "search" finds lines of the memory, "read" gives one of its notes (the target is its path in the index).
+	"notes": {"search", "read"},
 }
 
 // ParseOutcome validates the final message of a turn.
@@ -190,7 +203,7 @@ func ParseOutcome(text string) (Outcome, error) {
 	if !slices.Contains([]string{NotARequest, Answered, NeedsInput, ProposesChange, LookupOutcome, NoChange, ProposesPlan}, raw.Outcome) {
 		return Outcome{}, i18n.Wrap(ErrOutcome, "The AI answered with an unexpected shape")
 	}
-	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}, Reminders: []OutcomeReminder{}}
+	out := Outcome{Outcome: raw.Outcome, Summary: raw.Summary, SourcesUsed: []string{}, Questions: []OutcomeQuestion{}, Lookups: []Lookup{}, Reminders: []OutcomeReminder{}, Memories: parseMemories(raw.Memories)}
 	if raw.Reply != nil && strings.TrimSpace(*raw.Reply) != "" {
 		out.Reply = raw.Reply
 	}
@@ -281,6 +294,10 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 	out.Reminders = make([]OutcomeReminder, len(o.Reminders))
 	for i, reminder := range o.Reminders {
 		out.Reminders[i] = OutcomeReminder{Label: redact(reminder.Label), Note: redact(reminder.Note), At: reminder.At}
+	}
+	out.Memories = make([]OutcomeMemory, len(o.Memories))
+	for i, fact := range o.Memories {
+		out.Memories[i] = OutcomeMemory{Note: fact.Note, Title: redact(fact.Title), Fact: redact(fact.Fact), Replaces: fact.Replaces}
 	}
 	out.Lookups = make([]Lookup, len(o.Lookups))
 	for i, lookup := range o.Lookups {

@@ -233,6 +233,35 @@ export interface ReminderPick {
   at?: string;
 }
 
+/** One fact the assistant suggests to remember, and the note it goes to. Nothing is written until the user ticks it. */
+export interface MemoryOption {
+  id: string;
+  /** Path of the existing note the fact is added to; absent when a new note is made. */
+  note?: string;
+  noteTitle: string;
+  fact: string;
+  /** The text of an older fact this one replaces. */
+  replaces?: string;
+  /** The assistant's suggestion: whether the fact starts ticked. */
+  ticked: boolean;
+}
+
+/** What the assistant suggests to remember, waiting for the user's pick or already decided. */
+export interface MemoryOffer {
+  /** Names this exact suggestion: a decision carries it, so it can only answer the suggestion that was read. */
+  id: string;
+  status: 'proposed' | 'accepted' | 'declined';
+  items: MemoryOption[];
+  /** Once accepted: the ids of the facts that were written. */
+  chosen?: string[];
+}
+
+/** A fact the user ticked. It is private (never used to answer other people) unless `shared` is true. */
+export interface MemoryPick {
+  id: string;
+  shared?: boolean;
+}
+
 /** An upcoming alert. When it comes due it becomes a conversation with a bubble. */
 export interface AssistantAlert {
   id: string;
@@ -297,6 +326,8 @@ export interface AssistantRequest {
   plan?: AssistantPlan;
   /** The alerts the assistant suggests, waiting for the user's pick or already decided. */
   reminders?: ReminderOffer;
+  /** The facts the assistant suggests to remember, waiting for the user's pick or already decided. */
+  memories?: MemoryOffer;
   source: RequestSource;
   /** The topic the core sorted this conversation into. Absent or empty: not sorted yet (small talk, or not looked at yet). */
   topicId?: string;
@@ -468,6 +499,10 @@ export interface Settings {
   betaUpdates?: boolean;
   /** Which finished GitLab pipelines become conversations; set on the GitLab connector's card. */
   gitlabPipelines?: PipelineMode;
+  /** Whether the assistant keeps confirmed facts in notes; off until the user turns it on. */
+  memory?: boolean;
+  /** The folder of those notes; always the resolved folder on read, empty on write resets it to the default. */
+  memoryFolder?: string;
 }
 
 export interface SuggestedModel {
@@ -547,3 +582,46 @@ export interface UpdateInfo {
   checking: boolean;
   error: string | null;
 }
+
+/** One Markdown note of the memory folder. */
+export interface MemoryNote {
+  path: string;
+  title: string;
+  facts: number;
+}
+
+/** A fact older than six months that nothing confirmed since. */
+export interface MemoryReviewItem {
+  note: string;
+  noteTitle: string;
+  /** The exact line of the note: it identifies the fact when deciding. */
+  line: string;
+  fact: string;
+  /** YYYY-MM-DD. */
+  date: string;
+}
+
+export type MemoryCliId = 'claude' | 'codex';
+
+/** A CLI the user can connect to the memory: Pouple writes `lines` into `file`, and only when asked. */
+export interface MemoryCli {
+  id: MemoryCliId;
+  name: string;
+  file: string;
+  connected: boolean;
+  /** The exact block that is (or would be) in the file. */
+  lines: string;
+}
+
+export interface MemoryView {
+  enabled: boolean;
+  folder: string;
+  exists: boolean;
+  notes: MemoryNote[];
+  review: MemoryReviewItem[];
+  clis: MemoryCli[];
+  /** RFC 3339, the last tidy-up; absent if never. */
+  tidiedAt?: string;
+}
+
+export type MemoryDecision = 'keep' | 'drop';

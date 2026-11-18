@@ -368,3 +368,22 @@ func TestANoteShapedByAServiceOrAReminderOfAForeignConversationIsNotTheUsersOwnT
 		}
 	}
 }
+
+func TestACommentOfAServiceIsAnsweredSoItReadsOnlyItsOwnService(t *testing.T) {
+	for origin, wantsDM := range map[string]bool{OriginAsana: false, OriginMergeRequest: false, OriginPipeline: true} {
+		var h *harness
+		joinFirst := func(ctx context.Context, turn Turn) (TurnResult, error) {
+			return sortedTo(h.firstTopic().ID, "")(ctx, turn)
+		}
+		h = topicsHarness(t, sortedTo("", "Payments"), reply(nil), joinFirst, reply(nil))
+		h.receive(message("Lina is leaving, keep it quiet", func(in *Incoming) {
+			in.Source.Origin, in.Source.ChannelID = "direct-message", "D-lina"
+		}))
+		h.receive(message("Who owns the payment flow now?", func(in *Incoming) {
+			in.Source.Origin, in.Source.ChannelID, in.Source.TS = origin, "service-"+origin, "2.2"
+		}))
+		if read := strings.Contains(h.codex.turns[3].Prompt, "Lina is leaving"); read != wantsDM {
+			t.Errorf("%s: read the direct message = %v, want %v", origin, read, wantsDM)
+		}
+	}
+}

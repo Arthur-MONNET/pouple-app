@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,7 +29,10 @@ type ClaudeOptions struct {
 	// ProtectedDirs are folders the model must not read even when they sit inside a folder it may read
 	// (Pouple's own data, which holds the logins).
 	ProtectedDirs []string
-	Timeout       time.Duration
+	// Guarded are more folders the model must not read, asked at each turn since they follow the settings (the memory,
+	// whose private facts a request of someone else must never see); nil for none.
+	Guarded func() []string
+	Timeout time.Duration
 	// KillGrace is how long a stopped process has to leave before it is forced.
 	KillGrace time.Duration
 }
@@ -133,7 +137,11 @@ func (r *ClaudeRunner) BuildArgs(turn Turn, imageDir string) ([]string, error) {
 	if turn.Sandbox == WorkspaceWrite {
 		rules = append(rules, secretWrites...)
 	}
-	for _, dir := range r.opts.ProtectedDirs {
+	protected := r.opts.ProtectedDirs
+	if r.opts.Guarded != nil {
+		protected = append(slices.Clone(protected), r.opts.Guarded()...)
+	}
+	for _, dir := range protected {
 		if dir != "" {
 			rules = append(rules, "Read(/"+filepath.ToSlash(filepath.Clean(dir))+"/**)")
 		}

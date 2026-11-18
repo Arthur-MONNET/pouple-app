@@ -19,6 +19,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/machine"
+	"github.com/Arthur-MONNET/pouple/core/internal/memory"
 	"github.com/Arthur-MONNET/pouple/core/internal/mrwatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/pipelinewatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
@@ -48,6 +49,10 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 	}
 	topicSchemaFile := filepath.Join(dir, "topic.schema.json")
 	if err := os.WriteFile(topicSchemaFile, []byte(engine.TopicSchema), 0o600); err != nil {
+		return nil, nil, err
+	}
+	tidySchemaFile := filepath.Join(dir, "memory-tidy.schema.json")
+	if err := os.WriteFile(tidySchemaFile, []byte(engine.MemoryTidySchema), 0o600); err != nil {
 		return nil, nil, err
 	}
 	organizeSchemaFile := filepath.Join(dir, "organize.schema.json")
@@ -84,6 +89,10 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			logf("codex helper not installed: %v", err)
 		}
 	}()
+	// The memory's folder follows the settings; it is shared with the user's own CLIs, so it is not in Pouple's data.
+	home, _ := os.UserHomeDir()
+	memoryDir := func() string { return load().MemoryDir(home) }
+	notes := memory.New(memoryDir, engine.RunGit)
 	claudeHome := filepath.Join(dir, "claude")
 	claudeRunner := engine.NewClaudeRunner(engine.ClaudeOptions{
 		Shell: os.Getenv("SHELL"),
@@ -91,6 +100,15 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 		// Pouple's data folder holds the logins and the conversations: the model never reads it, even when
 		// the projects folder happens to contain it.
 		ProtectedDirs: []string{dir},
+		// The memory is read through Pouple, which keeps its private facts from the requests of others.
+		Guarded: func() []string {
+			folder := memoryDir()
+			if folder == "" {
+				return nil
+			}
+			// Denied as written and as it really is: a symbolic link must not open another way in.
+			return []string{folder, config.ResolvePath(folder)}
+		},
 	})
 	aiProviders := map[providers.ID]engine.Provider{
 		providers.Codex: &engine.Metered{
@@ -158,7 +176,8 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			}
 			return persona
 		},
-		Style: style,
+		Style:  style,
+		Memory: notes, MemoryOn: func() bool { return load().MemoryEnabled }, MemoryTidySchemaFile: tidySchemaFile,
 		// Code Pouple writes goes to a branch of its own, in a worktree beside the projects, never in the user's checkout.
 		WorktreesRoot: func() string {
 			if root := projectsRoot(); root != "" {

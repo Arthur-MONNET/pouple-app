@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AssistantQuestion, AssistantRequest, PlanAction, QuestionAnswer, ReminderPick } from '../api/types';
+import type { AssistantQuestion, AssistantRequest, PlanAction, MemoryPick, QuestionAnswer, ReminderPick } from '../api/types';
 import { errorMessage } from '../api/client';
 import { useAssistantStore } from '../composables/assistantStore';
 import { t } from '../i18n';
@@ -17,6 +17,7 @@ import MarkdownText from './MarkdownText.vue';
 import InlineError from './InlineError.vue';
 import MascotStage from './MascotStage.vue';
 import PlanSummary from './PlanSummary.vue';
+import MemoryOfferCard from './MemoryOfferCard.vue';
 import ReminderOfferCard from './ReminderOfferCard.vue';
 
 const props = defineProps<{ request: AssistantRequest }>();
@@ -39,6 +40,8 @@ const isReminder = computed(() => props.request.source.origin === 'reminder');
 const originId = computed(() => props.request.source.relatedRequestId ?? null);
 const remindersWaiting = computed(() => props.request.reminders?.status === 'proposed');
 const remindersSet = computed(() => props.request.reminders?.status === 'accepted');
+const memoriesWaiting = computed(() => props.request.memories?.status === 'proposed');
+const memoriesSet = computed(() => props.request.memories?.status === 'accepted');
 
 /** Approving a change is asked like any other question, so it looks and behaves the same. */
 const proposalQuestion = computed<AssistantQuestion[]>(() => {
@@ -122,6 +125,9 @@ const submitProposal = (answers: QuestionAnswer[]): Promise<void> =>
 
 const confirmReminders = (items: ReminderPick[]): Promise<void> =>
   guard(() => store.decideReminders(props.request.id, 'approve', props.request.reminders?.id ?? '', items));
+const confirmMemories = (items: MemoryPick[]): Promise<void> =>
+  guard(() => store.decideMemories(props.request.id, 'approve', props.request.memories?.id ?? '', items));
+const skipMemories = (): Promise<void> => guard(() => store.decideMemories(props.request.id, 'decline', props.request.memories?.id ?? ''));
 const skipReminders = (): Promise<void> => guard(() => store.decideReminders(props.request.id, 'decline', props.request.reminders?.id ?? ''));
 
 async function remove(): Promise<void> {
@@ -264,6 +270,19 @@ watch(
       <AppIcon name="bell" size="sm" />
       {{ $t('chat.reminders.done') }}
       <RouterLink to="/alerts" class="underline decoration-line-bright underline-offset-2 hover:text-ink">{{ $t('chat.reminders.seeAlerts') }}</RouterLink>
+    </p>
+
+    <MemoryOfferCard
+      v-if="request.memories && memoriesWaiting"
+      :title="title"
+      :offer="request.memories"
+      :busy="busy"
+      @confirm="confirmMemories"
+      @skip="skipMemories"
+    />
+    <p v-else-if="memoriesSet" class="flex items-center gap-2 text-xs text-ink-muted" data-testid="memories-set">
+      <AppIcon name="check" size="sm" />
+      {{ $t('chat.memories.done') }}
     </p>
 
     <div v-if="request.status === 'failed'" class="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-2.5" data-testid="failed-note">

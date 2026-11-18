@@ -3,6 +3,9 @@ import { readSse } from './sse';
 import type {
   ActionEvent,
   AlertInput,
+  MemoryCliId,
+  MemoryDecision,
+  MemoryView,
   AlertPatch,
   AppState,
   AssistantAlert,
@@ -13,6 +16,7 @@ import type {
   Profile,
   PlanDecision,
   ProposalDecision,
+  MemoryPick,
   ReminderPick,
   QuestionAnswer,
   ProviderModels,
@@ -73,6 +77,8 @@ export interface PoupleApi {
   decidePlan(requestId: string, decision: PlanDecision, planId: string, actions?: number[]): Promise<void>;
   /** Sets the alerts the user ticked in the suggestion they read (offerId), or declines it (no items). */
   decideReminders(requestId: string, decision: ProposalDecision, offerId: string, items?: ReminderPick[]): Promise<void>;
+  /** Writes the facts the user ticked in the suggestion they read (offerId), or declines it (no items). */
+  decideMemories(requestId: string, decision: ProposalDecision, offerId: string, items?: MemoryPick[]): Promise<void>;
   /** Makes an alert by hand. Rejects with an ApiError (400) when the title is empty or the moment is not in the future. */
   createAlert(input: AlertInput): Promise<AssistantAlert>;
   updateAlert(id: string, patch: AlertPatch): Promise<AssistantAlert>;
@@ -93,6 +99,16 @@ export interface PoupleApi {
   getStyle(): Promise<StyleInfo>;
   /** Makes Pouple forget the learned style. */
   forgetStyle(): Promise<StyleInfo>;
+  /** The memory folder: its notes, the facts to review and the CLIs that can be connected to it. */
+  getMemory(): Promise<MemoryView>;
+  /** Keeps (marks confirmed today) or drops a fact to review. Rejects with 409 when the line changed meanwhile or the memory is off. */
+  reviewMemory(note: string, line: string, decision: MemoryDecision): Promise<MemoryView>;
+  /** Writes (or removes) the Pouple block in the CLI's own file. Rejects with 409 when connecting while the memory is off. */
+  connectCli(id: MemoryCliId, connected: boolean): Promise<MemoryView>;
+  /** Opens the folder in Finder; rejects with 404 when it does not exist yet. */
+  revealMemory(): Promise<void>;
+  /** Starts a tidy-up in the background; rejects with 409 when the memory is off. */
+  tidyMemory(): Promise<void>;
 }
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -172,6 +188,12 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     getUpdate: () => read<UpdateInfo>('/api/update'),
     checkUpdate: () => read<UpdateInfo>('/api/update/check', { method: 'POST' }, {}),
 
+    getMemory: () => read<MemoryView>('/api/memory'),
+    reviewMemory: (note, line, decision) => read<MemoryView>('/api/memory/review', { method: 'POST' }, { note, line, decision }),
+    connectCli: (id, connected) => read<MemoryView>(`/api/memory/clis/${enc(id)}`, { method: 'POST' }, { connected }),
+    revealMemory: () => post('/api/memory/reveal'),
+    tidyMemory: () => post('/api/memory/tidy'),
+
     getSnapshot: () => read<AssistantSnapshot>('/api/assistant'),
     async streamSnapshots(onSnapshot, signal) {
       const response = await send('/api/assistant/stream', { signal, headers: { Accept: 'text/event-stream' } });
@@ -187,6 +209,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     decideProposal: (requestId, decision) => post(assistant(requestId, '/proposal'), { decision }),
     decidePlan: (requestId, decision, planId, actions) => post(assistant(requestId, '/plan'), { decision, planId, ...(actions && { actions }) }),
     decideReminders: (requestId, decision, offerId, items) => post(assistant(requestId, '/reminders'), { decision, offerId, ...(items && { items }) }),
+    decideMemories: (requestId, decision, offerId, items) => post(assistant(requestId, '/memories'), { decision, offerId, ...(items && { items }) }),
     createAlert: (input) => read<AssistantAlert>('/api/alerts', { method: 'POST' }, input),
     updateAlert: (id, patch) => read<AssistantAlert>(`/api/alerts/${enc(id)}`, { method: 'PATCH' }, patch),
     deleteAlert: async (id) => void (await send(`/api/alerts/${enc(id)}`, { method: 'DELETE' })),

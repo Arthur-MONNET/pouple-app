@@ -35,6 +35,10 @@ type Settings struct {
 	// LearnStyle is whether Pouple learns how the user writes from their Slack messages, to draft replies in that style: on
 	// unless turned off.
 	LearnStyle bool `json:"learnStyle"`
+	// Memory is whether Pouple reads the memory and suggests facts to keep in it: off until the user turns it on.
+	Memory bool `json:"memory"`
+	// MemoryFolder is the folder of the memory's notes, the default one when the user chose none.
+	MemoryFolder string `json:"memoryFolder"`
 	// DevServers is whether Pouple may start a project's development server for a screenshot: on unless turned off.
 	DevServers bool `json:"devServers"`
 	// GitLabPipelines is which finished pipelines become requests: "all", "failures" or "off".
@@ -52,7 +56,7 @@ func viewOf(s config.Settings) Settings {
 		PollSeconds: s.PollSeconds, DailyTurnLimit: s.DailyTurnLimit, ProjectsRoot: s.ProjectsRoot, Language: s.Language,
 		UILanguage: string(i18n.Parse(s.UILanguage)), AutoApprove: s.AutoApprove, Keywords: s.Keywords, IgnoreChannels: s.IgnoreChannels, ScreenshotHosts: nonNil(s.ScreenshotHosts),
 		Provider: string(s.ActiveProvider()), Models: models, WebAccess: !s.WebDisabled, DevServers: !s.DevServersDisabled, LearnStyle: !s.StyleDisabled, GitLabPipelines: s.GitLabPipelines,
-		BetaUpdates: s.UpdateChannel == "beta",
+		BetaUpdates: s.UpdateChannel == "beta", Memory: s.MemoryEnabled, MemoryFolder: s.MemoryDir(homeDir()),
 	}
 }
 
@@ -91,6 +95,9 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				// GitLabPipelines is "all", "failures" or "off".
 				GitLabPipelines *string `json:"gitlabPipelines"`
 				BetaUpdates     *bool   `json:"betaUpdates"`
+				Memory          *bool   `json:"memory"`
+				// MemoryFolder moves the memory to another folder; "" goes back to the default one.
+				MemoryFolder *string `json:"memoryFolder"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&patch); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(lang, "The request is not valid JSON")})
@@ -114,6 +121,25 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(lang, "The settings could not be read")})
 				return
+			}
+			// The memory and the projects are checked against each other whichever of the two moves, and when the memory is
+			// turned on; while it is off, its default folder never stands in the way of a choice of projects.
+			memoryOn := current.MemoryEnabled
+			if patch.Memory != nil {
+				memoryOn = *patch.Memory
+			}
+			if patch.MemoryFolder != nil || (memoryOn && (patch.ProjectsRoot != nil || patch.Memory != nil)) {
+				root, folder := current.ProjectsRoot, current.MemoryFolder
+				if patch.ProjectsRoot != nil {
+					root = strings.TrimSpace(*patch.ProjectsRoot)
+				}
+				if patch.MemoryFolder != nil {
+					folder = *patch.MemoryFolder
+				}
+				if problem := validateMemoryFolder(lang, folder, root); problem != "" {
+					writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": problem})
+					return
+				}
 			}
 			models, problem := validateProvider(lang, current, patch.Provider, patch.Models)
 			if problem != "" {
@@ -141,6 +167,12 @@ func MountSettings(file *config.File) func(mux *http.ServeMux) {
 				}
 				if patch.GitLabPipelines != nil {
 					s.GitLabPipelines = *patch.GitLabPipelines
+				}
+				if patch.Memory != nil {
+					s.MemoryEnabled = *patch.Memory
+				}
+				if patch.MemoryFolder != nil {
+					s.MemoryFolder = cleanMemoryFolder(*patch.MemoryFolder)
 				}
 				if patch.BetaUpdates != nil {
 					s.UpdateChannel = "stable"
@@ -209,6 +241,57 @@ func validate(lang i18n.Lang, poll, limit *int, root, autoApprove, uiLanguage *s
 		}
 	}
 	return ""
+}
+
+func homeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// cleanMemoryFolder is the folder as it is kept: "" for the default one (also when the default is given back).
+func cleanMemoryFolder(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return ""
+	}
+	path = filepath.Clean(path)
+	if home := homeDir(); home != "" && path == filepath.Join(home, config.DefaultMemoryFolder) {
+		return ""
+	}
+	return path
+}
+
+// validateMemoryFolder checks a folder chosen for the memory (the default one when raw is ""). It may not exist yet (it is
+// made with the first fact), but it must be a full path that is not the disk or the home folder, and the memory and the
+// projects folder must not hold each other, symbolic links followed: a turn that writes in a project could otherwise
+// change the memory, and the memory's history would hold every project.
+func validateMemoryFolder(lang i18n.Lang, raw, projectsRoot string) string {
+	path := cleanMemoryFolder(raw)
+	if path == "" {
+		path = config.Settings{}.MemoryDir(homeDir())
+	} else {
+		if !filepath.IsAbs(path) || path == "/" || path == filepath.Clean(homeDir()) {
+			return i18n.T(lang, "Choose a full path for the memory, not / or your home folder")
+		}
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return i18n.T(lang, "“%s” is not a folder", path)
+		}
+	}
+	root := strings.TrimSpace(projectsRoot)
+	if root == "" || path == "" {
+		return ""
+	}
+	memory, projects := config.ResolvePath(path), config.ResolvePath(root)
+	if within(memory, projects) || within(projects, memory) {
+		return i18n.T(lang, "The memory must stay out of the projects folder")
+	}
+	return ""
+}
+
+// within says whether path is folder or inside it.
+func within(path, folder string) bool {
+	relative, err := filepath.Rel(folder, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, "../")
 }
 
 // validateProvider checks the choice of AI and the models, and returns the models cleaned (trimmed), or what is wrong.

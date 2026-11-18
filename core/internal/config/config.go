@@ -40,6 +40,11 @@ type Settings struct {
 	WebDisabled bool `json:"webDisabled"`
 	// StyleDisabled stops Pouple from learning how the user writes from their Slack messages. Learning is on unless turned off.
 	StyleDisabled bool `json:"styleDisabled"`
+	// MemoryEnabled lets Pouple read the memory and suggest facts to keep in it. It is off until the user turns it on: whoever
+	// does not want it never sees it. Turning it off never deletes the folder.
+	MemoryEnabled bool `json:"memoryEnabled"`
+	// MemoryFolder is the folder of the memory's notes; empty is DefaultMemoryFolder in the home folder.
+	MemoryFolder string `json:"memoryFolder"`
 	// DevServersDisabled stops Pouple from starting a project's development server when the assistant needs to see one of
 	// its pages. Starting them is on unless the user turned it off.
 	DevServersDisabled bool `json:"devServersDisabled"`
@@ -65,6 +70,36 @@ type Settings struct {
 	// UpdateChannel is which builds the in-app update follows: "beta" (the develop branch) or anything else, the stable
 	// one (main). Empty is stable, so a copy follows the beta only when the user asked for it.
 	UpdateChannel string `json:"updateChannel"`
+}
+
+// DefaultMemoryFolder is where the memory lives, in the home folder, unless the user chose another folder.
+const DefaultMemoryFolder = "SecondBrain"
+
+// MemoryDir is the folder of the memory: the one the user chose, or DefaultMemoryFolder in home.
+func (s Settings) MemoryDir(home string) string {
+	if s.MemoryFolder != "" {
+		return s.MemoryFolder
+	}
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, DefaultMemoryFolder)
+}
+
+// ResolvePath is a full path with its symbolic links resolved, as far as it exists: a folder still to be made is read
+// from its nearest existing parent, so two paths can be compared by what they point to, not by how they are written.
+func ResolvePath(path string) string {
+	path = filepath.Clean(path)
+	var tail []string
+	for current := path; ; current = filepath.Dir(current) {
+		if real, err := filepath.EvalSymlinks(current); err == nil {
+			return filepath.Join(append([]string{real}, tail...)...)
+		}
+		if parent := filepath.Dir(current); parent == current {
+			return path
+		}
+		tail = append([]string{filepath.Base(current)}, tail...)
+	}
 }
 
 func Defaults() Settings {

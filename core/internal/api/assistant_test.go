@@ -53,6 +53,9 @@ func (f *fakeAssistant) DecidePlanActions(id string, ok bool, plan string, actio
 func (f *fakeAssistant) DecideReminders(id string, ok bool, offer string, picks []engine.ReminderPick) error {
 	return f.record("decide-reminders", id, ok, offer, picks)
 }
+func (f *fakeAssistant) DecideMemories(id string, ok bool, offer string, picks []engine.MemoryPick) error {
+	return f.record("decide-memories", id, ok, offer, picks)
+}
 func (f *fakeAssistant) Ignore(id string) error      { return f.record("ignore", id) }
 func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", id+seen) }
 func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }
@@ -105,6 +108,9 @@ func TestAssistantRoutesCallTheEngineAndMapItsErrors(t *testing.T) {
 		{"POST", "/api/assistant/requests/r1/reminders", `{"decision":"decline","offerId":"o1"}`, 202, "decide-reminders r1 false o1 []"},
 		{"POST", "/api/assistant/requests/r1/reminders", `{"decision":"approve"}`, 400, ""},
 		{"POST", "/api/assistant/requests/r1/reminders", `{"decision":"later","offerId":"o1"}`, 400, ""},
+		{"POST", "/api/assistant/requests/r1/memories", `{"decision":"approve","offerId":"o1","items":[{"id":"m1","shared":true},{"id":"m2"}]}`, 202, "decide-memories r1 true o1 [{m1 true} {m2 false}]"},
+		{"POST", "/api/assistant/requests/r1/memories", `{"decision":"decline","offerId":"o1"}`, 202, "decide-memories r1 false o1 []"},
+		{"POST", "/api/assistant/requests/r1/memories", `{"decision":"approve"}`, 400, ""},
 		{"POST", "/api/assistant/requests/r1/messages", `{"text":"hi","attachmentIds":["a"]}`, 202, "message r1 hi 1"},
 		{"POST", "/api/assistant/requests/r1/answers", `{"answers":[{"questionId":"q1","optionId":"A"}]}`, 202, "answer r1 1"},
 		{"POST", "/api/assistant/requests/r1/proposal", `{"decision":"maybe"}`, 400, ""},

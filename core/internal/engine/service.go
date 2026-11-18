@@ -18,6 +18,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/machine"
+	"github.com/Arthur-MONNET/pouple/core/internal/memory"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 )
 
@@ -127,6 +128,12 @@ type Deps struct {
 	AutoApproveAll func() bool
 	// Screenshots takes the pictures of pages the AI asks for; nil when there is no browser to do it.
 	Screenshots Screenshotter
+	// Memory keeps the facts that last beyond a conversation, as notes shared with the user's own CLIs; nil when there is
+	// none. MemoryOn says whether it is switched on, read at each use.
+	Memory   *memory.Store
+	MemoryOn func() bool
+	// MemoryTidySchemaFile holds MemoryTidySchema, for the turn that tidies the memory up; "" leaves it untidied.
+	MemoryTidySchemaFile string
 	// Style is the learned writing style of the user, to show what is known of it and to forget it; nil when none is kept.
 	Style *StyleStore
 	// DevServers starts a project's development server for a screenshot; nil when Pouple cannot.
@@ -168,6 +175,8 @@ type Service struct {
 
 	// reminderMu serializes the decisions on suggested reminders.
 	reminderMu sync.Mutex
+	// memoryMu serializes the decisions on suggested facts.
+	memoryMu sync.Mutex
 	// alertWake tells watchAlerts that the alerts changed, so it looks at the clock again.
 	alertWake chan struct{}
 
@@ -196,6 +205,9 @@ type Service struct {
 	// organizing says a look at all the topics is queued or running; organizeTried is when one was last started.
 	organizing    bool
 	organizeTried time.Time
+	// tidying says a tidy-up of the memory is queued or running; tidyTried is when one was last started.
+	tidying   bool
+	tidyTried time.Time
 }
 
 func NewService(deps Deps) *Service {
@@ -468,6 +480,7 @@ func (s *Service) Poll(ctx context.Context) {
 	s.pollEvents(ctx)
 	s.expireStale()
 	s.maybeOrganize(ctx)
+	s.maybeTidyMemory(ctx)
 }
 
 func (s *Service) pollSlack(ctx context.Context) {

@@ -54,6 +54,11 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// RunGit is runGit for the other parts of Pouple that keep a repository of their own (the memory).
+func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
+	return runGit(ctx, dir, args...)
+}
+
 // talksToRemote says whether a git command (its first word that is not an option) reaches another computer.
 func talksToRemote(args []string) bool {
 	for _, arg := range args {

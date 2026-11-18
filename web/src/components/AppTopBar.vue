@@ -30,6 +30,13 @@ const { available, info } = useUpdate();
         {{ $t('nav.alerts') }}
       </RouterLink>
       <RouterLink
+        to="/memory"
+        class="rounded-md px-2.5 py-1 text-sm text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
+        active-class="bg-raised !text-ink"
+      >
+        {{ $t('nav.memory') }}
+      </RouterLink>
+      <RouterLink
         to="/connectors"
         class="rounded-md px-2.5 py-1 text-sm text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
         active-class="bg-raised !text-ink"

@@ -172,6 +172,13 @@ struct BubbleCard: View {
                 ReminderPicker(offer: offer, busy: busy, onConfirm: { store.decideReminders(request, picks: $0) }, onSkip: { store.decideReminders(request, picks: nil) })
                     .id(offer.id)
             }
+            // One choice at a time: the bubble grows with what it holds, so the facts come once the reminders are settled
+            // (the window shows both at once).
+            if let offer = request.memories, offer.isProposed, request.reminders?.isProposed != true {
+                // A new offer starts over, with the facts ticked as proposed and all of them private.
+                MemoryPicker(offer: offer, busy: busy, onConfirm: { store.decideMemories(request, picks: $0) }, onSkip: { store.decideMemories(request, picks: nil) })
+                    .id(offer.id)
+            }
             HStack {
                 Button(L10n.text(.bubbleDone)) { store.dismiss(request) }.buttonStyle(PillButtonStyle(role: .primary))
                 openButton

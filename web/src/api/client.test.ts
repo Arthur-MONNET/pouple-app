@@ -132,6 +132,16 @@ describe('http api', () => {
     expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'decline', offerId: 'o1' });
   });
 
+  it('names the suggestion that was read, and the ticked facts with their sharing, when deciding on memories', async () => {
+    const { fetch, calls } = recorder(() => new Response(null, { status: 202 }));
+    const api = createHttpApi(fetch);
+    await api.decideMemories('r1', 'approve', 'o1', [{ id: 'm1', shared: true }, { id: 'm2' }]);
+    await api.decideMemories('r1', 'decline', 'o1');
+    expect(calls.map((c) => c.path)).toEqual(['/api/assistant/requests/r1/memories', '/api/assistant/requests/r1/memories']);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ decision: 'approve', offerId: 'o1', items: [{ id: 'm1', shared: true }, { id: 'm2' }] });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ decision: 'decline', offerId: 'o1' });
+  });
+
   it('makes an alert with POST, moves it with PATCH and deletes it with DELETE (204 has no body)', async () => {
     const alert = { id: 'a1', title: 'Call', at: '2026-11-20T09:00:00+01:00', createdAt: '2026-11-16T10:00:00+01:00' };
     const { fetch, calls } = recorder((_path, init) => (init.method === 'DELETE' ? new Response(null, { status: 204 }) : json(init.method === 'POST' ? 201 : 200, alert)));
@@ -174,5 +184,34 @@ describe('http api, update', () => {
     await api.getUpdate();
     await api.checkUpdate();
     expect(calls.map((c) => [c.path, c.init.method ?? 'GET'])).toEqual([['/api/update', 'GET'], ['/api/update/check', 'POST']]);
+  });
+});
+
+describe('http api, memory', () => {
+  const view = { enabled: true, folder: '/n', exists: true, notes: [], review: [], clis: [] };
+
+  it('reads the memory and posts the review decision with the exact line', async () => {
+    const { fetch, calls } = recorder(() => json(200, view));
+    const api = createHttpApi(fetch);
+    expect(await api.getMemory()).toEqual(view);
+    await api.reviewMemory('people/a.md', '- a fact (2026-01-02)', 'keep');
+    expect(calls.map((c) => [c.path, c.init.method ?? 'GET'])).toEqual([['/api/memory', 'GET'], ['/api/memory/review', 'POST']]);
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ note: 'people/a.md', line: '- a fact (2026-01-02)', decision: 'keep' });
+  });
+
+  it('connects a CLI by id, and reveals and tidies without reading a body', async () => {
+    const { fetch, calls } = recorder((path) => (path.includes('/clis/') ? json(200, view) : new Response(null, { status: path.endsWith('tidy') ? 202 : 204 })));
+    const api = createHttpApi(fetch);
+    await api.connectCli('codex', true);
+    await api.revealMemory();
+    await api.tidyMemory();
+    expect(calls.map((c) => [c.path, c.init.method])).toEqual([['/api/memory/clis/codex', 'POST'], ['/api/memory/reveal', 'POST'], ['/api/memory/tidy', 'POST']]);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ connected: true });
+  });
+
+  it('keeps the message of a 409', async () => {
+    const { fetch } = recorder(() => json(409, { message: 'the memory is off' }));
+    const error = await createHttpApi(fetch).connectCli('claude', true).catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ status: 409, message: 'the memory is off' });
   });
 });

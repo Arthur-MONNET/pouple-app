@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { AutoApprove, SettingsPatch } from '../api/types';
+import MemorySettings from '../components/MemorySettings.vue';
 import StyleSettings from '../components/StyleSettings.vue';
 import AiSection from '../components/AiSection.vue';
 import GitLabSettings from '../components/GitLabSettings.vue';
@@ -169,7 +170,7 @@ function onInterfaceLanguage(event: Event): void {
           <template #footer><SaveStatus :saved="autosave.saved.value" :error="autosave.error.value" /></template>
         </SettingsSection>
 
-        <div v-show="category === 'assistant'"><StyleSettings /></div>
+        <div v-show="category === 'assistant'" class="flex flex-col gap-6"><StyleSettings /><MemorySettings /></div>
 
         <div v-show="category === 'updates'"><UpdateSection /></div>
 

@@ -48,7 +48,7 @@ export interface MockText {
     noteDone: string;
     limit: string;
     /** A Slack message that leaves something to do by a date: the assistant suggests reminders for it. */
-    leave: { message: string; summary: string; reminders: [string, string, string] };
+    leave: { message: string; summary: string; reminders: [string, string, string]; memories: { noteTitle: string; fact: string; replaces: string; newNoteTitle: string; newFact: string } };
   };
 }
 
@@ -207,6 +207,7 @@ const fr: MockText = {
       message: 'Dac, tu peux me tenir au courant d’ici fin de semaine ?',
       summary: '**Tu confirmeras tes congés à Jocelyn d’ici vendredi.**\n- Tu envisages de prendre uniquement le 31 décembre.',
       reminders: ['Confirmer tes congés à Jocelyn', 'Dernier rappel : congés à confirmer', 'Relancer Jocelyn si pas de retour'],
+      memories: { noteTitle: 'Jocelyn Lebaad', fact: 'Valide les congés de l\'équipe, il faut le prévenir au moins deux semaines avant.', replaces: 'Valide les congés de l\'équipe sous une semaine.', newNoteTitle: 'Process congés', newFact: 'Les congés se posent dans l\'outil RH puis se confirment à Jocelyn en message direct.' },
     },
   },
 };
@@ -324,6 +325,7 @@ const en: MockText = {
       message: 'Ok, can you keep me posted by the end of the week?',
       summary: '**You will confirm your leave to Jocelyn by Friday.**\n- You plan to take only December 31.',
       reminders: ['Confirm your leave to Jocelyn', 'Last call: leave to confirm', 'Follow up with Jocelyn if no answer'],
+      memories: { noteTitle: 'Jocelyn Lebaad', fact: "Approves the team's leave, and needs at least two weeks' notice.", replaces: "Approves the team's leave within a week.", newNoteTitle: 'Leave process', newFact: 'Leave is booked in the HR tool, then confirmed to Jocelyn in a direct message.' },
     },
   },
 };

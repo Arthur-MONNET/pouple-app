@@ -113,6 +113,16 @@ public struct PoupleAPI: Sendable {
         _ = try await send("POST", "/api/assistant/requests/\(requestId)/reminders", body: body)
     }
 
+    /// Writes the facts the user ticked in the offer they read (`offerId`), or declines it when `picks` is nil.
+    /// A fact is private unless its pick is shared.
+    public func decideMemories(requestId: String, offerId: String, picks: [MemoryPick]?) async throws {
+        var body: [String: Any] = ["decision": picks == nil ? "decline" : "approve", "offerId": offerId]
+        if let picks {
+            body["items"] = picks.map { pick -> [String: Any] in pick.shared ? ["id": pick.id, "shared": true] : ["id": pick.id] }
+        }
+        _ = try await send("POST", "/api/assistant/requests/\(requestId)/memories", body: body)
+    }
+
     public func message(requestId: String, text: String, attachmentIds: [String] = []) async throws {
         var body: [String: Any] = ["text": text]
         if !attachmentIds.isEmpty { body["attachmentIds"] = attachmentIds }

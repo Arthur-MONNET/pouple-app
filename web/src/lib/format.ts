@@ -77,3 +77,10 @@ export function formatDay(iso: string, locale: Lang = lang.value): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(tag(locale), { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+/** "2 mars 2026" / "2 Mar 2026", from a plain "YYYY-MM-DD" day (read as that local day, never shifted by a time zone). */
+export function formatPlainDay(day: string, locale: Lang = lang.value): string {
+  const [year, month, date] = day.split('-').map(Number);
+  if (!year || !month || !date) return day;
+  return new Date(year, month - 1, date).toLocaleDateString(tag(locale), { year: 'numeric', month: 'short', day: 'numeric' });
+}

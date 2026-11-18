@@ -154,6 +154,29 @@ public struct ReminderOffer: Codable, Equatable, Sendable {
     public var isProposed: Bool { status == "proposed" && !items.isEmpty }
 }
 
+/// The facts the assistant suggests remembering, for the user to pick from. Nothing is written until they confirm.
+public struct MemoryOffer: Codable, Equatable, Sendable {
+    public struct Item: Codable, Equatable, Identifiable, Sendable {
+        public let id: String
+        /// The note the fact goes to; absent for a new note.
+        public let note: String?
+        public let noteTitle: String
+        public let fact: String
+        /// The older fact this one replaces, when there is one.
+        public let replaces: String?
+        /// Whether the fact starts ticked.
+        public let ticked: Bool
+    }
+
+    /// Names this exact offer: a decision carries it, so it can only answer the offer that was read.
+    public let id: String
+    public let status: String
+    public let items: [Item]
+    public let chosen: [String]?
+
+    public var isProposed: Bool { status == "proposed" && !items.isEmpty }
+}
+
 public struct ChatEntry: Codable, Equatable, Identifiable, Sendable {
     public enum Role: String, Codable, Sendable { case system, assistant, user }
     public enum Kind: String, Codable, Sendable { case text, step }
@@ -187,6 +210,8 @@ public struct AssistantRequest: Codable, Equatable, Identifiable, Sendable {
     public var plan: AssistantPlan? = nil
     /// The alerts the assistant suggests, waiting for the user's pick or already decided; absent from older cores.
     public var reminders: ReminderOffer? = nil
+    /// The facts the assistant suggests remembering, waiting for the user's pick or already decided; absent from older cores.
+    public var memories: MemoryOffer? = nil
 
     /// The name of the AI that can take over, as shown in a button.
     public var switchToName: String? {

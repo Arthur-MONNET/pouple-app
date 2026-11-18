@@ -143,6 +143,27 @@ describe('assistant store', () => {
     store.stop();
   });
 
+  it('remembers the ticked facts, and refuses an offer the user never read or one already decided', async () => {
+    const api = createMockApi({ latency: 0 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const suggesting = store.requests.value.find((r) => r.memories?.status === 'proposed');
+    const id = suggesting?.id ?? '';
+    const offer = suggesting?.memories;
+    // The suggestion rests on someone else's direct message: like the core, the mock ticks nothing in advance.
+    expect(offer?.items.length).toBeGreaterThan(0);
+    expect(offer?.items.some((item) => item.ticked)).toBe(false);
+    await expect(store.decideMemories(id, 'approve', 'another-offer', [{ id: offer?.items[0]?.id ?? '' }])).rejects.toBeInstanceOf(ApiError);
+    await expect(store.decideMemories(id, 'approve', offer?.id ?? '', [{ id: 'unknown' }])).rejects.toBeInstanceOf(ApiError);
+    await store.decideMemories(id, 'approve', offer?.id ?? '', [{ id: offer?.items[0]?.id ?? '', shared: true }]);
+    await tick();
+    expect(store.byId(id)?.memories?.status).toBe('accepted');
+    expect(store.byId(id)?.memories?.chosen).toEqual([offer?.items[0]?.id]);
+    await expect(store.decideMemories(id, 'decline', offer?.id ?? '')).rejects.toBeInstanceOf(ApiError);
+    store.stop();
+  });
+
   it('makes, moves and deletes an alert by hand, refusing a past moment or an empty title', async () => {
     const api = createMockApi({ latency: 0 });
     const store = createAssistantStore(api);

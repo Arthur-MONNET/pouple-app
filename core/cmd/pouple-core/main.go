@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -148,6 +149,12 @@ func run() error {
 	}
 	mountAssistant := api.MountAssistant(service, attachments)
 	mountAlerts := api.MountAlerts(service)
+	home, _ := os.UserHomeDir()
+	mountMemory := api.MountMemory(service, api.MemoryOptions{
+		Home: home,
+		// The Finder shows the folder; `open` with a folder never runs anything in it.
+		Reveal: func(path string) error { return exec.Command("/usr/bin/open", "--", path).Run() },
+	})
 	mountSettings := api.MountSettings(settings)
 	updateChecker := updates.New(updates.Options{DataDir: dir, Channel: func() updates.Channel {
 		// An unreadable configuration follows the stable channel: the beta is never chosen by default.
@@ -171,6 +178,7 @@ func run() error {
 		Mount: func(mux *http.ServeMux) {
 			mountAssistant(mux)
 			mountAlerts(mux)
+			mountMemory(mux)
 			mountSettings(mux)
 			mountProviders(mux)
 			mountUpdates(mux)

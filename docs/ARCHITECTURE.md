@@ -46,6 +46,9 @@ web page cannot drive the assistant.
 | `install.json` | Written by `scripts/install-local.sh`: where the source checkout is, and which commit was built. |
 | `claude/` | Dedicated `CLAUDE_CONFIG_DIR`: Pouple uses its own Claude login and never reads or writes `~/.claude`. |
 
+The memory is not in this folder: it is shared with the user's own Claude Code and Codex, in `~/SecondBrain/` (or the folder
+chosen in Settings, `memoryFolder`), a git repository of its own that is never pushed.
+
 **Secrets** (Slack token, other connectors' keys) are stored in the **macOS Keychain** (service `app.pouple`),
 through `/usr/bin/security`, never in a dotfile. They are write-only for the UI: the API returns whether a secret
 exists and where it came from, never its value. They reach the engine in memory only.
@@ -198,7 +201,7 @@ Codex runs in an operating-system sandbox. Claude Code does not, so a Claude tur
 | Working folder | the projects folder (or Pouple's scratch folder) | the project folder, also given as `--add-dir` |
 | Shell, web, MCP, sub-agents | none: not offered (`--tools`) and denied (`--disallowedTools`); `--strict-mcp-config` with no config ignores every MCP source, the project's `.mcp.json` included | same |
 | Settings, hooks, plugins | `--setting-sources ""`: no user, project or local settings, so no hook, plugin or rule from outside | same |
-| Secrets | deny rules through `--settings`: `.env*`, keys, `.ssh`, `.aws`, `.netrc`, `.npmrc`, Pouple's data folder | same, and `.env`/`.env.local` cannot be edited |
+| Secrets | deny rules through `--settings`: `.env*`, keys, `.ssh`, `.aws`, `.netrc`, `.npmrc`, Pouple's data folder, the memory folder (`ClaudeOptions.Guarded`, read at each turn) | same, and `.env`/`.env.local` cannot be edited |
 
 Verified against Claude Code 2.1.272, with the real CLI pointed at a local fake API (no account involved): a model
 that asks for Bash gets "No such tool available"; a read outside the working folder is refused; an edit outside the
@@ -301,14 +304,68 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
   that exist count. A round that places nothing ends the run, and a failed attempt is retried after ten minutes.
 - The analysis of a conversation in a topic reads the others of the topic (`relatedConversationsOf`: at most six, not ignored,
   not being worked on) through `AnalysisPromptWithTopic`. A conversation that came from someone else, whose reply may be sent to
-  them, reads only the conversations of its own channel (the others may be private); a note to oneself and the events of a
-  service read the whole topic. If any conversation read holds text written by other people, the request is flagged
+  them, reads only the conversations of its own channel (the others may be private), and so do an Asana comment and a merge
+  request review, whose reply goes to their author (`sharedReader`, the rule the memory follows too); a note to oneself, a
+  finished pipeline and a reminder read the whole topic. If any conversation read holds text written by other people, the request is flagged
   `ServicesUsed` and `ForeignSinceGrant` like any text of strangers, so nothing runs on its own after it. `ownText` decides: only
   a note to oneself that no service or web page shaped, or a reminder set from such a note, is the user's own.
 - Web: `lib/topicGroups.ts` groups by topic (`groupByTopic`, an unknown or missing topic goes to the `unsorted` group) and names
   a row by its source (`sourceLabel`); `lib/topicFolds.ts` and `composables/useTopicFolds.ts` hold the fold state (folded by
   default, open for the selected conversation and up to three topics that wait for the user, explicit choices kept in
   `localStorage`).
+
+### Memory
+
+- `core/internal/memory` is the folder of notes (`memory.Store`, on the folder `config.Settings.MemoryDir` gives at each
+  call). It knows nothing of conversations. Every path goes through `CleanPath` (relative, `.md`, no hidden segment, four
+  levels at most) and every file through an `os.Root` on the folder, so neither `..` nor a symbolic link leaves it. `Notes`
+  lists the notes (title: the first `# ` heading, else the file name), `Read` gives one, `Search` ranks the lines that hold
+  the most words of a query. With `shared` set, `WithoutPrivate` takes out every line marked `[private]` with what belongs
+  to it (the lines indented under it, blank lines included, a tab counting as four spaces; for a heading, its whole section
+  down to the next heading of the same level or higher), titles come from the filtered note, and a note left with nothing
+  but headings and front matter is not listed at all. `INDEX.md` is never a note, whatever its case.
+- `Remember` checks every fact first (`CheckFact`: one line, 300 characters, a note or the title of a new one, a title
+  being plain words since `INDEX.md` may be imported into the user's own `CLAUDE.md`), then, under one lock: `git init`
+  when needed (a repository that already has a remote is refused: private facts could be pushed), a commit "Changes made outside Pouple" of what changed by hand, the facts appended (or put
+  in place of the fact whose text starts with `replaces`), `INDEX.md` written again, and one commit. Notes are written with
+  a rename, so a reader sees the old note or the new one. git is `engine.RunGit` (no hook, no fsmonitor, no signing) with
+  Pouple's own identity; a failed last commit returns the facts written with `ErrNotCommitted`.
+- The engine (`engine/memory.go`) is on while `Deps.Memory` is set and `Deps.MemoryOn()` says so (`memoryEnabled` in the
+  settings, false by default: the memory is opt-in). The first prompt carries `Persona.MemorySection`: the index, the `notes` lookups (`search`, `read`) and the rules
+  of the `memories` field of the answer (four facts at most, `ParseOutcome` drops what the memory could not hold). `notes`
+  lookups are run by `runNotes`, outside the connected services: the memory holds what the user confirmed or wrote, so it
+  never sets `ServicesUsed` or `ForeignSinceGrant`. A request whose answer may reach someone else (`sharedReader`: all but a
+  note to oneself, a finished pipeline and a reminder; an Asana comment and a merge request review get a reply drafted for
+  their author) sees no private fact, in the index, the searches or the notes. Claude cannot read the folder with its own
+  tools (`Guarded` denies it as written and with its links resolved, `config.ResolvePath`). Known limits: Codex's
+  read-only sandbox can read the disk, and a turn with full access has a shell, so either could open a note by path, as
+  they could Pouple's data folder; git runs without hooks or fsmonitor, but a filter driver set in the folder's own
+  `.git/config` would still run, which needs someone who can already write there.
+- `attachMemories` turns the suggestions into `Request.memories`, a `MemoryOffer` with a fingerprint id and options `m1`,
+  `m2`…, each with the note it goes to (a path the index does not know makes a new note; a fact that could not be written
+  is not offered) and `ticked` set only when
+  `ownText` holds for the conversation. `POST /api/assistant/requests/{id}/memories`
+  (`{"decision","offerId","items":[{"id","shared"}]}`) names the offer read (409 for another one); `DecideMemories` checks
+  every pick, writes them all with the conversation's source (`memorySource`: "Slack #channel", "Note to self"… and its
+  permalink) and a 30 s bound, and a fact is `[private]` unless its pick says `shared`. The macOS bubble shows the offer
+  (`MemoryPicker`, the ticking rules in `PoupleCore/MemoryDraft`) once no reminder waits, since the panel grows with its
+  content.
+- Review and tidy-up (`memory/review.go`, `memory/tidy.go`, `engine/memory_tidy.go`). `Review` lists the dated facts older
+  than `StaleAfter` (183 days; the date is the last `YYYY-MM-DD` of the line, so a fact written by hand without one is never
+  listed); `Keep` adds `(kept <today>)` before the private mark, `Drop` removes the line and what is indented under it, each
+  naming the line read (`ErrChanged` otherwise) and making one commit. The git history is the tidy-up's state: `State` counts
+  the "Remember from" commits since the last "Tidy up" one. `maybeTidyMemory` (every `Poll`) queues `tidyMemory` after five
+  writes and a day; one read-only turn in the empty topics folder (`Service.ask`, `MemoryTidySchema`) sees each note's path,
+  title and first facts and answers `{merges: [{from, into}]}`; `Store.Tidy` makes at most five merges of notes that exist,
+  writes the index and commits "Tidy up" even when nothing moved.
+- `core/internal/clilink` writes and removes the block that connects the user's own CLIs: `~/.claude/CLAUDE.md` imports
+  the index (`@~/SecondBrain/INDEX.md`), `~/.codex/AGENTS.md` is told where to read. The block sits between
+  `<!-- pouple-memory:start -->` and `<!-- pouple-memory:end -->`; connecting replaces an earlier block, disconnecting gives
+  the file back as it was, a start marker without its end is left alone, a symbolic link is never written through, and the
+  file keeps its mode. A block for another folder counts as not connected.
+- Web routes (`api/memory_api.go`, web server only): `GET /api/memory` (the engine's `MemoryView` and `clis`),
+  `POST /api/memory/review` (`{note, line, decision: keep|drop}`), `POST /api/memory/tidy`, `POST /api/memory/reveal`
+  (`/usr/bin/open` on the folder) and `POST /api/memory/clis/{id}` (`{connected}`; connecting needs the memory on).
 
 ### Plans and grants (being built)
 

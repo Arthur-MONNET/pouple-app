@@ -127,17 +127,29 @@ func (s *Service) place(id string, choice TopicChoice, topics []Topic) {
 	}
 }
 
+// sharedReader says whether what the AI writes for a request may reach someone else than the user: then it reads nothing
+// private (another channel's conversations of its topic, a private fact of the memory). Only a note to oneself, a finished pipeline and a reminder have no one to answer; an Asana comment and a
+// review of a merge request get a reply drafted for their author.
+func sharedReader(r Stored) bool {
+	switch r.Source.Origin {
+	case "note-to-self", OriginPipeline, OriginReminder:
+		return false
+	}
+	return true
+}
+
 // relatedConversationsOf are the other conversations of the topic of a request that carry something to read, oldest
 // first, and whether any of them holds text written by other people.
 //
 // What the AI writes in a conversation that came from someone else may be sent to that person: it then reads only the
 // conversations of its own channel, as it did before topics, since the others may be private (a direct message, a note to
-// oneself). A note to oneself, a reminder and the events of a service have no such reader and read the whole topic.
+// oneself). An Asana comment and a merge request review are answered too: they read only the conversations of their own
+// service. A note to oneself, a reminder and a finished pipeline have no such reader and read the whole topic.
 func (s *Service) relatedConversationsOf(request Stored) (related []Stored, foreign bool) {
 	if !s.topicsOn() || request.TopicID == "" {
 		return nil, false
 	}
-	shared := request.Source.Origin != "note-to-self" && !IsEvent(request.Source.Origin)
+	shared := sharedReader(request)
 	for _, other := range s.deps.Store.List() {
 		if other.ID == request.ID || other.TopicID != request.TopicID || other.Status == StatusIgnored || other.Status.Pending() {
 			continue

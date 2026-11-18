@@ -22,6 +22,7 @@ export async function createApi(): Promise<PoupleApi> {
       decideProposal: mock.decideProposal,
       decidePlan: mock.decidePlan,
       decideReminders: mock.decideReminders,
+      decideMemories: mock.decideMemories,
       createAlert: mock.createAlert,
       updateAlert: mock.updateAlert,
       deleteAlert: mock.deleteAlert,
@@ -35,6 +36,11 @@ export async function createApi(): Promise<PoupleApi> {
       getBrowserFrame: mock.getBrowserFrame,
       getStyle: mock.getStyle,
       forgetStyle: mock.forgetStyle,
+      getMemory: mock.getMemory,
+      reviewMemory: mock.reviewMemory,
+      connectCli: mock.connectCli,
+      revealMemory: mock.revealMemory,
+      tidyMemory: mock.tidyMemory,
     };
   }
   if (import.meta.env.VITE_MOCK_BRIDGE !== '0') installMockBridge();

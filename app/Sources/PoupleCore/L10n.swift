@@ -33,6 +33,8 @@ public enum L10n {
         case bubbleCollapse, bubbleClose, bubbleSomethingWrong, bubbleRetry, bubbleDone
         case bubbleApply, bubbleNotNow, bubbleOpen, bubbleCopy, bubbleSuggestedReply, bubbleApplyIn
         case reminderQuestion, reminderHint, reminderConfirmOne, reminderConfirmOther, reminderConfirmNone, reminderSkip, reminderPast, reminderTimeLabel
+        case memoryQuestion, memoryHint, memoryConfirmOne, memoryConfirmOther, memoryConfirmNone, memorySkip
+        case memoryPrivate, memoryShared, memoryNewNote, memoryReplaces, memoryPrivacy
         case bubbleApprovePlan, bubbleSeePlan, bubbleChoosePlan, badgePlan, planChoices
         case badgeApprove, badgeNeedsAnswer, badgeFailed, badgeApplied, badgeAnswerReady, badgeWorking
         case usageTokens, usageFiveHour, usageWeek, usageMachine, usageDiskFree, usageMemory, usageGigabytes
@@ -197,6 +199,17 @@ public enum L10n {
         .reminderSkip: "Non merci",
         .reminderPast: "Choisis un moment dans le futur pour chaque rappel coché.",
         .reminderTimeLabel: "Heure du rappel « %@ »",
+        .memoryQuestion: "Veux-tu que je retienne ça ?",
+        .memoryHint: "Coche les faits à garder. Rien n’est écrit avant ta confirmation.",
+        .memoryConfirmOne: "Retenir %d fait",
+        .memoryConfirmOther: "Retenir %d faits",
+        .memoryConfirmNone: "Retenir",
+        .memorySkip: "Non merci",
+        .memoryPrivate: "Privé",
+        .memoryShared: "Partagé",
+        .memoryNewNote: "nouvelle note",
+        .memoryReplaces: "Remplace : %@",
+        .memoryPrivacy: "Un fait privé n’est jamais utilisé pour répondre à d’autres personnes.",
         .bubbleApprovePlan: "Valider",
         .bubbleSeePlan: "Voir le plan",
         .bubbleChoosePlan: "Choisir dans Pouple",
@@ -352,6 +365,17 @@ public enum L10n {
         .reminderSkip: "No thanks",
         .reminderPast: "Pick a moment in the future for each ticked reminder.",
         .reminderTimeLabel: "Time of the reminder \"%@\"",
+        .memoryQuestion: "Do you want me to remember this?",
+        .memoryHint: "Tick the facts to keep. Nothing is written before you confirm.",
+        .memoryConfirmOne: "Remember %d fact",
+        .memoryConfirmOther: "Remember %d facts",
+        .memoryConfirmNone: "Remember",
+        .memorySkip: "No thanks",
+        .memoryPrivate: "Private",
+        .memoryShared: "Shared",
+        .memoryNewNote: "new note",
+        .memoryReplaces: "Replaces: %@",
+        .memoryPrivacy: "A private fact is never used to answer other people.",
         .bubbleApprovePlan: "Approve",
         .bubbleSeePlan: "See the plan",
         .bubbleChoosePlan: "Choose in Pouple",

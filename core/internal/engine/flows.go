@@ -69,7 +69,7 @@ func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []st
 	related := persona.ConversationHistory(s.relatedInTopic(request))
 	// Read last: a request that was already stopped does not wait for the services.
 	services := s.gatherServices(ctx, request)
-	return persona.AnalysisPromptWithTopic(request, history, related, files, "", services), images
+	return persona.AnalysisPromptWithTopic(request, history, related, s.memorySection(request), files, "", services), images
 }
 
 // relatedInTopic are the other conversations of the request's topic the AI reads with it. They may hold text written by
@@ -259,12 +259,14 @@ const maxWrites = 2
 // request the user made themselves, and at most maxWrites times; otherwise the AI is told it was not done, so it never
 // reports a post that did not happen.
 func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, canAct bool, writes *int) (string, []string) {
-	var pictures []Lookup
-	var rest []Lookup
+	var pictures, notes, rest []Lookup
 	for _, lookup := range lookups {
-		if lookup.IsScreenshot() {
+		switch {
+		case lookup.IsScreenshot():
 			pictures = append(pictures, lookup)
-		} else {
+		case lookup.IsNotes():
+			notes = append(notes, lookup)
+		default:
 			rest = append(rest, lookup)
 		}
 	}
@@ -272,6 +274,10 @@ func (s *Service) runLookups(ctx context.Context, id string, lookups []Lookup, c
 	var shots []string
 	if len(pictures) > 0 {
 		shotText, shots = s.runScreenshots(ctx, id, pictures)
+	}
+	// The memory holds what the user confirmed or wrote: its notes are not text of others.
+	if len(notes) > 0 {
+		shotText = strings.TrimSpace(shotText + "\n" + s.runNotes(id, notes))
 	}
 	if len(rest) == 0 {
 		return shotText, shots
@@ -335,6 +341,7 @@ func (s *Service) webAllowed() bool { return s.deps.WebAccess != nil && s.deps.W
 func (s *Service) applyOutcome(id string, outcome Outcome) {
 	s.showOutcome(id, outcome)
 	s.attachReminders(id, outcome)
+	s.attachMemories(id, outcome)
 }
 
 func (s *Service) showOutcome(id string, outcome Outcome) {
