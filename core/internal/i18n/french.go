@@ -3,6 +3,15 @@ package i18n
 // fr maps each English text of the core to its French translation. Placeholders (%s, %d) must stay in the same
 // order and number: a test checks it.
 var fr = map[string]string{
+	"Choose read_api for reading or api for merge requests": "Choisir read_api pour lire ou api pour créer des merge requests",
+	"Copy it right away (GitLab shows it only once) and paste it in this connection form, never in chat. Pouple shows whose account it is before saving.": "Copie-le tout de suite (GitLab ne l’affiche qu’une fois) et colle-le dans ce formulaire de connexion, jamais dans le chat. Pouple montre à qui appartient le compte avant d’enregistrer.",
+	"GitLab token is inactive or revoked; reconnect in Settings":                                                                                          "Le jeton GitLab est inactif ou révoqué ; reconnecte-toi dans les Réglages",
+	"GitLab token lacks the api scope required to create merge requests; reconnect in Settings with api, or keep read_api for reading only":               "Le jeton GitLab n’a pas le scope api nécessaire pour créer des merge requests ; reconnecte-toi dans les Réglages avec api, ou garde read_api pour lire uniquement",
+	"GitLab HTTP %d: %s": "GitLab HTTP %d : %s",
+	"access refused; GitLab did not establish whether the token scope or project permissions caused it; check the connection in Settings": "accès refusé ; GitLab ne permet pas de distinguer un scope insuffisant d’un refus d’accès au projet ; vérifie la connexion dans les Réglages",
+	"authentication rejected; the token may be invalid, expired or revoked; reconnect in Settings":                                        "authentification refusée ; le jeton peut être invalide, expiré ou révoqué ; reconnecte-toi dans les Réglages",
+	"GitLab reports insufficient token scope; MR creation requires api; reconnect in Settings":                                            "GitLab signale un scope insuffisant ; la création de MR nécessite api ; reconnecte-toi dans les Réglages",
+	"GitLab reports that this account cannot create merge requests in this project; check project access":                                 "GitLab indique que ce compte ne peut pas créer de merge requests dans ce projet ; vérifie l’accès au projet",
 	// Authorized merge requests and explicit LFS transfers
 	"Git LFS detection failed: %s":                                                 "La détection Git LFS a échoué : %s",
 	"Git LFS is required; install git-lfs before retrying. %s":                     "Git LFS est nécessaire ; installe git-lfs avant de réessayer. %s",

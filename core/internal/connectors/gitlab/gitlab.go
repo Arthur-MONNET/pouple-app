@@ -57,9 +57,9 @@ func (c *Connector) Descriptor() connector.Descriptor {
 			PatternHint: "does not look like a GitLab token (it starts with glpat-)",
 		}},
 		Guide: []connector.GuideStep{
-			{Title: "Open your GitLab tokens page", Body: "Sign in to GitLab, then open Preferences, Access tokens. On a company GitLab, use the same page on your own server.", Link: &connector.Link{Label: "Open GitLab tokens", URL: DefaultURL + TokensPath + "?name=Pouple&scopes=read_api", HostField: "url"}},
+			{Title: "Open your GitLab tokens page", Body: "Sign in to GitLab, then open Preferences, Access tokens. On a company GitLab, use the same page on your own server.", Link: &connector.Link{Label: "Choose read_api for reading or api for merge requests", URL: DefaultURL + TokensPath + "?name=Pouple", HostField: "url"}},
 			{Title: "Create a GitLab token", Body: "Name it Pouple. Use read_api for reading. To create merge requests you explicitly authorize, use api instead; Pouple never merges them."},
-			{Title: "Paste the token", Body: "Copy it right away (GitLab shows it only once) and paste it here. Pouple shows whose account it is before saving."},
+			{Title: "Paste the token", Body: "Copy it right away (GitLab shows it only once) and paste it in this connection form, never in chat. Pouple shows whose account it is before saving."},
 		},
 	}
 }

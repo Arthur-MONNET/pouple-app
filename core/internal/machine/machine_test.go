@@ -71,22 +71,22 @@ func TestDiagnoseNamesTheMachineOnlyWhenItIsShort(t *testing.T) {
 	}{
 		{"the error says the disk is full", "write rollout: No space left on device", fine, "The disk is full (200 GB free): that is why it failed."},
 		{"the error says it and nothing was read", "ENOSPC", State{}, "The disk is full: that is why it failed."},
-		{"almost no space left", "thread/resume failed", fullDisk, "the disk was almost full (1.0 GB free): that is most likely why."},
-		{"out of memory", "exit status 1", noMemory, "the Mac was short of memory (95% in use): that is most likely why."},
-		{"both short", "exit status 1", both, "the disk was almost full (1.0 GB free) and the Mac was short of memory (95% in use)"},
-		{"tight", "exit status 1", tight, "the disk had 5.0 GB free and the memory was 40% in use: tight, so it may have played a part."},
-		{"fine", "exit status 1", fine, "the disk had 200 GB free and the memory was 40% in use: neither is the cause."},
-		{"half read", "exit status 1", State{Memory: newMemory(60, 1, 24*gib)}, "the disk had ? free"},
+		{"almost no space left", "cannot allocate memory", fullDisk, "the disk was almost full (1.0 GB free): that is most likely why."},
+		{"out of memory", "resource temporarily unavailable", noMemory, "the Mac was short of memory (95% in use): that is most likely why."},
+		{"both short", "resource temporarily unavailable", both, "the disk was almost full (1.0 GB free) and the Mac was short of memory (95% in use)"},
+		{"tight", "resource temporarily unavailable", tight, "the disk had 5.0 GB free and the memory was 40% in use: tight, so it may have played a part."},
+		{"fine", "resource temporarily unavailable", fine, "the disk had 200 GB free and the memory was 40% in use: neither is the cause."},
+		{"half read", "resource temporarily unavailable", State{Memory: newMemory(60, 1, 24*gib)}, "the disk had ? free"},
 	}
 	for _, c := range cases {
 		if got := Diagnose(i18n.EN, c.cause, c.state); !strings.Contains(got, c.want) {
 			t.Errorf("%s: %q, want it to contain %q", c.name, got, c.want)
 		}
 	}
-	if got := Diagnose(i18n.EN, "exit status 1", State{}); got != "" {
+	if got := Diagnose(i18n.EN, "resource temporarily unavailable", State{}); got != "" {
 		t.Errorf("nothing read must say nothing, got %q", got)
 	}
-	if got := Diagnose(i18n.FR, "exit status 1", fullDisk); !strings.Contains(got, "presque plein (1,0 Go libres)") {
+	if got := Diagnose(i18n.FR, "resource temporarily unavailable", fullDisk); !strings.Contains(got, "presque plein (1,0 Go libres)") {
 		t.Errorf("French: %q", got)
 	}
 }
@@ -100,5 +100,14 @@ func TestSizesAndSharesAreWrittenInEachLanguage(t *testing.T) {
 	}
 	if got := Percent(i18n.FR, 61.4); got != "61 %" {
 		t.Errorf("French share %q", got)
+	}
+}
+
+func TestAuthorizationAndApplicationErrorsNeverBlameResources(t *testing.T) {
+	state := State{Disk: newDisk(gib, 500*gib), Memory: newMemory(5, 4, 24*gib)}
+	for _, cause := range []string{"GitLab HTTP 401: authentication rejected", "GitLab HTTP 403: access refused", "GitLab answered 403", "thread/resume failed: unsupported", "exit status 1", "exit status 1: forbidden", "token lacks api scope"} {
+		if got := Diagnose(i18n.EN, cause, state); got != "" {
+			t.Errorf("%s: %s", cause, got)
+		}
 	}
 }

@@ -194,6 +194,10 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			codePushes[action.Branch] = s.hasOrigin(ctx, s.projectPath(action.Scope.ID)) && (line != "" || action.Kind == SyncBranch)
 			if line != "" {
 				written = append(written, line)
+				s.update(id, func(r *Stored) {
+					r.Summary = ptr(line)
+					r.Entries = append(r.Entries, s.entry("system", "text", line))
+				})
 			}
 		case MergeRequest:
 			if pushed, ran := codePushes[action.Branch]; ran && !pushed {
@@ -204,7 +208,11 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 			link, err := s.deps.OpenMergeRequest(ctx, action, plan.Goal)
 			if err != nil {
-				return i18n.NewError("Merge request %s → %s could not be opened: %s", action.Branch, action.Base, err)
+				failure := i18n.Wrap(err, "Merge request %s → %s could not be opened: %s", action.Branch, action.Base, err)
+				if len(written) > 0 {
+					return i18n.Wrap(failure, "%s\n%s", strings.Join(written, "\n"), failure)
+				}
+				return failure
 			}
 			line := s.text("Merge request: %s", link)
 			written = append(written, line)

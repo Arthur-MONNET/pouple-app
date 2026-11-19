@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/svchttp"
 )
 
 func TestOpenMRReconcilesRetriesWithoutDuplicates(t *testing.T) {
@@ -19,6 +21,8 @@ func TestOpenMRReconcilesRetriesWithoutDuplicates(t *testing.T) {
 					t.Error("missing authentication")
 				}
 				switch {
+				case r.URL.Path == "/personal_access_tokens/self":
+					w.WriteHeader(404)
 				case r.Method == "POST":
 					posts++
 					var body map[string]string
@@ -98,7 +102,93 @@ func TestReadOnlyTokenReportsCreationRefusalWithoutAnotherPost(t *testing.T) {
 	defer server.Close()
 	c := &Client{api: server.URL, token: "read-only", http: server.Client()}
 	_, err := c.OpenMergeRequest(context.Background(), "acme/app", "fix/logo", "master", "Fix logo")
-	if err == nil || !strings.Contains(err.Error(), "api") || posts != 1 {
+	if err == nil || !strings.Contains(err.Error(), "HTTP 403") || posts != 1 {
 		t.Fatalf("%v, %d posts", err, posts)
+	}
+}
+
+func TestMRRefusalDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		status     int
+		body, want string
+	}{
+		{401, `{"message":"401 Unauthorized"}`, "authentication rejected"},
+		{403, `{"error":"insufficient_scope"}`, "insufficient token scope"},
+		{403, `{"message":"You are not allowed to create merge requests in this project."}`, "cannot create merge requests in this project"},
+		{403, `{"message":"glpat-secret https://user:password@example.com?token=private email@example.com"}`, "did not establish"},
+	} {
+		for _, stage := range []string{"lookup", "post"} {
+			t.Run(tc.want+"/"+stage, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if stage == "post" && r.Method != "POST" {
+						switch {
+						case r.URL.Path == "/personal_access_tokens/self":
+							w.WriteHeader(404)
+						case strings.Contains(r.URL.Path, "/repository/branches/"):
+							fmt.Fprint(w, `{"name":"fix/logo"}`)
+						default:
+							fmt.Fprint(w, `[]`)
+						}
+						return
+					}
+					w.WriteHeader(tc.status)
+					fmt.Fprint(w, tc.body)
+				}))
+				defer server.Close()
+				c := &Client{api: server.URL, token: "glpat-secret", http: server.Client()}
+				_, err := c.OpenMergeRequest(context.Background(), "acme/app", "fix/logo", "master", "Fix")
+				if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), fmt.Sprint(tc.status)) {
+					t.Fatalf("%v", err)
+				}
+				if svchttp.Status(err) != tc.status {
+					t.Fatalf("lost HTTP status: %v", err)
+				}
+				for _, secret := range []string{"glpat-secret", "password", "email@example.com", "token=private"} {
+					if strings.Contains(err.Error(), secret) {
+						t.Fatal("sensitive error")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMRScopePreflightAndResume(t *testing.T) {
+	writable, created, posts := false, false, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/personal_access_tokens/self":
+			scope := "read_api"
+			if writable {
+				scope = "api"
+			}
+			fmt.Fprintf(w, `{"scopes":[%q]}`, scope)
+		case r.Method == "POST":
+			posts++
+			created = true
+			fmt.Fprint(w, `{"web_url":"https://gitlab.example.com/mr/1"}`)
+		case strings.Contains(r.URL.Path, "/repository/branches/"):
+			fmt.Fprint(w, `{"name":"fix/logo"}`)
+		default:
+			if created {
+				fmt.Fprint(w, `[{"source_branch":"fix/logo","target_branch":"master","web_url":"https://gitlab.example.com/mr/1"}]`)
+			} else {
+				fmt.Fprint(w, `[]`)
+			}
+		}
+	}))
+	defer server.Close()
+	c := &Client{api: server.URL, token: "secret", http: server.Client()}
+	if _, err := c.OpenMergeRequest(context.Background(), "acme/app", "fix/logo", "master", "Fix"); err == nil || posts != 0 || !strings.Contains(err.Error(), "api scope") {
+		t.Fatalf("%v; %d", err, posts)
+	}
+	writable = true
+	for i := 0; i < 2; i++ {
+		if link, err := c.OpenMergeRequest(context.Background(), "acme/app", "fix/logo", "master", "Fix"); err != nil || link == "" {
+			t.Fatalf("%s %v", link, err)
+		}
+	}
+	if posts != 1 {
+		t.Fatalf("%d posts", posts)
 	}
 }

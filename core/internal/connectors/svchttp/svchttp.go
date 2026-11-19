@@ -122,6 +122,8 @@ func newClient(control func(network, address string, c syscall.RawConn) error) *
 type StatusError struct {
 	Service string
 	Status  int
+	// Code is an allowlisted GitLab reason; raw response text is never retained.
+	Code    string
 	message i18n.Message
 }
 
@@ -198,8 +200,29 @@ func doJSON(ctx context.Context, client *http.Client, service, method, address s
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
-		return response.Header, &StatusError{Service: service, Status: response.StatusCode, message: i18n.NewMessage("%s answered %d", service, response.StatusCode)}
+		data, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
+		code := ""
+		if service == "GitLab" {
+			var payload struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(data, &payload) == nil {
+				for _, reason := range []string{payload.Error, payload.Message} {
+					switch reason {
+					case "insufficient_scope":
+						code = "insufficient_scope"
+					case "401 Unauthorized", "invalid_token":
+						code = "invalid_token"
+					case "403 Forbidden":
+						code = "forbidden"
+					case "You are not allowed to create merge requests in this project.":
+						code = "project_access"
+					}
+				}
+			}
+		}
+		return response.Header, &StatusError{Service: service, Status: response.StatusCode, Code: code, message: i18n.NewMessage("%s answered %d", service, response.StatusCode)}
 	}
 	limited := io.LimitReader(response.Body, MaxBody+1)
 	data, err := io.ReadAll(limited)

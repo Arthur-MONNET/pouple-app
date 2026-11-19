@@ -11,7 +11,7 @@ import (
 
 func TestAFailureSaysWhetherTheMachineExplainsIt(t *testing.T) {
 	h := newHarness(t, func(context.Context, Turn) (TurnResult, error) {
-		return TurnResult{}, errors.New("thread/resume failed: list_turns is not supported yet")
+		return TurnResult{}, errors.New("cannot allocate memory")
 	})
 	reads := 0
 	h.svc.deps.Machine = func() machine.State {
@@ -26,7 +26,7 @@ func TestAFailureSaysWhetherTheMachineExplainsIt(t *testing.T) {
 		t.Errorf("the machine must be read once, when it failed: %d reads", reads)
 	}
 	failure := *requests[0].Error
-	if !strings.HasPrefix(failure, "thread/resume failed") || !strings.Contains(failure, "the disk was almost full (1.0 GB free)") {
+	if !strings.HasPrefix(failure, "cannot allocate memory") || !strings.Contains(failure, "the disk was almost full (1.0 GB free)") {
 		t.Fatalf("the failure must keep its cause and name the full disk: %q", failure)
 	}
 	last := requests[0].Entries[len(requests[0].Entries)-1].Text

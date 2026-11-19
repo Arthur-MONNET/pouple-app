@@ -14,6 +14,20 @@ var diskFullSigns = []string{"no space left on device", "enospc", "disk is full"
 // own errors when the Mac runs out of either, and never name the real cause. cause is the failure's text; state is
 // read when it happened. It returns "" when nothing of the machine could be read.
 func Diagnose(lang i18n.Lang, cause string, state State) string {
+	// Resource pressure alone cannot explain a remote refusal or an application error.
+	lower := strings.ToLower(cause)
+	compatible := mentionsFullDisk(cause)
+	for _, sign := range []string{"out of memory", "cannot allocate memory", "enomem", "resource temporarily unavailable", "exit status 137", "signal: killed"} {
+		compatible = compatible || strings.Contains(lower, sign)
+	}
+	for _, sign := range []string{"http 401", "http 403", "answered 401", "answered 403", "unauthorized", "forbidden", "access refused", "authentication", "scope", "project access"} {
+		if strings.Contains(lower, sign) {
+			return ""
+		}
+	}
+	if !compatible {
+		return ""
+	}
 	free, used := "?", "?"
 	if state.Disk != nil {
 		free = Bytes(lang, state.Disk.FreeBytes)
