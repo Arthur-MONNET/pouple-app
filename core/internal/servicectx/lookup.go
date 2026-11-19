@@ -50,7 +50,7 @@ func (g *Gatherer) runnerFor(service string) (lookupRunner, section) {
 		client := g.NewAsana(values["token"])
 		return func(ctx context.Context, lookup engine.Lookup) section { return g.asanaLookup(ctx, client, lookup) }, section{}
 	case gitlab.ID:
-		client, err := g.NewGitLab(values["url"], values["token"])
+		client, err := g.NewGitLab(values["url"], gitlab.ReadToken(values))
 		if err != nil {
 			return nil, failure(service, name, i18n.NewMessage("the saved connection could not be used"))
 		}

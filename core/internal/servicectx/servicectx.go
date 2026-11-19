@@ -215,7 +215,7 @@ func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 			}})
 		case gitlab.ID:
 			jobs = append(jobs, job{source, name, func(ctx context.Context) section {
-				client, err := g.NewGitLab(values["url"], values["token"])
+				client, err := g.NewGitLab(values["url"], gitlab.ReadToken(values))
 				if err != nil {
 					return failure(source, name, i18n.NewMessage("the saved connection could not be used"))
 				}

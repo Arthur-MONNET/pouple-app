@@ -13,6 +13,8 @@ import type {
   AttachmentRef,
   ConnectorStatus,
   ConnectorValues,
+  GitLabAccess,
+  GitLabAccessUpdate,
   Profile,
   PlanDecision,
   ProposalDecision,
@@ -52,6 +54,8 @@ export interface PoupleApi {
   /** Runs a connector action; resolves when its stream ends. */
   runAction(id: string, action: string, onEvent: (event: ActionEvent) => void, signal?: AbortSignal): Promise<void>;
 
+  getGitLabAccess(): Promise<GitLabAccess>;
+  updateGitLabAccess(update: GitLabAccessUpdate): Promise<GitLabAccess>;
   getSettings(): Promise<Settings>;
   /** Changes only the given fields; rejects with a 422 ApiError when a value is refused. */
   updateSettings(patch: SettingsPatch): Promise<Settings>;
@@ -157,6 +161,8 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
   const assistant = (requestId: string, rest = ''): string => `/api/assistant/requests/${enc(requestId)}${rest}`;
 
   return {
+    getGitLabAccess: () => read<GitLabAccess>('/api/gitlab/access'),
+    updateGitLabAccess: (update) => read<GitLabAccess>('/api/gitlab/access', { method: 'PUT' }, update),
     getState: () => read<AppState>('/api/state'),
     listConnectors: async () => (await read<{ connectors: ConnectorStatus[] }>('/api/connectors')).connectors,
     validateConnector: async (id, values) =>

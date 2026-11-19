@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -85,7 +87,9 @@ func (r *Registry) Status(id string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	status := Status{Descriptor: c.Descriptor()}
+	descriptor := c.Descriptor()
+	descriptor.Fields = slices.DeleteFunc(slices.Clone(descriptor.Fields), func(f Field) bool { return f.Managed })
+	status := Status{Descriptor: descriptor}
 	saved, ok, err := r.store.Load(id)
 	if err != nil {
 		return status, err
@@ -131,13 +135,23 @@ func checkFields(descriptor Descriptor, values Values) error {
 	return nil
 }
 
+func formValues(descriptor Descriptor, values Values) Values {
+	values = withDefaults(descriptor, values)
+	for _, field := range descriptor.Fields {
+		if field.Managed {
+			delete(values, field.ID)
+		}
+	}
+	return values
+}
+
 // Validate checks the values and returns the profile they connect to. Nothing is saved.
 func (r *Registry) Validate(ctx context.Context, id string, values Values) (Profile, error) {
 	c, err := r.Get(id)
 	if err != nil {
 		return Profile{}, err
 	}
-	values = withDefaults(c.Descriptor(), values)
+	values = formValues(c.Descriptor(), values)
 	if err := checkFields(c.Descriptor(), values); err != nil {
 		return Profile{}, err
 	}
@@ -145,9 +159,9 @@ func (r *Registry) Validate(ctx context.Context, id string, values Values) (Prof
 }
 
 // Save validates, then stores the secrets in the keychain and the rest in the settings.
-func (r *Registry) Save(ctx context.Context, id string, values Values) (_ Profile, saveErr error) {
+func (r *Registry) Save(ctx context.Context, id string, values Values) (Profile, error) {
 	if c, err := r.Get(id); err == nil {
-		values = withDefaults(c.Descriptor(), values)
+		values = formValues(c.Descriptor(), values)
 	}
 	profile, err := r.Validate(ctx, id, values)
 	if err != nil {
@@ -156,6 +170,44 @@ func (r *Registry) Save(ctx context.Context, id string, values Values) (_ Profil
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	for _, field := range r.connectors[id].Descriptor().Fields {
+		if field.Managed && !field.Secret {
+			values[field.ID] = profile.ManagedValues[field.ID]
+		}
+	}
+	profile.ManagedValues = nil
+	return r.saveLocked(id, values, Saved{Profile: profile, ConnectedAt: r.now()})
+}
+
+// UpdateManaged updates only managed fields, using the current connection under the registry lock.
+func (r *Registry) UpdateManaged(id string, update func(Values) (Values, error)) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	saved, ok, err := r.store.Load(id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return Invalid("", "%s is not connected", id)
+	}
+	values, err := r.valuesLocked(id)
+	if err != nil {
+		return err
+	}
+	patch, err := update(maps.Clone(values))
+	if err != nil {
+		return err
+	}
+	for _, field := range r.connectors[id].Descriptor().Fields {
+		if value, ok := patch[field.ID]; ok && field.Managed {
+			values[field.ID] = value
+		}
+	}
+	_, err = r.saveLocked(id, values, saved)
+	return err
+}
+
+func (r *Registry) saveLocked(id string, values Values, saved Saved) (_ Profile, saveErr error) {
 	type secretChange struct{ name, before string }
 	var written []secretChange
 	defer func() {
@@ -189,10 +241,11 @@ func (r *Registry) Save(ctx context.Context, id string, values Values) (_ Profil
 			plain[field.ID] = values[field.ID]
 		}
 	}
-	if err := r.store.Save(id, Saved{Values: plain, Profile: profile, ConnectedAt: r.now()}); err != nil {
+	saved.Values = plain
+	if err := r.store.Save(id, saved); err != nil {
 		return Profile{}, err
 	}
-	return profile, nil
+	return saved.Profile, nil
 }
 
 func (r *Registry) writeSecret(name, value string) error {
@@ -224,6 +277,10 @@ func (r *Registry) Remove(id string) error {
 func (r *Registry) Values(id string) (Values, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.valuesLocked(id)
+}
+
+func (r *Registry) valuesLocked(id string) (Values, error) {
 	c, err := r.Get(id)
 	if err != nil {
 		return nil, err
@@ -244,8 +301,8 @@ func (r *Registry) Values(id string) (Values, error) {
 			continue
 		}
 		secret, err := r.secrets.Get(SecretName(id, field.ID))
-		// An unavailable optional token cannot disable the required connection.
-		if field.Optional && err != nil {
+		// A missing optional token is normal. Preserve the fallback for existing connector forms.
+		if field.Optional && err != nil && (!field.Managed || errors.Is(err, secrets.ErrNotFound)) {
 			continue
 		}
 		if err != nil {

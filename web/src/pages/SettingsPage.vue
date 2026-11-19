@@ -174,7 +174,7 @@ function onInterfaceLanguage(event: Event): void {
 
         <div v-show="category === 'updates'"><UpdateSection /></div>
 
-        <div v-if="gitlab" v-show="category === 'gitlab'"><GitLabSettings :name="gitlab.descriptor.name" /></div>
+        <div v-if="gitlab" v-show="category === 'gitlab'"><GitLabSettings :key="gitlab.connectedAt" :name="gitlab.descriptor.name" :connected="gitlab.connected" /></div>
       </div>
     </div>
   </main>

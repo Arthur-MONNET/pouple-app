@@ -74,6 +74,8 @@ type PollResult struct {
 
 // Deps is everything the service needs from the outside.
 type Deps struct {
+	// CheckGitPush checks the current access settings immediately before an upload.
+	CheckGitPush func([]string) error
 	// OpenMergeRequest is a typed write, called only by an approved plan.
 	OpenMergeRequest func(context.Context, Action, string) (string, error)
 	Store            *Store

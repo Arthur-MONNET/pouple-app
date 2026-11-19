@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
@@ -53,6 +54,8 @@ func New(opts Options, port int) *Server {
 	s.mux.HandleFunc("PUT /api/connectors/{id}", s.save)
 	s.mux.HandleFunc("DELETE /api/connectors/{id}", s.remove)
 	s.mux.HandleFunc("POST /api/connectors/{id}/actions/{action}", s.runAction)
+	s.mux.HandleFunc("GET /api/gitlab/access", s.gitLabAccess)
+	s.mux.HandleFunc("PUT /api/gitlab/access", s.gitLabAccess)
 	if opts.Mount != nil {
 		opts.Mount(s.mux)
 	}
@@ -296,4 +299,38 @@ func writeError(w http.ResponseWriter, lang i18n.Lang, err error) {
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"message": i18n.ErrorText(lang, err)})
 	}
+}
+
+func (s *Server) gitLabAccess(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.FromContext(r.Context())
+	registered, err := s.opts.Registry.Get(gitlab.ID)
+	if err != nil {
+		writeError(w, lang, err)
+		return
+	}
+	client, ok := registered.(*gitlab.Connector)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var access gitlab.Access
+	if r.Method == http.MethodPut {
+		var update gitlab.AccessUpdate
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&update); err != nil {
+			writeError(w, lang, connector.Invalid("", "The request is not valid JSON"))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		access, err = client.UpdateAccess(ctx, s.opts.Registry, update)
+	} else {
+		var values connector.Values
+		values, err = s.opts.Registry.Values(gitlab.ID)
+		access = gitlab.AccessOf(values)
+	}
+	if err != nil {
+		writeError(w, lang, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, access)
 }

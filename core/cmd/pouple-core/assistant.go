@@ -166,6 +166,9 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 		Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
+		CheckGitPush: func(targets []string) error {
+			return gitlab.CheckPush(registry, targets)
+		},
 		OpenMergeRequest: func(ctx context.Context, action engine.Action, title string) (string, error) {
 			status, err := registry.Status(gitlab.ID)
 			if err != nil || !status.Connected {
@@ -175,11 +178,28 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			if err != nil {
 				return "", err
 			}
-			client, err := gitlab.NewClient(values["url"], values["token"])
+			token, err := gitlab.WriteToken(values)
 			if err != nil {
 				return "", err
 			}
-			return client.OpenMergeRequest(ctx, action.Scope.ID, action.Branch, action.Base, title)
+			client, err := gitlab.NewClient(values["url"], token)
+			if err != nil {
+				return "", err
+			}
+			return client.OpenMergeRequestChecked(ctx, action.Scope.ID, action.Branch, action.Base, title, func() error {
+				current, err := registry.Values(gitlab.ID)
+				if err != nil {
+					return err
+				}
+				active, err := gitlab.WriteToken(current)
+				if err != nil {
+					return err
+				}
+				if active != token || current["url"] != values["url"] {
+					return i18n.NewError("The active GitLab connection changed before opening the merge request")
+				}
+				return nil
+			})
 		},
 		Services:  gatherer.Gather,
 		Lookups:   gatherer.Lookup,
@@ -219,7 +239,7 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 			// Tokens of the optional services never reach the model, and cannot come back out of it either.
 			for _, id := range []string{"gitlab", "asana", "slite"} {
 				if values, err := registry.Values(id); err == nil {
-					secrets = append(secrets, values["token"])
+					secrets = append(secrets, values["token"], values["additionalToken"])
 				}
 			}
 			return engine.NewRedactor(secrets...)

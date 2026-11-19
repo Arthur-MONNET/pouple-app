@@ -55,7 +55,15 @@ func (c *Connector) Descriptor() connector.Descriptor {
 			Secret:      true,
 			Pattern:     `^glpat-[A-Za-z0-9_.-]{20,}$`,
 			PatternHint: "does not look like a GitLab token (it starts with glpat-)",
-		}},
+		},
+			{ID: secondaryToken, Label: "Additional GitLab token", Secret: true, Optional: true, Managed: true},
+			{ID: primaryName, Optional: true, Managed: true},
+			{ID: secondaryName, Optional: true, Managed: true},
+			{ID: primaryScopes, Optional: true, Managed: true},
+			{ID: secondaryScopes, Optional: true, Managed: true},
+			{ID: selectedToken, Optional: true, Managed: true},
+			{ID: accessMode, Optional: true, Managed: true},
+		},
 		Guide: []connector.GuideStep{
 			{Title: "Open your GitLab tokens page", Body: "Sign in to GitLab, then open Preferences, Access tokens. On a company GitLab, use the same page on your own server.", Link: &connector.Link{Label: "Choose read_api for reading or api for merge requests", URL: DefaultURL + TokensPath + "?name=Pouple", HostField: "url"}},
 			{Title: "Create a GitLab token", Body: "Name it Pouple. Use read_api for reading. To create merge requests you explicitly authorize, use api instead; Pouple never merges them."},
@@ -110,6 +118,9 @@ func (c *Connector) Validate(ctx context.Context, values connector.Values) (conn
 		canRead := slices.Contains(info.Scopes, "read_api") || slices.Contains(info.Scopes, "api")
 		if len(info.Scopes) > 0 && !canRead {
 			return connector.Profile{}, connector.Invalid("token", "This token lacks the read_api scope. Create a new one and tick read_api.")
+		}
+		if canRead {
+			profile.ManagedValues = connector.Values{primaryScopes: strings.Join(info.Scopes, " ")}
 		}
 		if slices.Contains(info.Scopes, "api") {
 			profile.Warnings = append(profile.Warnings, connector.Warning{Title: "Token can change things", Detail: "This token has the api scope, which can write in GitLab. Pouple creates merge requests only with your approval. For reading alone, read_api is enough."})

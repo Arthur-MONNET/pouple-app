@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -40,9 +42,8 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 	}
 	environment = append(environment, "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0")
-	// Talking to a remote needs the machine's own git configuration (its credential helper), which no repository can
-	// change; everything else ignores it so that it runs the same everywhere.
-	if !talksToRemote(args) {
+	// Remote commands and destination checks need the same machine-level Git configuration.
+	if !talksToRemote(args) && !slices.Contains(args, "get-url") && !slices.Contains(args, "--get-regexp") {
 		environment = append(environment, "GIT_CONFIG_NOSYSTEM=1")
 	}
 	command.Env = environment
@@ -297,12 +298,92 @@ func (s *Service) pushWorktree(ctx context.Context, w Worktree, args ...string) 
 	if lfsErr != nil && attrs != "" {
 		return s.text("Git LFS is required; install git-lfs before retrying. %s", firstNonEmpty(version, lfsErr.Error())), lfsErr
 	}
+	var targets []string
+	if s.deps.CheckGitPush != nil {
+		urls, err := s.git(ctx, w.Path, w.gitArgs("remote", "get-url", "--push", "--all", origin)...)
+		if err != nil {
+			return s.text("Could not determine the Git push destination"), err
+		}
+		targets = strings.Split(urls, "\n")
+		if err := s.deps.CheckGitPush(targets); err != nil {
+			return i18n.ErrorText(s.deps.Language(), err), err
+		}
+	}
 	// When available, LFS also recognizes pointers imported without attribute history.
 	if lfsErr == nil {
+		if s.deps.CheckGitPush != nil {
+			env, err := s.git(ctx, w.Path, w.gitArgs("lfs", "env")...)
+			if err != nil {
+				return s.text("Could not determine the Git LFS push destination"), err
+			}
+			lfsTargets := slices.Clone(targets)
+			relevantEndpoint := false
+			for _, line := range strings.Split(env, "\n") {
+				key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+				if !ok {
+					continue
+				}
+				if strings.HasPrefix(key, "Endpoint") {
+					relevantEndpoint = key == "Endpoint" || key == "Endpoint ("+origin+")"
+				}
+				if relevantEndpoint && (strings.HasPrefix(key, "Endpoint") || key == "SSH") {
+					address, _, _ := strings.Cut(value, " (auth=")
+					lfsTargets = append(lfsTargets, address)
+				}
+			}
+			configured, err := s.lfsPushTargets(ctx, w)
+			if err != nil {
+				return s.text("Could not determine the Git LFS push destination"), err
+			}
+			if err := s.deps.CheckGitPush(append(lfsTargets, configured...)); err != nil {
+				return i18n.ErrorText(s.deps.Language(), err), err
+			}
+		}
 		// --all with HEAD transfers only objects reachable from this source, including unpublished history.
 		if out, err := s.git(ctx, w.Path, w.gitArgs("-c", "lfs.allowincompletepush=false", "lfs", "push", "--all", origin, "HEAD")...); err != nil {
 			return s.text("Git LFS transfer failed; restore any missing local LFS objects and retry. %s", firstNonEmpty(out, err.Error())), err
 		}
 	}
+	if s.deps.CheckGitPush != nil {
+		if err := s.deps.CheckGitPush(targets); err != nil {
+			return i18n.ErrorText(s.deps.Language(), err), err
+		}
+	}
 	return s.git(ctx, w.Path, w.gitArgs(append([]string{"push"}, args...)...)...)
+}
+
+// lfsPushTargets checks explicit upload URLs that git lfs env can omit.
+func (s *Service) lfsPushTargets(ctx context.Context, w Worktree) ([]string, error) {
+	const keys = `^(lfs\.(url|pushurl)|remote\.origin\.(lfsurl|lfspushurl))$`
+	sources := [][]string{nil}
+	if _, err := os.Stat(filepath.Join(w.Path, ".lfsconfig")); err == nil {
+		sources = append(sources, []string{"--file", ".lfsconfig"})
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	} else {
+		for _, ref := range []string{":.lfsconfig", "HEAD:.lfsconfig"} {
+			if _, err := s.git(ctx, w.Path, w.gitArgs("cat-file", "-e", ref)...); err == nil {
+				sources = append(sources, []string{"--blob", ref})
+				break
+			}
+		}
+	}
+	var targets []string
+	for _, source := range sources {
+		args := append([]string{"config"}, source...)
+		out, err := s.git(ctx, w.Path, w.gitArgs(append(args, "--get-regexp", keys)...)...)
+		if err != nil {
+			var exited *exec.ExitError
+			if errors.As(err, &exited) && exited.ExitCode() == 1 {
+				continue // No matching key.
+			}
+			return nil, err
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if _, address, ok := strings.Cut(line, " "); ok {
+				targets = append(targets, strings.TrimSpace(address))
+			}
+		}
+	}
+	return targets, nil
 }

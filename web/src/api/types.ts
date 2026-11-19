@@ -629,3 +629,19 @@ export interface MemoryView {
 }
 
 export type MemoryDecision = 'keep' | 'drop';
+
+export type GitLabMode = 'read-only' | 'write';
+export type GitLabTokenID = 'primary' | 'additional';
+export interface GitLabAccess {
+  mode: GitLabMode;
+  selected: GitLabTokenID;
+  tokens: { id: GitLabTokenID; name: string; scopes: string[] | null }[];
+}
+export interface GitLabAccessUpdate {
+  mode?: GitLabMode;
+  selected?: GitLabTokenID;
+  primaryName?: string;
+  name?: string;
+  token?: string;
+  verify?: boolean;
+}

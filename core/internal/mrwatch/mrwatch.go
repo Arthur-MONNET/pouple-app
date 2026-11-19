@@ -91,7 +91,7 @@ func (w *Watcher) Poll(ctx context.Context, cursor *engine.Cursor) (engine.Event
 	if err != nil {
 		return engine.EventPoll{}, i18n.Wrap(err, "the saved GitLab connection could not be used")
 	}
-	client, err := w.NewClient(values["url"], values["token"])
+	client, err := w.NewClient(values["url"], gitlab.ReadToken(values))
 	if err != nil {
 		return engine.EventPoll{}, i18n.Wrap(err, "the saved GitLab connection could not be used")
 	}

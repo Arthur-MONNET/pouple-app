@@ -13,6 +13,11 @@ import (
 
 // OpenMergeRequest reuses an open MR for the exact pair before creating one. It never merges or updates one.
 func (c *Client) OpenMergeRequest(ctx context.Context, project, source, target, title string) (string, error) {
+	return c.OpenMergeRequestChecked(ctx, project, source, target, title, nil)
+}
+
+// OpenMergeRequestChecked rechecks settings at the point of mutation.
+func (c *Client) OpenMergeRequestChecked(ctx context.Context, project, source, target, title string, check func() error) (string, error) {
 	path := "/projects/" + url.PathEscape(project)
 	query := url.Values{"state": {"opened"}, "source_branch": {source}, "target_branch": {target}, "per_page": {"100"}}
 	find := func() (string, error) {
@@ -52,6 +57,11 @@ func (c *Client) OpenMergeRequest(ctx context.Context, project, source, target, 
 	}
 	if branch.Name != source {
 		return "", svchttp.UnexpectedError(service)
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			return "", err
+		}
 	}
 	var row mergeRequestPayload
 	_, err := svchttp.PostJSON(ctx, c.http, service, c.api+path+"/merge_requests", http.Header{"Private-Token": {c.token}}, map[string]string{"source_branch": source, "target_branch": target, "title": title}, &row)

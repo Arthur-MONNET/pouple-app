@@ -15,6 +15,7 @@ import type {
   AttachmentRef,
   ConnectorStatus,
   ConnectorValues,
+  GitLabAccess,
   Profile,
   QuestionAnswer,
   MemoryView,
@@ -180,7 +181,28 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     return status;
   };
 
+  const gitLabAccess: GitLabAccess = {
+    mode: 'read-only', selected: 'primary',
+    tokens: [{ id: 'primary', name: 'Pouple', scopes: ['read_api'] }],
+  };
+
   return {
+    async getGitLabAccess() {
+      return structuredClone(gitLabAccess);
+    },
+    async updateGitLabAccess(update) {
+      if (update.primaryName) gitLabAccess.tokens[0]!.name = update.primaryName;
+      if (update.token && update.name) {
+        gitLabAccess.tokens[1] = { id: 'additional', name: update.name, scopes: ['api'] };
+        if (gitLabAccess.selected === 'additional') gitLabAccess.mode = 'read-only';
+      }
+      if (update.selected && update.selected !== gitLabAccess.selected) {
+        gitLabAccess.selected = update.selected;
+        gitLabAccess.mode = 'read-only';
+      }
+      if (update.mode) gitLabAccess.mode = update.mode;
+      return structuredClone(gitLabAccess);
+    },
     async getState(): Promise<AppState> {
       await wait();
       if (!mockConnectors) return { setupComplete: true, steps: [], language: lang };

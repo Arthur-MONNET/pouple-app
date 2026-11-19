@@ -268,3 +268,61 @@ func TestAutomaticPlanCannotGrantMRAndForeignDataInvalidatesReuse(t *testing.T) 
 	h.svc.proposePlan(id, Outcome{Plan: &p, Summary: "Open MR"}, h.svc.entry("assistant", "text", "Open MR"))
 	waitingPlan(t, h)
 }
+
+func TestApprovedPushRechecksAccessBeforeEachUpload(t *testing.T) {
+	for _, disableAt := range []string{"before-lfs", "after-lfs"} {
+		t.Run(disableAt, func(t *testing.T) {
+			dir := t.TempDir()
+			pointer := "gitdir: /trusted/git\n"
+			if err := os.WriteFile(filepath.Join(dir, ".git"), []byte(pointer), 0600); err != nil {
+				t.Fatal(err)
+			}
+			// The plan already had write access when approved.
+			writable := true
+			var uploads []string
+			s := &Service{deps: Deps{
+				Language: func() i18n.Lang { return i18n.EN },
+				CheckGitPush: func(targets []string) error {
+					if len(targets) == 0 || !strings.Contains(targets[0], "gitlab.com") {
+						t.Fatalf("missing GitLab destination: %v", targets)
+					}
+					if !writable {
+						return errors.New("GitLab is in read-only mode")
+					}
+					return nil
+				},
+				Git: func(_ context.Context, _ string, args ...string) (string, error) {
+					command := strings.Join(args, " ")
+					switch {
+					case strings.Contains(command, "remote get-url"):
+						return "git@gitlab.com:group/app.git", nil
+					case strings.Contains(command, "lfs env"):
+						if disableAt == "before-lfs" {
+							writable = false
+						}
+						return "Endpoint=https://gitlab.com/group/app.git/info/lfs (auth=none)", nil
+					case strings.Contains(command, "config --get-regexp"):
+						return "lfs.pushurl https://gitlab.com/group/app.git/info/lfs", nil
+					case strings.Contains(command, "cat-file -e"):
+						return "", errors.New("no .lfsconfig")
+					case strings.Contains(command, "lfs push"):
+						uploads = append(uploads, "lfs")
+						writable = false
+					case strings.Contains(command, " push "):
+						uploads = append(uploads, "git")
+					}
+					return "", nil
+				},
+			}}
+			w := Worktree{Path: dir, gitDir: "/trusted/git", gitFile: pointer}
+			_, err := s.pushWorktree(context.Background(), w, origin, "HEAD:refs/heads/fix/logo")
+			var want []string
+			if disableAt == "after-lfs" {
+				want = []string{"lfs"}
+			}
+			if err == nil || !strings.Contains(err.Error(), "read-only") || !reflect.DeepEqual(uploads, want) {
+				t.Fatalf("uploads = %v, error = %v", uploads, err)
+			}
+		})
+	}
+}

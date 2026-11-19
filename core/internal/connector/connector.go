@@ -20,6 +20,8 @@ type Field struct {
 	Secret bool `json:"secret"`
 	// Optional fields may be omitted from the form.
 	Optional bool `json:"optional,omitempty"`
+	// Managed fields are edited outside the generic connection form.
+	Managed bool `json:"-"`
 	// Pattern is a regular expression the value must match; it lets the form say "this is not a Slack token" early.
 	Pattern     string `json:"pattern,omitempty"`
 	PatternHint string `json:"patternHint,omitempty"`
@@ -76,11 +78,13 @@ type Warning struct {
 
 // Profile says who the connection belongs to, so the user can check it is the right account before saving.
 type Profile struct {
-	Name      string    `json:"name"`
-	Subtitle  string    `json:"subtitle,omitempty"`
-	AvatarURL string    `json:"avatarUrl,omitempty"`
-	Facts     []Fact    `json:"facts"`
-	Warnings  []Warning `json:"warnings"`
+	// ManagedValues contains verified metadata to save with a new connection.
+	ManagedValues Values    `json:"-"`
+	Name          string    `json:"name"`
+	Subtitle      string    `json:"subtitle,omitempty"`
+	AvatarURL     string    `json:"avatarUrl,omitempty"`
+	Facts         []Fact    `json:"facts"`
+	Warnings      []Warning `json:"warnings"`
 }
 
 // Values are what the user typed, by field id.
