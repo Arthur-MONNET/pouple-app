@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,16 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 	}
 	environment = append(environment, "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "GIT_OPTIONAL_LOCKS=0")
+	if runtime.GOOS == "darwin" {
+		// Finder launches do not inherit shell startup files. Git's filters need the Homebrew paths too.
+		path := filepath.SplitList(os.Getenv("PATH"))
+		for _, bin := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
+			if !slices.Contains(path, bin) {
+				path = append(path, bin)
+			}
+		}
+		environment = append(environment, "PATH="+strings.Join(path, string(os.PathListSeparator)))
+	}
 	// Remote commands and destination checks need the same machine-level Git configuration.
 	if !talksToRemote(args) && !slices.Contains(args, "get-url") && !slices.Contains(args, "--get-regexp") {
 		environment = append(environment, "GIT_CONFIG_NOSYSTEM=1")
@@ -203,6 +214,19 @@ func (s *Service) branchTaken(ctx context.Context, directory, branch string) boo
 // addWorktree makes a worktree of a project at path, on a new branch that starts at start; with no branch it is detached
 // at start, so that nothing is named after it.
 func (s *Service) addWorktree(ctx context.Context, directory, project, branch, path, start string) (Worktree, error) {
+	// Check the tree being checked out, which may differ from the current worktree.
+	attrs, err := s.git(ctx, directory, "grep", "-l", "-E", "-e", lfsAttribute, start, "--", ".gitattributes", ":(glob)**/.gitattributes")
+	if err != nil {
+		var exited *exec.ExitError
+		if !errors.As(err, &exited) || exited.ExitCode() != 1 {
+			return Worktree{}, i18n.NewError("Git LFS detection failed: %s", firstNonEmpty(attrs, err.Error()))
+		}
+	}
+	if attrs != "" {
+		if version, err := s.git(ctx, directory, "lfs", "version"); err != nil {
+			return Worktree{}, i18n.NewError("Git LFS is required for checkout. Install it with Homebrew (brew install git-lfs), then retry. %s", firstNonEmpty(version, err.Error()))
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Worktree{}, err
 	}
@@ -226,6 +250,8 @@ func (s *Service) addWorktree(ctx context.Context, directory, project, branch, p
 	w.start, _ = s.git(ctx, path, w.gitArgs("rev-parse", "HEAD")...)
 	return w, nil
 }
+
+const lfsAttribute = `^[[:space:]]*[^#[:space:]].*[[:space:]]filter=lfs([[:space:]]|$)`
 
 func pathExists(path string) bool {
 	_, err := os.Lstat(path)

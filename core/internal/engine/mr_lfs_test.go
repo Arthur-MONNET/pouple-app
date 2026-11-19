@@ -3,12 +3,14 @@ package engine
 import (
 	"context"
 	"errors"
-	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 func mrAction() Action {
@@ -208,7 +210,8 @@ func TestRealLFSPushTransfersObjectsWithRepositoryHooksDisabled(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(project, ".gitattributes"), []byte("*.bin filter=lfs diff=lfs merge=lfs -text\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(project, "asset.bin"), []byte("binary content for the LFS fixture\n"), 0600); err != nil {
+			const asset = "binary content for the LFS fixture\n"
+			if err := os.WriteFile(filepath.Join(project, "asset.bin"), []byte(asset), 0600); err != nil {
 				t.Fatal(err)
 			}
 			gitIn(t, project, "add", ".")
@@ -218,12 +221,39 @@ func TestRealLFSPushTransfersObjectsWithRepositoryHooksDisabled(t *testing.T) {
 			gitIn(t, project, "remote", "add", "origin", remote)
 			marker := filepath.Join(t.TempDir(), "hook-ran")
 			// A repository hook must remain disabled, even though LFS objects are sent.
-			if err := os.WriteFile(filepath.Join(project, ".git", "hooks", "pre-push"), []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0700); err != nil {
-				t.Fatal(err)
+			for _, hook := range []string{"pre-push", "post-checkout"} {
+				if err := os.WriteFile(filepath.Join(project, ".git", "hooks", hook), []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
 			}
-			w, err := h.svc.addWorktree(context.Background(), project, "login-app", "fix/lfs", filepath.Join(t.TempDir(), "work"), "HEAD")
+			if runtime.GOOS == "darwin" && (pathExists("/opt/homebrew/bin/git-lfs") || pathExists("/usr/local/bin/git-lfs")) {
+				t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+			}
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "work")
+			h.svc.deps.Git = func(ctx context.Context, dir string, args ...string) (string, error) {
+				if reflect.DeepEqual(args, []string{"lfs", "version"}) {
+					return "", errors.New("git-lfs unavailable")
+				}
+				return runGit(ctx, dir, args...)
+			}
+			_, err := h.svc.addWorktree(ctx, project, "login-app", "fix/lfs", path, "HEAD")
+			if err == nil || !strings.Contains(i18n.ErrorText(i18n.EN, err), "brew install git-lfs") {
+				t.Fatalf("missing LFS installation advice: %v", err)
+			}
+			if pathExists(path) || h.svc.branchExists(ctx, project, "fix/lfs") {
+				t.Fatal("missing LFS left a worktree or branch")
+			}
+			h.svc.deps.Git = nil
+			w, err := h.svc.addWorktree(ctx, project, "login-app", "fix/lfs", path, "HEAD")
 			if err != nil {
 				t.Fatal(err)
+			}
+			if content, err := os.ReadFile(filepath.Join(w.Path, "asset.bin")); err != nil || string(content) != asset {
+				t.Fatalf("checkout did not hydrate the LFS asset: %q, %v", content, err)
+			}
+			if out, err := runGit(ctx, w.Path, "status", "--porcelain"); err != nil || out != "" {
+				t.Fatalf("checkout left changes: %s (%v)", out, err)
 			}
 			if missing {
 				if err := os.RemoveAll(filepath.Join(project, ".git", "lfs", "objects")); err != nil {
