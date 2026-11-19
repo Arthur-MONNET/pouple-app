@@ -54,7 +54,7 @@ const (
 	SyncBranch ActionKind = "code.sync"
 	// PushBranch pushes that branch to the GitLab project.
 	PushBranch ActionKind = "gitlab.push"
-	// MergeRequest opens the merge request of that branch, and updates it after a failed pipeline or a review.
+	// MergeRequest opens a merge request for exactly the approved source and target branches.
 	MergeRequest ActionKind = "gitlab.merge-request"
 	CommentTask  ActionKind = "asana.comment"
 	CreateTask   ActionKind = "asana.create-task"
@@ -171,6 +171,17 @@ func (p Plan) Normalize() (Plan, error) {
 			out.Actions = append(out.Actions, kept)
 		}
 	}
+
+	for i, a := range out.Actions {
+		if a.Kind != MergeRequest {
+			continue
+		}
+		for j, code := range out.Actions {
+			if codeKind(code.Kind) && code.Branch == a.Branch && j > i {
+				return Plan{}, i18n.Wrap(ErrOutcome, "A merge request must follow the code push")
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -207,7 +218,7 @@ func (a Action) normalize() (Action, error) {
 // as a branch of Pouple's own, and the branch it starts from ("" for the project's current one).
 func checkBranches(kind ActionKind, branch, base string) error {
 	switch kind {
-	case SyncBranch:
+	case SyncBranch, MergeRequest:
 		if !validBranchName(branch) || !validBranchName(base) || branch == base {
 			return i18n.Wrap(ErrOutcome, "The plan names a branch that cannot be used")
 		}
@@ -292,6 +303,8 @@ func PlanFingerprint(p Plan) string {
 type Grant struct {
 	Scope Scope        `json:"scope"`
 	Kinds []ActionKind `json:"kinds"`
+	// Merge requests require an exact project and branch pair; legacy kind grants never cover them.
+	Actions []Action `json:"actions,omitempty"`
 }
 
 // Grants are the write approvals of one conversation.
@@ -300,7 +313,7 @@ type Grants []Grant
 // With returns the grants with those an approved plan gives: each scope it names, with the kinds of action it asks for
 // there. Only a plan that was checked by Normalize and then approved grants anything; g is left as it is.
 func (g Grants) With(p Plan) (Grants, error) {
-	if p.Status != PlanApproved {
+	if p.Status != PlanApproved || p.Automatic {
 		return nil, i18n.Wrap(ErrState, "only an approved plan can grant writes")
 	}
 	for _, action := range p.Actions {
@@ -310,13 +323,17 @@ func (g Grants) With(p Plan) (Grants, error) {
 	}
 	out := make(Grants, len(g))
 	for i, grant := range g {
-		out[i] = Grant{Scope: grant.Scope, Kinds: slices.Clone(grant.Kinds)}
+		out[i] = Grant{Scope: grant.Scope, Kinds: slices.Clone(grant.Kinds), Actions: slices.Clone(grant.Actions)}
 	}
 	for _, action := range p.Actions {
 		index := slices.IndexFunc(out, func(grant Grant) bool { return grant.Scope.same(action.Scope) })
 		if index < 0 {
 			out = append(out, Grant{Scope: action.Scope, Kinds: []ActionKind{}})
 			index = len(out) - 1
+		}
+		if action.Kind == MergeRequest {
+			out[index].Actions = append(out[index].Actions, action)
+			continue
 		}
 		if !slices.Contains(out[index].Kinds, action.Kind) {
 			out[index].Kinds = append(out[index].Kinds, action.Kind)
@@ -333,6 +350,11 @@ func (g Grants) Covers(action Action) bool {
 		return false
 	}
 	return slices.ContainsFunc(g, func(grant Grant) bool {
+		if action.Kind == MergeRequest {
+			return grant.Scope.same(action.Scope) && slices.ContainsFunc(grant.Actions, func(a Action) bool {
+				return a.Kind == action.Kind && a.Branch == action.Branch && a.Base == action.Base
+			})
+		}
 		return grant.Scope.same(action.Scope) && slices.Contains(grant.Kinds, action.Kind)
 	})
 }

@@ -192,7 +192,7 @@ export interface PlanAction {
   kind: string;
   scope: PlanScope;
   summary: string;
-  /** For a branch update ("code.sync"): the branch that is updated and the one brought into it. */
+  /** Source and base branches for code; source and target branches for gitlab.merge-request. */
   branch?: string;
   base?: string;
 }

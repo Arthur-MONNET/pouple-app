@@ -58,7 +58,7 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Open your GitLab tokens page", Body: "Sign in to GitLab, then open Preferences, Access tokens. On a company GitLab, use the same page on your own server.", Link: &connector.Link{Label: "Open GitLab tokens", URL: DefaultURL + TokensPath + "?name=Pouple&scopes=read_api", HostField: "url"}},
-			{Title: "Create a read-only token", Body: "Name it Pouple, tick only read_api and create it. Pouple only reads your merge requests: it never changes anything in GitLab."},
+			{Title: "Create a GitLab token", Body: "Name it Pouple. Use read_api for reading. To create merge requests you explicitly authorize, use api instead; Pouple never merges them."},
 			{Title: "Paste the token", Body: "Copy it right away (GitLab shows it only once) and paste it here. Pouple shows whose account it is before saving."},
 		},
 	}
@@ -112,7 +112,7 @@ func (c *Connector) Validate(ctx context.Context, values connector.Values) (conn
 			return connector.Profile{}, connector.Invalid("token", "This token lacks the read_api scope. Create a new one and tick read_api.")
 		}
 		if slices.Contains(info.Scopes, "api") {
-			profile.Warnings = append(profile.Warnings, connector.Warning{Title: "Token can change things", Detail: "This token has the api scope, which can write in GitLab. Pouple only reads: a token with read_api alone is safer."})
+			profile.Warnings = append(profile.Warnings, connector.Warning{Title: "Token can change things", Detail: "This token has the api scope, which can write in GitLab. Pouple creates merge requests only with your approval. For reading alone, read_api is enough."})
 		}
 		if expires, err := time.Parse("2006-01-02", info.ExpiresAt); err == nil {
 			profile.Facts = append(profile.Facts, connector.Fact{Label: "Token expires", Value: expires.Format("2 Jan 2006")})

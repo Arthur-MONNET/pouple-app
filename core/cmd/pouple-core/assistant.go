@@ -15,6 +15,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/devserver"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
@@ -165,6 +166,21 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 		Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
+		OpenMergeRequest: func(ctx context.Context, action engine.Action, title string) (string, error) {
+			status, err := registry.Status(gitlab.ID)
+			if err != nil || !status.Connected {
+				return "", errors.New("GitLab is not connected")
+			}
+			values, err := registry.Values(gitlab.ID)
+			if err != nil {
+				return "", err
+			}
+			client, err := gitlab.NewClient(values["url"], values["token"])
+			if err != nil {
+				return "", err
+			}
+			return client.OpenMergeRequest(ctx, action.Scope.ID, action.Branch, action.Base, title)
+		},
 		Services:  gatherer.Gather,
 		Lookups:   gatherer.Lookup,
 		WebAccess: func() bool { return !load().WebDisabled },

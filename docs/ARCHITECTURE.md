@@ -452,3 +452,18 @@ survive an update.
 3. Engine port: inbox, runner, service, store, SSE.
 4. Swift shell: menu-bar item, window, core supervision, bubbles.
 5. Release pipeline and landing page.
+
+
+### Authorized merge requests and LFS pushes
+
+`gitlab.merge-request` is an executable plan action. Its normalized GitLab scope, source (`branch`) and target (`base`)
+are fingerprinted for approval. Unlike broad code grants, MR grants persist the exact action and branch pair; old
+project-wide kind grants do not cover MRs. Automatic local-code approval never authorizes this action. The engine invokes
+a typed GitLab callback, wired to the current registry credentials, after preceding code actions succeed. The client
+checks for an existing open MR and for the remote source branch before POSTing. On an uncertain POST response it reconciles
+with another lookup, without a second POST. It exposes no merge or update operation.
+
+`pushWorktree` is shared by code edit and sync. It checks the trusted worktree pointer, detects LFS in attribute history,
+requires git-lfs, transfers the source history with `git lfs push --all origin HEAD`, then pushes the Git ref. Incomplete
+LFS uploads are explicitly forbidden. All calls retain `core.hooksPath=/dev/null`; LFS commands use remote timeouts and
+machine credentials. Failures leave committed work recoverable and stop subsequent MR creation.

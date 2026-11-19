@@ -152,6 +152,18 @@ The button needs Pouple to have been installed with `scripts/install-local.sh` f
 place, on `main` or `develop`, with no local changes and no commits that are on no branch of `origin`. Otherwise Pouple says what is wrong
 instead of updating. Installations made before this feature have no `install.json` yet: update them once by hand.
 
+### Next beta on develop
+
+- Create merge requests when explicitly requested or approved, limited to the project and branch pair shown in the plan.
+  Code is pushed first; an existing MR is reused and its link is returned. Creation needs a GitLab token with `api`.
+- Transfer Git LFS objects explicitly before code edit and sync pushes, keeping repository hooks disabled. Missing objects
+  or upload failures stop the push and explain how to retry; no MR is announced on failure.
+- Delivery follows the existing beta convention below: no beta tag or version number is assigned in advance.
+
+Recovery to validate after integration: `portals-builder`, committed branch `fix/candyshop-xp4-logo`, MR requested toward
+`master`. Its rejected push reported missing LFS objects. It has not been retried or repaired as part of this change.
+Restore the missing objects, then retry the authorized push before creating or reusing the MR.
+
 ### Stable and beta
 
 - **Stable** (the default) follows `main`. Every change that reaches `main` is a new version: once CI passed, the

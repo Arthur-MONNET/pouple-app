@@ -173,8 +173,8 @@ Reading is free. **Every write needs your approval first**, and the approval is 
   work.
 - A write outside the approved scopes (another project, another repository, another Asana project, another Slite space) needs
   a new approval.
-- Inside an approved code project, Pouple may create a branch and commits, push the branch, open the merge request, and push
-  fixes after a failed pipeline or a reviewer's comments. It does not merge into a shared branch (it can merge one into
+- Inside an approved code project, Pouple may create a branch and commits and push the branch. Opening a merge request
+  needs its own approved `gitlab.merge-request` action, limited to the GitLab project and source/target branches. It does not merge into a shared branch (it can merge one into
   your own branch to bring it up to date).
 - Replies to people are never sent by Pouple: you copy the text and paste it in the conversation yourself.
 
@@ -223,7 +223,8 @@ worktree on a new branch** that the plan names with a type and a subject (`fix/l
 type follows the work and the project's own convention; never a branch of Pouple's own, never a shared branch), started from
 the branch the plan names (the latest `origin/master` for example) or from the project's current one, in `.pouple-worktrees`
 beside your projects, with your `node_modules` linked read-only. Pouple commits it with hooks disabled, **pushes the branch to
-`origin` (never forced; a name already taken here or on `origin` gets a `-2` suffix, so no one's branch is ever reused) and
+`origin` (never forced; a name already taken here or on `origin` gets a `-2` suffix, so no one's branch is ever reused; a paired MR instead
+requires the exact approved name and refuses an existing branch) and
 notifies you** of what it pushed; without an `origin`, the commit stays local and the notification says so. Your checkout, your branch and your unsaved files are never
 touched. A project that is not a git repository with a commit gets no plan (its code is never written in place). The writing
 AI can edit the `.git` file of its worktree, so Pouple addresses the worktree through the git folder git created and
@@ -257,8 +258,19 @@ git commands included, and ends with a short recap:
 The approval names the branch: it covers the updates of that branch for the rest of the conversation, never another
 branch. If the push fails, the merged work is kept on a branch of its own and the conversation names it.
 
-Not built yet: opening the merge request and pushing fixes after a failed pipeline
-or a review (GitLab needs a token with a write scope), writes in Asana and Slite, and a plan that covers several services.
+**Opening a merge request** uses `gitlab.merge-request`, only when you request it or approve the corresponding action.
+The scope names the GitLab project; `branch` is the source and `base` the target. A combined plan pushes code first,
+then opens the MR and returns its link. An existing open MR for the exact pair is reused, including after an uncertain
+creation response. A standalone action works for an already pushed branch. The automatic code approval setting does not
+authorize GitLab writes, and neither does anything read in Slack or other services. MR grants cover only that project,
+action and branch pair; they never authorize merging, comments or other GitLab changes. A token with `api` and project
+write access is needed for creation; existing `read_api` tokens remain usable for reading.
+
+**Git LFS** objects are explicitly transferred to `origin` before both code edit and sync pushes, including objects in
+unpublished history. Repository hooks stay disabled. Missing git-lfs, missing local objects and upload failures stop the
+push and the MR; committed work is retained and the error explains what to restore before retrying.
+
+Not built yet: automatic fixes after a failed pipeline or a review, and plan writes in Asana and Slite.
 
 ### Code
 

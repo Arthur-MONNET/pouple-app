@@ -63,7 +63,7 @@ const proposalQuestion = computed<AssistantQuestion[]>(() => {
 
 /** What a plan's action is called where the user picks it: its kind, and the branches it names. */
 function actionLabel(action: PlanAction): string {
-  const branches = action.branch ? (action.base ? `${action.branch} ← ${action.base}` : action.branch) : action.scope.id;
+  const branches = action.branch ? (action.base ? `${action.branch} ${action.kind === 'gitlab.merge-request' ? '→' : '←'} ${action.base}` : action.branch) : action.scope.id;
   return `${t(`chat.plan.kind.${action.kind}`)} · ${branches}`;
 }
 
@@ -86,12 +86,13 @@ const planQuestion = computed<AssistantQuestion[]>(() => {
   }
   // A plan that updates a branch is carried out to the end (merge, conflicts, commit, push), which the answer says.
   const sync = plan.actions.some((action) => action.kind === 'code.sync');
+  const mr = plan.actions.some((action) => action.kind === 'gitlab.merge-request');
   return [
     {
       id: 'plan',
       text: t('chat.planQuestion', { goal: plan.goal }),
       options: [
-        { id: 'approve', label: t(sync ? 'chat.planSyncYes' : 'chat.planYes'), description: t(sync ? 'chat.planSyncYesHelp' : 'chat.planYesHelp') },
+        { id: 'approve', label: t(mr ? 'chat.planMRYes' : sync ? 'chat.planSyncYes' : 'chat.planYes'), description: t(mr ? 'chat.planMRYesHelp' : sync ? 'chat.planSyncYesHelp' : 'chat.planYesHelp') },
         { id: 'decline', label: t('chat.planNo'), description: null },
       ],
     },

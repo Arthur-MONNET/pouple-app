@@ -1,5 +1,4 @@
-// Package gitlab connects Pouple to a GitLab server with a read-only personal access token. The connector shows
-// whose account it is; the client lets the assistant read the user's merge requests as data.
+// Package gitlab connects Pouple to GitLab. Reads use read_api; explicitly approved MR creation requires api.
 package gitlab
 
 import (

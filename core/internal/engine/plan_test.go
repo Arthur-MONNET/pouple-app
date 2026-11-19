@@ -20,7 +20,7 @@ func fixPlan() Plan {
 		Actions: []Action{
 			{Kind: EditCode, Scope: codeScope("login-app"), Summary: "Keep the state in the SSO callback", Branch: "fix/sso-state"},
 			{Kind: PushBranch, Scope: gitlabScope("acme/web/login-app"), Summary: "Push the fix branch"},
-			{Kind: MergeRequest, Scope: gitlabScope("acme/web/login-app"), Summary: "Open the merge request"},
+			{Kind: MergeRequest, Scope: gitlabScope("acme/web/login-app"), Summary: "Open the merge request", Branch: "fix/sso-state", Base: "main"},
 		},
 	}
 }
@@ -136,6 +136,9 @@ func TestNormalizeAcceptsOnlyRealIdentifiersOfEachService(t *testing.T) {
 	}
 	for _, c := range cases {
 		action := Action{Kind: c.kind, Scope: c.scope, Summary: "Do it"}
+		if c.kind == MergeRequest {
+			action.Branch, action.Base = "fix/it", "main"
+		}
 		if c.kind == EditCode {
 			action.Branch = "fix/it"
 		}

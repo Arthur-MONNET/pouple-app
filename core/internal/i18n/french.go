@@ -3,6 +3,22 @@ package i18n
 // fr maps each English text of the core to its French translation. Placeholders (%s, %d) must stay in the same
 // order and number: a test checks it.
 var fr = map[string]string{
+	// Authorized merge requests and explicit LFS transfers
+	"Git LFS detection failed: %s":                                                 "La détection Git LFS a échoué : %s",
+	"Git LFS is required; install git-lfs before retrying. %s":                     "Git LFS est nécessaire ; installe git-lfs avant de réessayer. %s",
+	"Git LFS transfer failed; restore any missing local LFS objects and retry. %s": "Le transfert Git LFS a échoué ; restaure les objets LFS locaux manquants et réessaie. %s",
+	"The source branch was not pushed; the merge request was not created":          "La branche source n’a pas été poussée ; la merge request n’a pas été créée",
+	"Create a GitLab token":                                                        "Crée un jeton GitLab",
+	"Name it Pouple. Use read_api for reading. To create merge requests you explicitly authorize, use api instead; Pouple never merges them.":                "Nomme-le Pouple. Choisis read_api pour la lecture, ou api pour créer les merge requests que tu autorises explicitement ; Pouple ne les fusionne jamais.",
+	"This token has the api scope, which can write in GitLab. Pouple creates merge requests only with your approval. For reading alone, read_api is enough.": "Ce jeton dispose du droit api, qui permet d’écrire dans GitLab. Pouple crée des merge requests uniquement avec ton accord. Pour la lecture seule, read_api suffit.",
+	"The plan has not been approved":                                            "Le plan n’a pas été approuvé",
+	"A merge request must follow the code push":                                 "La merge request doit suivre le push du code",
+	"Merge request creation needs user approval and a connected GitLab account": "La création de la merge request nécessite ton accord et un compte GitLab connecté",
+	"Merge request %s → %s could not be opened: %s":                             "La merge request %s → %s n’a pas pu être ouverte : %s",
+	"Merge request: %s": "Merge request : %s",
+	"The approved merge request branch %s already exists; resume that branch instead":          "La branche approuvée pour la merge request %s existe déjà ; reprends cette branche",
+	"GitLab refused MR creation; reconnect with a token granting api and project write access": "GitLab a refusé la création de la MR ; reconnecte-toi avec un jeton api et le droit d’écrire dans le projet",
+
 	// Alerts and reminders
 	"invalid alert":   "alerte invalide",
 	"alert not found": "alerte introuvable",

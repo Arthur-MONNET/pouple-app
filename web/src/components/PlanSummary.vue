@@ -14,7 +14,7 @@ defineProps<{ plan: AssistantPlan }>();
     <ul class="flex flex-col gap-2" :aria-label="$t('chat.plan.actions')">
       <li v-for="(action, index) in plan.actions" :key="index" class="flex flex-col gap-0.5 rounded-md bg-raised px-3 py-2 text-xs">
         <span class="font-medium text-ink">{{ $t(`chat.plan.kind.${action.kind}`) }} · {{ action.scope.name ? `${action.scope.name} (${action.scope.id})` : action.scope.id }}</span>
-        <span v-if="action.branch" class="font-mono text-ink">{{ action.branch }}<template v-if="action.base"> ← {{ action.base }}</template></span>
+        <span v-if="action.branch" class="font-mono text-ink">{{ action.branch }}<template v-if="action.base"> {{ action.kind === 'gitlab.merge-request' ? '→' : '←' }} {{ action.base }}</template></span>
         <span class="text-ink-muted">{{ action.summary }}</span>
       </li>
     </ul>

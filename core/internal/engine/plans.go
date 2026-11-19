@@ -9,7 +9,7 @@ import (
 
 // supportedKinds are the kinds of write Pouple can carry out today. A plan that asks for another kind is refused when it
 // is made, not when the user has already approved it.
-var supportedKinds = []ActionKind{EditCode, SyncBranch}
+var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest}
 
 // proposePlan shows the plan the investigating AI wrote for the user to approve. Inside places the user already approved
 // in this conversation it is carried out at once: a grant is for the whole conversation.
@@ -53,6 +53,12 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
 	// The user chose to trust the assistant with every change: a plan is then approved as it is made. It is written on a
 	// branch of its own, so this is the gentlest way a change can be applied.
 	trusted := s.deps.AutoApproveAll != nil && s.deps.AutoApproveAll()
+	// Automatic approval of local code never authorizes GitLab writes.
+	for _, a := range plan.Actions {
+		if a.Kind == MergeRequest {
+			trusted = false
+		}
+	}
 	if covered || trusted {
 		plan.Status = PlanApproved
 		why := "Inside what you already approved here: carrying it out"
@@ -169,7 +175,11 @@ func (s *Service) DecidePlanActions(id string, approve bool, wanted string, sele
 // executePlan carries out an approved plan, one action after another, each in a fresh turn that sees the plan and never
 // the request's own text.
 func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
+	if plan.Status != PlanApproved {
+		return i18n.NewError("The plan has not been approved")
+	}
 	var written []string
+	codePushes := map[string]bool{}
 	for _, action := range plan.Actions {
 		switch action.Kind {
 		case EditCode, SyncBranch:
@@ -181,9 +191,24 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			if err != nil {
 				return err
 			}
+			codePushes[action.Branch] = s.hasOrigin(ctx, s.projectPath(action.Scope.ID)) && (line != "" || action.Kind == SyncBranch)
 			if line != "" {
 				written = append(written, line)
 			}
+		case MergeRequest:
+			if pushed, ran := codePushes[action.Branch]; ran && !pushed {
+				return i18n.NewError("The source branch was not pushed; the merge request was not created")
+			}
+			if plan.Automatic || s.deps.OpenMergeRequest == nil {
+				return i18n.NewError("Merge request creation needs user approval and a connected GitLab account")
+			}
+			link, err := s.deps.OpenMergeRequest(ctx, action, plan.Goal)
+			if err != nil {
+				return i18n.NewError("Merge request %s → %s could not be opened: %s", action.Branch, action.Base, err)
+			}
+			line := s.text("Merge request: %s", link)
+			written = append(written, line)
+			s.update(id, func(r *Stored) { r.Summary = ptr(line); r.Entries = append(r.Entries, s.entry("system", "text", line)) })
 		default:
 			return i18n.NewError("Pouple cannot carry out this kind of write yet")
 		}
@@ -246,7 +271,7 @@ func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action 
 		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Pushing %s to %s", wt.Branch, origin)))
 	})
 	// The user allowed the push with the plan: nothing is forced, and the branch is new, so it cannot overwrite anyone's work.
-	if out, err := s.git(ctx, wt.Path, wt.gitArgs("push", "--set-upstream", origin, "refs/heads/"+wt.Branch+":refs/heads/"+wt.Branch)...); err != nil {
+	if out, err := s.pushWorktree(ctx, wt, "--set-upstream", origin, "refs/heads/"+wt.Branch+":refs/heads/"+wt.Branch); err != nil {
 		return "", i18n.NewError("The work is committed on the branch %s of “%s” but could not be pushed: %s", wt.Branch, wt.Project, clipRunes(out, 300))
 	}
 	return s.text("Branch %s pushed: %s", wt.Branch, plan.Goal), nil

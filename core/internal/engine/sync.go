@@ -80,7 +80,7 @@ func (s *Service) runBranchSync(ctx context.Context, id string, plan Plan, actio
 	}
 
 	step(s.text("Pushing %s to %s", branch, origin))
-	if out, err := s.git(ctx, wt.Path, wt.gitArgs("push", origin, "HEAD:refs/heads/"+branch)...); err != nil {
+	if out, err := s.pushWorktree(ctx, wt, origin, "HEAD:refs/heads/"+branch); err != nil {
 		// The merge is done and committed: it is kept on a branch named after the two it joins, so nothing is lost.
 		kept := s.keepMerge(ctx, directory, branch, base, head)
 		s.discardWorktree(ctx, wt)

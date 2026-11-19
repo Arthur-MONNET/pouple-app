@@ -61,11 +61,20 @@ func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
 
 // talksToRemote says whether a git command (its first word that is not an option) reaches another computer.
 func talksToRemote(args []string) bool {
+	skip := false
 	for _, arg := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if arg == "-c" {
+			skip = true
+			continue
+		}
 		if strings.HasPrefix(arg, "-") {
 			continue
 		}
-		return arg == "fetch" || arg == "push" || arg == "ls-remote"
+		return arg == "fetch" || arg == "push" || arg == "ls-remote" || arg == "lfs"
 	}
 	return false
 }
@@ -156,6 +165,11 @@ func (s *Service) prepareWorktree(ctx context.Context, plan Plan, action Action)
 		}
 	}
 	branch, path := s.freeSpot(ctx, directory, project, action.Branch, PlanFingerprint(plan)[:6])
+	for _, a := range plan.Actions {
+		if a.Kind == MergeRequest && a.Branch == action.Branch && branch != action.Branch {
+			return Worktree{}, i18n.NewError("The approved merge request branch %s already exists; resume that branch instead", action.Branch)
+		}
+	}
 	return s.addWorktree(ctx, directory, project, branch, path, start)
 }
 
@@ -266,4 +280,29 @@ func (s *Service) discardWorktree(ctx context.Context, w Worktree) {
 	if w.Branch != "" {
 		_, _ = s.git(ctx, directory, "branch", "-D", w.Branch)
 	}
+}
+
+// pushWorktree replaces the disabled LFS hook explicitly, without enabling repository hooks.
+func (s *Service) pushWorktree(ctx context.Context, w Worktree, args ...string) (string, error) {
+	if !w.pointerIntact() {
+		err := i18n.NewError("The work area was changed in a way Pouple does not commit from")
+		return i18n.ErrorText(s.deps.Language(), err), err
+	}
+	// Inspect attribute history too: deleted LFS files may still be needed by commits being pushed.
+	attrs, err := s.git(ctx, w.Path, w.gitArgs("log", "-1", "--format=%H", "-G", "filter[[:space:]]*=[[:space:]]*lfs", "HEAD", "--", ".gitattributes", "**/.gitattributes")...)
+	if err != nil {
+		return s.text("Git LFS detection failed: %s", firstNonEmpty(attrs, err.Error())), err
+	}
+	version, lfsErr := s.git(ctx, w.Path, w.gitArgs("lfs", "version")...)
+	if lfsErr != nil && attrs != "" {
+		return s.text("Git LFS is required; install git-lfs before retrying. %s", firstNonEmpty(version, lfsErr.Error())), lfsErr
+	}
+	// When available, LFS also recognizes pointers imported without attribute history.
+	if lfsErr == nil {
+		// --all with HEAD transfers only objects reachable from this source, including unpublished history.
+		if out, err := s.git(ctx, w.Path, w.gitArgs("-c", "lfs.allowincompletepush=false", "lfs", "push", "--all", origin, "HEAD")...); err != nil {
+			return s.text("Git LFS transfer failed; restore any missing local LFS objects and retry. %s", firstNonEmpty(out, err.Error())), err
+		}
+	}
+	return s.git(ctx, w.Path, w.gitArgs(append([]string{"push"}, args...)...)...)
 }

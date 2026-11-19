@@ -74,7 +74,9 @@ type PollResult struct {
 
 // Deps is everything the service needs from the outside.
 type Deps struct {
-	Store *Store
+	// OpenMergeRequest is a typed write, called only by an approved plan.
+	OpenMergeRequest func(context.Context, Action, string) (string, error)
+	Store            *Store
 	// Alerts keeps the reminders the user set; in memory only when nil.
 	Alerts *alerts.Store
 	Inbox  Inbox
