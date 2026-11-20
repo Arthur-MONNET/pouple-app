@@ -8,7 +8,7 @@ import Foundation
 public enum L10n {
     public enum Key: String, CaseIterable, Sendable {
         // Menu bar item
-        case menuOpen, menuHideBubbles, menuShowBubbles, menuResetPosition, menuStartAtLogin, menuQuit, menuLanguage
+        case menuOpen, menuNewConversation, menuHideBubbles, menuShowBubbles, menuResetPosition, menuStartAtLogin, menuQuit, menuLanguage
         case statusStarting, statusUnavailable, statusChecking, statusConnected, statusSetupNeeded
         case loginWaitingApproval, loginUnavailable, loginWithDetail, loginErrorTitle, loginErrorBody
         case languageChangeFailed
@@ -44,7 +44,7 @@ public enum L10n {
         case replyPlaceholder, replySend, wizardOther, wizardBack, wizardNext, wizardSend, wizardSeveral
         case attachmentTooMany, attachmentTooLarge, attachmentEmpty, attachmentUnsupported, attachmentDropHint, attachmentRemove
         // Titles of requests
-        case titleNoteToSelf, titleDirect, titleGroup, titleBroadcast, titleKeyword, titleThread, titleChannel, titleAction
+        case titleNoteToSelf, titleDirect, titleGroup, titleBroadcast, titleKeyword, titleThread, titleChannel, titleAction, titleInApp
         // Relative time
         case timeNow, timeMinutes, timeHours, timeDays
     }
@@ -103,6 +103,7 @@ public enum L10n {
 
     static let french: [Key: String] = [
         .menuOpen: "Ouvrir Pouple",
+        .menuNewConversation: "Nouvelle conversation…",
         .menuHideBubbles: "Masquer les bulles",
         .menuShowBubbles: "Afficher les bulles",
         .menuResetPosition: "Remettre les bulles à leur place",
@@ -259,6 +260,7 @@ public enum L10n {
         .titleThread: "%@ · fil dans %@",
         .titleChannel: "%@ · %@",
         .titleAction: "Action Pouple",
+        .titleInApp: "Conversation",
         .timeNow: "à l'instant",
         .timeMinutes: "il y a %d min",
         .timeHours: "il y a %d h",
@@ -269,6 +271,7 @@ public enum L10n {
 
     static let english: [Key: String] = [
         .menuOpen: "Open Pouple",
+        .menuNewConversation: "New conversation…",
         .menuHideBubbles: "Hide bubbles",
         .menuShowBubbles: "Show bubbles",
         .menuResetPosition: "Reset bubbles position",
@@ -425,6 +428,7 @@ public enum L10n {
         .titleThread: "%@ · thread in %@",
         .titleChannel: "%@ · %@",
         .titleAction: "Pouple action",
+        .titleInApp: "Conversation",
         .timeNow: "just now",
         .timeMinutes: "%d min ago",
         .timeHours: "%d h ago",

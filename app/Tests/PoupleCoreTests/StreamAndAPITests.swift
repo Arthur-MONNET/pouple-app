@@ -162,6 +162,20 @@ final class PoupleAPITests: XCTestCase {
         }
     }
 
+    func testACoreWithOnlyTheAIConnectedAndSlackOptionalIsSetUp() async throws {
+        StubProtocol.handler = { _ in
+            (200, Data(#"{"setupComplete":true,"steps":[{"id":"claude","name":"Claude","required":true,"connected":true},{"id":"slack","name":"Slack","required":false,"connected":false}]}"#.utf8))
+        }
+        let state = try await api().setupState()
+
+        XCTAssertTrue(state.setupComplete)
+        XCTAssertEqual(state.steps.map(\.id), ["claude", "slack"])
+        XCTAssertEqual(state.steps.last?.required, false)
+        XCTAssertEqual(state.steps.last?.connected, false)
+        // The menu and the bubbles follow setupComplete only, whatever a step says.
+        XCTAssertEqual(StatusSummary.line(core: .ready(port: 4000), setupComplete: state.setupComplete, language: .en), L10n.text(.statusConnected, language: .en))
+    }
+
     func testTheLanguageIsSwitchedThroughTheSettings() async throws {
         var seen: (String?, String?, [String: Any])?
         StubProtocol.handler = { request in

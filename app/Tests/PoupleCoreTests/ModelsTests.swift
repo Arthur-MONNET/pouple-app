@@ -167,4 +167,32 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(snapshot.requests.last?.source.origin, .poupleAction)
         XCTAssertEqual(snapshot.requests.last?.title, "Run vision on iOS")
     }
+
+    private func request(origin: String, label: String? = nil, text: String = "hi") throws -> AssistantRequest {
+        let labelField = label.map { #", "label": "\#($0)""# } ?? ""
+        let json = """
+        {
+          "id": "x", "source": { "origin": "\(origin)", "channelId": "c", "channelName": null, "senderId": "u", "senderName": "GitHub", "ts": "", "permalink": null\(labelField) },
+          "text": "\(text)", "context": "", "receivedAt": "2026-11-05T14:00:00Z", "updatedAt": "2026-11-05T14:00:00Z",
+          "status": "ready", "summary": null, "draftReply": null, "questions": [], "proposal": null, "entries": [], "error": null
+        }
+        """
+        return try SnapshotDecoder.make().decode(AssistantRequest.self, from: Data(json.utf8))
+    }
+
+    func testAConversationStartedInPoupleIsTitledByItsLabelOrAsAConversation() throws {
+        let unnamed = try request(origin: "in-app")
+        XCTAssertEqual(unnamed.source.origin, .inApp)
+        XCTAssertEqual(unnamed.title(language: .en), "Conversation")
+        XCTAssertEqual(unnamed.title(language: .fr), "Conversation")
+        XCTAssertEqual(try request(origin: "in-app", label: "Fix the login").title(language: .fr), "Fix the login")
+    }
+
+    func testAPullRequestIsTitledByItsHeadline() throws {
+        let pull = try request(origin: "pull-request", text: #"PR #12 needs review\nbody"#)
+        XCTAssertEqual(pull.source.origin, .pullRequest)
+        XCTAssertEqual(pull.title(language: .en), "PR #12 needs review")
+        XCTAssertEqual(pull.title(language: .fr), "PR #12 needs review")
+        XCTAssertEqual(try request(origin: "smoke-signal").source.origin, .unknown)
+    }
 }

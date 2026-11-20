@@ -10,6 +10,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The tokens of the day and each AI's usage windows, under the status line; hidden when there is nothing to say.
     private let usageItems = (0 ..< 3).map { _ in NSMenuItem(title: "", action: nil, keyEquivalent: "") }
     private let openItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let newConversationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let bubblesItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let resetItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -26,6 +27,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     var bubblesHidden: () -> Bool = { false }
     var currentLanguage: () -> Language = { L10n.current }
     var onOpen: () -> Void = {}
+    var onNewConversation: () -> Void = {}
     var onToggleBubbles: () -> Void = {}
     var onResetPosition: () -> Void = {}
     var onSelectLanguage: (Language) -> Void = { _ in }
@@ -39,7 +41,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         statusLine.isEnabled = false
         for item in usageItems { item.isEnabled = false }
         let actions: [(NSMenuItem, Selector)] = [
-            (openItem, #selector(open)), (bubblesItem, #selector(toggleBubbles)), (resetItem, #selector(resetPosition)),
+            (openItem, #selector(open)), (newConversationItem, #selector(newConversation)), (bubblesItem, #selector(toggleBubbles)), (resetItem, #selector(resetPosition)),
             (loginItem, #selector(toggleLogin)), (quitItem, #selector(quit)),
         ]
         for (entry, selector) in actions {
@@ -55,7 +57,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             languageChoices[language] = choice
         }
         languageItem.submenu = languageMenu
-        for entry in [statusLine] + usageItems + [.separator(), openItem, bubblesItem, resetItem, .separator(), loginItem, languageItem, .separator(), quitItem] {
+        for entry in [statusLine] + usageItems + [.separator(), openItem, newConversationItem, bubblesItem, resetItem, .separator(), loginItem, languageItem, .separator(), quitItem] {
             menu.addItem(entry)
         }
         item.menu = menu
@@ -94,6 +96,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             item.isHidden = index >= lines.count
         }
         openItem.title = L10n.text(.menuOpen)
+        newConversationItem.title = L10n.text(.menuNewConversation)
         bubblesItem.title = L10n.text(bubblesHidden() ? .menuShowBubbles : .menuHideBubbles)
         resetItem.title = L10n.text(.menuResetPosition)
         quitItem.title = L10n.text(.menuQuit)
@@ -116,6 +119,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func open() { onOpen() }
+    @objc private func newConversation() { onNewConversation() }
     @objc private func toggleBubbles() { onToggleBubbles() }
     @objc private func resetPosition() { onResetPosition() }
     @objc private func toggleLogin() { LoginItem.toggle(); refresh() }
