@@ -304,6 +304,7 @@ export interface ChatEntry {
   kind: 'text' | 'step';
   text: string;
   attachments?: AttachmentRef[];
+  exitCode?: number;
 }
 
 /** What is known of the user's learned writing style (the style itself stays in the core). */
@@ -321,6 +322,7 @@ export interface BrowserState {
 }
 
 export interface AssistantRequest {
+  stopCheckpoint?: string;
   id: string;
   /** Set only while the browser is at work for this conversation. */
   browser?: BrowserState;

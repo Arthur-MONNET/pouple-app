@@ -38,16 +38,18 @@ func writeSandbox(approvedByPerson bool) Sandbox {
 type Event struct {
 	Type     string // thread | step | message
 	ThreadID string
+	ExitCode *int
 	Text     string
 }
 
 // Turn is one run of the AI.
 type Turn struct {
-	Prompt    string
-	Dir       string
-	Sandbox   Sandbox
-	sshAgent  string
-	onCommand func(string)
+	Prompt            string
+	Dir               string
+	Sandbox           Sandbox
+	sshAgent          string
+	terminalSessionID string
+	onCommand         func(string)
 	// Model is the model to use; "" leaves the choice to the CLI.
 	Model string
 	// ResumeThread continues an earlier conversation of the same provider.
@@ -289,17 +291,19 @@ func interpretItem(item map[string]any, lang i18n.Lang) line {
 		}
 	case "command_execution":
 		suffix, commandLog := "", ""
+		var exitCode *int
 		if output := text("aggregated_output"); output != "" {
 			commandLog = strings.TrimSuffix(output, "\n") + "\n"
 		}
 		if code, ok := item["exit_code"].(float64); ok {
-			commandLog += fmt.Sprintf("[%d]\n", int(code))
+			exitCode = ptr(int(code))
+			commandLog += fmt.Sprintf("[%d]\n", *exitCode)
 			if code != 0 {
 				suffix = i18n.T(lang, "  (exit %d)", int(code))
 			}
 		}
 		return line{
-			events:     []Event{{Type: "step", Text: "$ " + shortLine(readableCommand(text("command"))) + suffix}},
+			events:     []Event{{Type: "step", Text: "$ " + shortLine(readableCommand(text("command"))) + suffix, ExitCode: exitCode}},
 			commandLog: commandLog,
 		}
 	case "reasoning":

@@ -64,7 +64,13 @@ func (s *Service) followThread(in Incoming) bool {
 	}
 	for _, candidate := range s.deps.Store.List() {
 		open := candidate.Status == StatusReady || candidate.Status == StatusAwaitingUser
-		if !open || candidate.ThreadID == "" || threadKeyOf(candidate.Source) != key || !newerThan(in.Source.TS, candidate.Source.TS) {
+		if threadKeyOf(candidate.Source) != key || !newerThan(in.Source.TS, candidate.Source.TS) {
+			continue
+		}
+		if candidate.StopCheckpoint != "" {
+			return true
+		}
+		if !open || candidate.ThreadID == "" {
 			continue
 		}
 		seen := false
@@ -79,6 +85,7 @@ func (s *Service) followThread(in Incoming) bool {
 		if s.threadPending == nil {
 			s.threadPending = map[string][]Incoming{}
 		}
+		epoch := s.stops[id]
 		s.threadPending[id] = append(s.threadPending[id], in)
 		scheduled := s.threadScheduled[id]
 		if s.threadScheduled == nil {
@@ -97,7 +104,7 @@ func (s *Service) followThread(in Incoming) bool {
 		if !scheduled {
 			// A burst of messages is read in one turn: the read waits a moment, like a request from someone else does.
 			start := func() {
-				s.enqueue(id, Background, func(ctx context.Context) error { return s.reconsiderThread(ctx, id) })
+				s.enqueueSince(id, Background, epoch, func(ctx context.Context) error { return s.reconsiderThread(ctx, id) })
 			}
 			if s.deps.SettleDelay > 0 {
 				time.AfterFunc(s.deps.SettleDelay, start)

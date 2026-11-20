@@ -101,6 +101,7 @@ type Entry struct {
 	Role        string          `json:"role"` // system | assistant | user
 	Kind        string          `json:"kind"` // text | step
 	Text        string          `json:"text"`
+	ExitCode    *int            `json:"exitCode,omitempty"`
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
 }
 
@@ -140,6 +141,8 @@ type Request struct {
 	Engaged bool `json:"engaged,omitempty"`
 	// Closed is set when the user closed its bubble. The bubble comes back the next time the request needs them.
 	Closed bool `json:"closed,omitempty"`
+	// StopCheckpoint is kept until the user explicitly resumes the investigation.
+	StopCheckpoint string `json:"stopCheckpoint,omitempty"`
 	// Tokens are what the AI used on this conversation; absent until it used any.
 	Tokens *Tokens `json:"tokens,omitempty"`
 	// SwitchTo is set when listed: the request stopped on an AI's usage limit, and this other AI, connected and not at
@@ -152,7 +155,10 @@ type Request struct {
 // Stored is a request as kept on disk: the visible part plus what stays on the server.
 type Stored struct {
 	Request
-	ThreadID string `json:"threadId,omitempty"`
+	// TerminalProgress contains command metadata and status only.
+	TerminalProgress      string `json:"terminalProgress,omitempty"`
+	InvestigationProgress string `json:"investigationProgress,omitempty"`
+	ThreadID              string `json:"threadId,omitempty"`
 	// ThreadSeen are the Slack timestamps of the messages of this thread that were read quietly after the conversation
 	// started, so none is read twice.
 	ThreadSeen []string `json:"threadSeen,omitempty"`

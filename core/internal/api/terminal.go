@@ -16,14 +16,23 @@ func MountTerminal(mux *http.ServeMux, service *engine.Service) {
 			Revision, Offset, CommandOffset uint64
 			Rows, Cols                      uint16
 		}
-		if err := decodeBody(r, &body); err != nil || len(body.Data) > 32<<10 {
+		if err := decodeBody(r, &body); err != nil || len(body.Data) > 32<<10 || (body.Action != "input" && body.Action != "run" && body.Action != "cd" && body.Action != "open" && body.Data != "") {
 			writeEngineError(w, i18n.FromContext(r.Context()), engine.ErrInput)
+			return
+		}
+		if body.Action == "list" {
+			views, err := service.ListTerminals(id)
+			if err != nil {
+				writeEngineError(w, i18n.FromContext(r.Context()), err)
+				return
+			}
+			writeJSON(w, http.StatusOK, views)
 			return
 		}
 		var view engine.TerminalView
 		var err error
 		if body.Action == "open" {
-			view, err = service.OpenTerminal(id)
+			view, err = service.OpenTerminal(id, body.Data)
 		} else {
 			view, err = service.Terminal(id, body.Session, body.Action, body.Revision, body.Offset, body.CommandOffset, body.Data, body.Rows, body.Cols)
 		}

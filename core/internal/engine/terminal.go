@@ -3,19 +3,20 @@ package engine
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
-
-	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 const terminalBuffer = 256 << 10
@@ -48,35 +49,165 @@ func (o *terminalOutput) since(offset uint64) []byte {
 
 // TerminalView is returned only by the terminal API. The buffers never enter a request or a provider prompt.
 type TerminalView struct {
-	ID            string `json:"id"`
-	User          bool   `json:"user"`
-	Busy          bool   `json:"busy"`
-	Waiting       bool   `json:"waiting"`
-	ShellExited   bool   `json:"shellExited"`
-	Revision      uint64 `json:"revision"`
-	Output        []byte `json:"output"`
-	Offset        uint64 `json:"offset"`
-	Commands      string `json:"commands"`
-	CommandOffset uint64 `json:"commandOffset"`
+	Dir           string             `json:"dir"`
+	Branch        string             `json:"branch"`
+	ID            string             `json:"id"`
+	Command       string             `json:"command"`
+	Interactive   bool               `json:"interactive"`
+	Running       bool               `json:"running"`
+	Result        *interactiveResult `json:"result"`
+	Revision      uint64             `json:"revision"`
+	Output        []byte             `json:"output"`
+	Offset        uint64             `json:"offset"`
+	Commands      string             `json:"commands"`
+	CommandOffset uint64             `json:"commandOffset"`
+}
+
+type interactiveResult struct {
+	Status   string `json:"status"`
+	ExitCode *int   `json:"exitCode,omitempty"`
+	Signal   string `json:"signal,omitempty"`
 }
 
 type terminalSession struct {
-	id               string
-	user             bool
-	revision         uint64
-	changed          chan struct{}
-	shell            *exec.Cmd
-	master           *os.File
-	agentInput       io.WriteCloser
-	agentDir         string
-	socket           string
-	exited           bool
-	output, commands terminalOutput
+	id, agentDir, socket string
+	dir, branch          string
+	revision             uint64
+	agentInput           io.WriteCloser
+	output, commands     terminalOutput
+	size                 pty.Winsize
+	active               *interactiveProcess
+	command              string
+	result               *interactiveResult
 }
 
-func (t *terminalSession) notify() {
-	close(t.changed)
-	t.changed = make(chan struct{})
+type interactiveProcess struct {
+	cmd         *exec.Cmd
+	master      *os.File
+	cwd         *os.File
+	interrupted bool
+	assistant   bool
+	finished    chan struct{}
+}
+
+func startTerminal(dir string) (*terminalSession, error) {
+	// A short, owner-only directory also fits the macOS Unix socket path limit.
+	agentDir, err := os.MkdirTemp("/tmp", "pouple-ssh-")
+	if err != nil {
+		return nil, err
+	}
+	t := &terminalSession{dir: dir, branch: terminalBranch(dir), id: rand.Text(), revision: 1, size: pty.Winsize{Rows: 24, Cols: 80}, agentDir: agentDir, socket: filepath.Join(agentDir, "agent")}
+	// The helper terminates the agent when the core closes the pipe, including if the core crashes.
+	agent := exec.Command("/usr/bin/ssh-agent", "-a", t.socket, "/bin/sh", "-c",
+		`trap 'kill "$SSH_AGENT_PID" 2>/dev/null' EXIT; /bin/cat >/dev/null`)
+	agent.Env = []string{"PATH=/usr/bin:/bin"}
+	t.agentInput, err = agent.StdinPipe()
+	if err != nil {
+		t.close()
+		return nil, err
+	}
+	if err := agent.Start(); err != nil {
+		t.close()
+		return nil, err
+	}
+	go func() { _ = agent.Wait() }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, err := net.DialTimeout("unix", t.socket, 50*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.close()
+			return nil, err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return t, nil
+}
+
+func (t *terminalSession) startProcess(command string) (*interactiveProcess, error) {
+	cwd, err := os.CreateTemp(t.agentDir, "cwd-")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(cwd.Name()); err != nil {
+		_ = cwd.Close()
+		return nil, err
+	}
+	// Record the shell's final working directory on a separate descriptor. The transcript
+	// and command status remain independent of this metadata.
+	cmd := exec.Command("/bin/sh", "-c", "trap 'command pwd -P >&3' EXIT\n"+command)
+	cmd.ExtraFiles = []*os.File{cwd}
+	cmd.Dir = t.dir
+	cmd.Env = []string{"TERM=xterm-256color", "SSH_AUTH_SOCK=" + t.socket, "HISTFILE=/dev/null"}
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case "HOME", "PATH", "USER", "LOGNAME", "LANG", "TMPDIR":
+			cmd.Env = append(cmd.Env, entry)
+		default:
+			if strings.HasPrefix(name, "LC_") {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
+	}
+	master, err := pty.StartWithSize(cmd, &t.size)
+	if err != nil {
+		_ = cwd.Close()
+		return nil, err
+	}
+	// Rewrap the master as a nonblocking descriptor so reads can be cancelled and writes can have deadlines.
+	var masterFile *os.File
+	fd, err := unix.FcntlInt(master.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err == nil {
+		err = unix.SetNonblock(fd, true)
+		if err == nil {
+			masterFile = os.NewFile(uintptr(fd), "terminal")
+		} else {
+			_ = unix.Close(fd)
+		}
+	}
+	_ = master.Close()
+	if err != nil {
+		_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
+		_ = cmd.Wait()
+		_ = cwd.Close()
+		return nil, err
+	}
+	return &interactiveProcess{cmd: cmd, master: masterFile, cwd: cwd, finished: make(chan struct{})}, nil
+}
+
+func (p *interactiveProcess) signal(signal unix.Signal) {
+	select {
+	case <-p.finished:
+		return
+	default:
+	}
+	// Commands have their own session. Signal both the foreground job and the session leader's group.
+	control, err := p.master.SyscallConn()
+	if err == nil {
+		_ = control.Control(func(fd uintptr) {
+			if group, err := unix.IoctlGetInt(int(fd), unix.TIOCGPGRP); err == nil && group > 0 && group != p.cmd.Process.Pid {
+				_ = unix.Kill(-group, signal)
+			}
+		})
+	}
+	_ = unix.Kill(-p.cmd.Process.Pid, signal)
+}
+
+func (t *terminalSession) close() {
+	if t.active != nil {
+		t.active.interrupted = true
+		t.active.signal(unix.SIGKILL)
+		_ = t.active.master.Close()
+	}
+	if t.agentInput != nil {
+		_ = t.agentInput.Close()
+	}
+	_ = os.RemoveAll(t.agentDir)
 }
 
 func (s *Service) terminalDir(request Stored) string {
@@ -106,192 +237,131 @@ func (s *Service) terminalDir(request Stored) string {
 	return s.workDir()
 }
 
-func startTerminal(dir string) (*terminalSession, error) {
-	// A short, owner-only directory also fits the macOS Unix socket path limit.
-	agentDir, err := os.MkdirTemp("/tmp", "pouple-ssh-")
-	if err != nil {
-		return nil, err
-	}
-	t := &terminalSession{id: rand.Text(), revision: 1, changed: make(chan struct{}), agentDir: agentDir, socket: filepath.Join(agentDir, "agent")}
-	// The helper terminates the agent when the core closes the pipe, including if the core crashes.
-	agent := exec.Command("/usr/bin/ssh-agent", "-a", t.socket, "/bin/sh", "-c",
-		`trap 'kill "$SSH_AGENT_PID" 2>/dev/null' EXIT; /bin/cat >/dev/null`)
-	agent.Env = []string{"PATH=/usr/bin:/bin"}
-	t.agentInput, err = agent.StdinPipe()
-	if err != nil {
-		t.close()
-		return nil, err
-	}
-	if err := agent.Start(); err != nil {
-		t.close()
-		return nil, err
-	}
-	go func() { _ = agent.Wait() }()
-	deadline := time.Now().Add(time.Second)
-	for {
-		conn, err := net.DialTimeout("unix", t.socket, 50*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		if time.Now().After(deadline) {
-			t.close()
-			return nil, err
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	shell := "/bin/zsh"
-	args := []string{"-f", "-i"}
-	if _, err := os.Stat(shell); err != nil {
-		shell, args = "/bin/bash", []string{"--noprofile", "--norc", "-i"}
-	}
-	t.shell = exec.Command(shell, args...)
-	t.shell.Dir = dir
-	t.shell.Env = []string{"TERM=xterm-256color", "SSH_AUTH_SOCK=" + t.socket, "HISTFILE=/dev/null", "SHELL=" + shell}
-	for _, entry := range os.Environ() {
-		name, _, _ := strings.Cut(entry, "=")
-		switch name {
-		case "HOME", "PATH", "USER", "LOGNAME", "LANG", "TMPDIR":
-			t.shell.Env = append(t.shell.Env, entry)
-		default:
-			if strings.HasPrefix(name, "LC_") {
-				t.shell.Env = append(t.shell.Env, entry)
-			}
-		}
-	}
-
-	master, err := pty.StartWithSize(t.shell, &pty.Winsize{Rows: 24, Cols: 80})
-	if err != nil {
-		t.close()
-		return nil, err
-	}
-	// Rewrap the master as a nonblocking descriptor so reads can be cancelled and writes can have deadlines.
-	fd, err := unix.FcntlInt(master.Fd(), unix.F_DUPFD_CLOEXEC, 0)
-	if err == nil {
-		err = unix.SetNonblock(fd, true)
-		if err == nil {
-			t.master = os.NewFile(uintptr(fd), "terminal")
-		} else {
-			_ = unix.Close(fd)
-		}
-	}
-	_ = master.Close()
-	if err != nil {
-		t.close()
-		_ = t.shell.Wait()
-		return nil, err
-	}
-	return t, nil
+func terminalBranch(dir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "--quiet", "--short", "HEAD")
+	cmd.Dir = dir
+	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out))
 }
 
-func (t *terminalSession) foreground() (int, error) {
-	control, err := t.master.SyscallConn()
-	if err != nil {
-		return 0, err
+func resolveTerminalDir(base, path string) (string, error) {
+	if path == "" {
+		path = base
 	}
-	var pid int
-	var ioctlErr error
-	err = control.Control(func(fd uintptr) { pid, ioctlErr = unix.IoctlGetInt(int(fd), unix.TIOCGPGRP) })
-	return pid, errors.Join(err, ioctlErr)
-}
-
-func (t *terminalSession) close() {
-	if t.master != nil {
-		if pid, err := t.foreground(); err == nil && pid > 0 {
-			_ = unix.Kill(-pid, unix.SIGHUP)
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
 		}
-		_ = t.master.Close()
+		path = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
 	}
-	if t.shell != nil && t.shell.Process != nil && !t.exited {
-		_ = t.shell.Process.Kill()
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
 	}
-	if t.agentInput != nil {
-		_ = t.agentInput.Close()
+	path = filepath.Clean(path)
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return "", ErrInput
 	}
-	_ = os.RemoveAll(t.agentDir)
-	t.notify()
+	return path, nil
 }
 
-func (s *Service) OpenTerminal(id string) (TerminalView, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Service) OpenTerminal(id, path string) (TerminalView, error) {
 	request, err := s.require(id)
 	if err != nil {
 		return TerminalView{}, err
 	}
+	dir, err := resolveTerminalDir(s.terminalDir(request), path)
+	if err != nil {
+		return TerminalView{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.closing {
 		return TerminalView{}, ErrState
 	}
-	t := s.terminals[id]
-	if t == nil {
-		t, err = startTerminal(s.terminalDir(request))
-		if err != nil {
-			return TerminalView{}, err
-		}
-		if s.terminals == nil {
-			s.terminals = make(map[string]*terminalSession)
-		}
-		t.user = s.terminalRuns[id] == 0
-		s.terminals[id] = t
-		go s.readTerminal(t)
+	t, err := startTerminal(dir)
+	if err != nil {
+		return TerminalView{}, err
 	}
-	return s.terminalView(id, t, 0, 0), nil
+	if s.terminals == nil {
+		s.terminals = make(map[string][]*terminalSession)
+	}
+	s.terminals[id] = append(s.terminals[id], t)
+	return t.view(0, 0), nil
 }
 
-func (s *Service) readTerminal(t *terminalSession) {
-	buffer := make([]byte, 32<<10)
-	for {
-		n, err := t.master.Read(buffer)
-		if n != 0 {
-			s.mu.Lock()
-			t.output.append(buffer[:n])
-			s.mu.Unlock()
-		}
-		if err != nil {
-			break
-		}
+func (s *Service) ListTerminals(id string) ([]TerminalView, error) {
+	if _, err := s.require(id); err != nil {
+		return nil, err
 	}
-	_ = t.shell.Wait()
 	s.mu.Lock()
-	t.exited = true
-	t.notify()
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	views := make([]TerminalView, 0, len(s.terminals[id]))
+	for _, t := range s.terminals[id] {
+		views = append(views, t.view(t.output.end, t.commands.end))
+	}
+	return views, nil
 }
 
-func (s *Service) terminalView(id string, t *terminalSession, offset, commandOffset uint64) TerminalView {
+func (s *Service) terminalLocked(id, session string) *terminalSession {
+	for _, t := range s.terminals[id] {
+		if t.id == session {
+			return t
+		}
+	}
+	return nil
+}
+
+func (t *terminalSession) view(offset, commandOffset uint64) TerminalView {
 	return TerminalView{
-		ID: t.id, User: t.user, Busy: s.terminalRuns[id] != 0, Waiting: s.terminalWaiting[id] != 0,
-		ShellExited: t.exited, Revision: t.revision, Output: t.output.since(offset), Offset: t.output.end,
+		ID: t.id, Dir: t.dir, Branch: t.branch, Command: t.command, Running: t.active != nil, Interactive: t.active != nil && t.active.assistant, Result: t.result,
+		Revision: t.revision, Output: t.output.since(offset), Offset: t.output.end,
 		Commands: string(t.commands.since(commandOffset)), CommandOffset: t.commands.end,
 	}
 }
 
-// Terminal uses a session ID and an input revision so stale browser events cannot write after a handoff.
 func (s *Service) Terminal(id, session, action string, revision, offset, commandOffset uint64, data string, rows, cols uint16) (TerminalView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t := s.terminals[id]
-	if t == nil || t.id != session {
+	t := s.terminalLocked(id, session)
+	if t == nil {
 		return TerminalView{}, ErrNotFound
 	}
 	switch action {
 	case "read":
 	case "close":
-		s.closeTerminal(id)
+		t.close()
+		s.terminals[id] = slices.DeleteFunc(s.terminals[id], func(candidate *terminalSession) bool { return candidate == t })
+		if len(s.terminals[id]) == 0 {
+			delete(s.terminals, id)
+		}
 		return TerminalView{}, nil
-	case "stop":
-		cancel := s.running[id]
-		if cancel == nil || (s.terminalRuns[id] == 0 && s.terminalWaiting[id] == 0) {
+	case "run", "cd":
+		if revision != t.revision || t.active != nil || s.closing {
 			return TerminalView{}, ErrState
 		}
-		cancel()
+		if action == "cd" {
+			if err := t.changeDir(data); err != nil {
+				return TerminalView{}, err
+			}
+		} else {
+			if strings.TrimSpace(data) == "" || strings.ContainsRune(data, 0) {
+				return TerminalView{}, ErrInput
+			}
+			if p := t.start(data); p != nil {
+				go s.finishInteractive(context.Background(), t, p)
+			}
+		}
 	case "resize":
 		if rows == 0 || cols == 0 || rows > 1000 || cols > 1000 {
 			return TerminalView{}, ErrInput
 		}
-		if !t.exited {
-			control, err := t.master.SyscallConn()
+		t.size = pty.Winsize{Rows: rows, Cols: cols}
+		if t.active != nil {
+			control, err := t.active.master.SyscallConn()
 			if err != nil {
 				return TerminalView{}, err
 			}
@@ -303,111 +373,228 @@ func (s *Service) Terminal(id, session, action string, revision, offset, command
 				return TerminalView{}, err
 			}
 		}
-	case "take":
-		if revision != t.revision || s.terminalRuns[id] != 0 || t.exited {
-			return TerminalView{}, ErrState
-		}
-		t.user = true
-		t.revision++
-	case "release":
-		if revision != t.revision || !t.user {
-			return TerminalView{}, ErrState
-		}
-		if !t.exited {
-			pid, err := t.foreground()
-			if err != nil || pid != t.shell.Process.Pid {
-				return TerminalView{}, i18n.Wrap(ErrState, "wait for the terminal command to finish or interrupt it")
-			}
-		}
-		t.user = false
-		t.revision++
-		t.notify()
 	case "input", "interrupt":
-		if revision != t.revision || !t.user || t.exited {
+		p := t.active
+		if revision != t.revision || p == nil {
 			return TerminalView{}, ErrState
 		}
 		if action == "interrupt" {
-			data = "\x03"
+			p.interrupted = true
+			p.signal(unix.SIGINT)
+			// Raw-mode programs can ignore SIGINT. Escalate only while this command is still active.
+			time.AfterFunc(time.Second, func() {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if t.active == p {
+					p.signal(unix.SIGKILL)
+				}
+			})
+			break
 		}
-		if err := t.master.SetWriteDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
+		if err := p.master.SetWriteDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
 			return TerminalView{}, err
 		}
-		if _, err := io.WriteString(t.master, data); err != nil {
+		if _, err := io.WriteString(p.master, data); err != nil {
 			return TerminalView{}, err
 		}
 	default:
 		return TerminalView{}, ErrInput
 	}
-	return s.terminalView(id, t, offset, commandOffset), nil
+	return t.view(offset, commandOffset), nil
 }
 
 // closeTerminal is called with s.mu held.
 func (s *Service) closeTerminal(id string) {
-	if t := s.terminals[id]; t != nil {
-		delete(s.terminals, id)
+	for _, t := range s.terminals[id] {
 		t.close()
 	}
+	delete(s.terminals, id)
+}
+
+func (t *terminalSession) changeDir(path string) error {
+	if path == "" {
+		path = "~"
+	}
+	dir, err := resolveTerminalDir(t.dir, path)
+	if err != nil {
+		return err
+	}
+	t.commands.append([]byte("$ cd " + path + "\n"))
+	t.dir, t.branch = dir, terminalBranch(dir)
+	t.command, t.result = "", nil
+	t.revision++
+	return nil
+}
+
+func (t *terminalSession) start(command string) *interactiveProcess {
+	t.command, t.result = command, nil
+	t.commands.append([]byte("$ " + command + "\n"))
+	t.output.append([]byte("\r\n\x1b[36m" + printableTerminalText(t.dir) + "\x1b[0m" + "\r\n$ " + printableTerminalText(command) + "\r\n"))
+	t.revision++
+	p, err := t.startProcess(command)
+	if err != nil {
+		t.result = &interactiveResult{Status: "start_failed"}
+		return nil
+	}
+	t.active = p
+	return p
+}
+
+func printableTerminalText(text string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, text)
+}
+
+func (s *Service) runInteractive(ctx context.Context, id, session, action, command string) interactiveResult {
+	s.mu.Lock()
+	if ctx.Err() != nil {
+		s.mu.Unlock()
+		return interactiveResult{Status: "cancelled"}
+	}
+	t := s.terminalLocked(id, session)
+	if t == nil || t.active != nil || s.closing {
+		s.mu.Unlock()
+		return interactiveResult{Status: "unavailable"}
+	}
+	if action == "cd" {
+		defer s.mu.Unlock()
+		if err := t.changeDir(command); err != nil {
+			return interactiveResult{Status: "unavailable"}
+		}
+		return interactiveResult{Status: "success"}
+	}
+	p := t.start(command)
+	if p != nil {
+		p.assistant = true
+	}
+	s.mu.Unlock()
+	if p == nil {
+		return interactiveResult{Status: "start_failed"}
+	}
+	return s.finishInteractive(ctx, t, p)
+}
+
+func (s *Service) finishInteractive(ctx context.Context, t *terminalSession, p *interactiveProcess) interactiveResult {
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		buffer := make([]byte, 32<<10)
+		for {
+			n, err := p.master.Read(buffer)
+			if n > 0 {
+				s.mu.Lock()
+				t.output.append(buffer[:n])
+				s.mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		_ = p.cmd.Wait()
+		close(p.finished)
+	}()
+	select {
+	case <-ctx.Done():
+		s.mu.Lock()
+		p.signal(unix.SIGKILL)
+		s.mu.Unlock()
+		<-p.finished
+	case <-p.finished:
+	}
+	if err := p.master.SetReadDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
+		_ = p.master.Close()
+	}
+	<-drained
+	dir := t.dir
+	path, _ := io.ReadAll(io.NewSectionReader(p.cwd, 0, 4096))
+	_ = p.cwd.Close()
+	if path, ok := strings.CutSuffix(string(path), "\n"); ok && filepath.IsAbs(path) {
+		if current, err := resolveTerminalDir(dir, path); err == nil {
+			dir = current
+		}
+	}
+	branch := terminalBranch(dir)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = p.master.Close()
+	result := interactiveResult{Status: "success"}
+	switch status := p.cmd.ProcessState.Sys().(syscall.WaitStatus); {
+	case ctx.Err() != nil:
+		result.Status = "cancelled"
+	case p.interrupted || status.Signal() == syscall.SIGINT:
+		result.Status = "interrupted"
+	case status.Signaled():
+		result.Status, result.Signal = "signaled", unix.SignalName(status.Signal())
+	case status.ExitStatus() != 0:
+		code := status.ExitStatus()
+		result.Status, result.ExitCode = "exit_error", &code
+	}
+	t.active, t.result, t.dir, t.branch = nil, &result, dir, branch
+	return result
+}
+
+func (r interactiveResult) String() string {
+	data, _ := json.Marshal(r)
+	return string(data)
+}
+
+func terminalLookupResult(session string, result interactiveResult) string {
+	data, _ := json.Marshal(struct {
+		Session string `json:"session"`
+		interactiveResult
+	}{session, result})
+	return string(data)
+}
+
+func (s *Service) terminalPrompt(id string) string {
+	views, _ := s.ListTerminals(id)
+	type sessionInfo struct {
+		ID      string `json:"id"`
+		Dir     string `json:"dir"`
+		Running bool   `json:"running"`
+	}
+	sessions := make([]sessionInfo, 0, len(views))
+	for _, view := range views {
+		sessions = append(sessions, sessionInfo{view.ID, view.Dir, view.Running})
+	}
+	data, _ := json.Marshal(sessions)
+	return string(data)
 }
 
 type terminalAccess struct {
-	socket  string
-	report  func(string)
-	release func()
+	socket string
+	report func(string)
 }
 
 type terminalAccessKey struct{}
 
-func (s *Service) acquireTerminal(ctx context.Context, id string, shareAgent bool) (terminalAccess, error) {
+func (s *Service) acquireTerminal(ctx context.Context, id, session string, shareAgent bool) (terminalAccess, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for {
-		if ctx.Err() != nil {
-			return terminalAccess{}, ErrCancelled
-		}
-		t := s.terminals[id]
-		if t == nil || !t.user {
-			if s.terminalRuns == nil {
-				s.terminalRuns = make(map[string]int)
-			}
-			s.terminalRuns[id]++
-			// Only an already authorized turn receives the socket. The provider still gets its original sandbox.
-			var access terminalAccess
-			if t != nil && shareAgent {
-				access.socket = t.socket
-			}
-			access.report = func(text string) {
-				s.mu.Lock()
-				defer s.mu.Unlock()
-				if active := s.terminals[id]; active != nil {
-					active.commands.append([]byte(text))
-				}
-			}
-			access.release = func() {
-				s.mu.Lock()
-				s.terminalRuns[id]--
-				if s.terminalRuns[id] == 0 {
-					delete(s.terminalRuns, id)
-				}
-				s.mu.Unlock()
-			}
-			return access, nil
-		}
-		if s.terminalWaiting == nil {
-			s.terminalWaiting = make(map[string]int)
-		}
-		s.terminalWaiting[id]++
-		changed := t.changed
-		s.mu.Unlock()
-		select {
-		case <-changed:
-		case <-ctx.Done():
-		}
-		s.mu.Lock()
-		s.terminalWaiting[id]--
-		if s.terminalWaiting[id] == 0 {
-			delete(s.terminalWaiting, id)
-		}
+	if ctx.Err() != nil {
+		return terminalAccess{}, ErrCancelled
 	}
+	t := s.terminalLocked(id, session)
+	if session == "" && len(s.terminals[id]) > 0 {
+		t = s.terminals[id][0]
+	}
+	var socket string
+	if t != nil && shareAgent {
+		socket = t.socket
+	}
+	return terminalAccess{socket: socket, report: func(text string) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if t != nil && s.terminalLocked(id, t.id) == t {
+			t.commands.append([]byte(text))
+		}
+	}}, nil
 }
 
 // Restore the chosen socket after login startup without evaluating anything from the PTY.

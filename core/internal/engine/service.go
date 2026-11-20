@@ -74,6 +74,7 @@ type PollResult struct {
 
 // Deps is everything the service needs from the outside.
 type Deps struct {
+	InteractiveTerminal bool
 	// CheckGitPush checks the current access settings immediately before an upload.
 	CheckGitPush func([]string) error
 	// OpenMergeRequest is a typed write, called only by an approved plan.
@@ -199,15 +200,14 @@ type Service struct {
 	threadScheduled map[string]bool
 	lastPollAt      *string
 	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
-	pausedUntil                   map[providers.ID]time.Time
-	loginProblem                  map[providers.ID]bool
-	fileNotice                    string
-	running                       map[string]context.CancelFunc
-	stops                         map[string]int
-	subscribers                   map[chan struct{}]struct{}
-	closing                       bool
-	terminals                     map[string]*terminalSession
-	terminalRuns, terminalWaiting map[string]int
+	pausedUntil  map[providers.ID]time.Time
+	loginProblem map[providers.ID]bool
+	fileNotice   string
+	running      map[string]context.CancelFunc
+	stops        map[string]int
+	subscribers  map[chan struct{}]struct{}
+	closing      bool
+	terminals    map[string][]*terminalSession
 	// organizing says a look at all the topics is queued or running; organizeTried is when one was last started.
 	organizing    bool
 	organizeTried time.Time
@@ -610,7 +610,7 @@ func (s *Service) receiveNew(in Incoming) {
 	}
 	start := func() {
 		if current, ok := s.deps.Store.Get(request.ID); ok && current.Status == StatusQueued {
-			s.enqueue(request.ID, priority, func(ctx context.Context) error { return s.analyze(ctx, request.ID) })
+			s.enqueueSince(request.ID, priority, 0, func(ctx context.Context) error { return s.analyze(ctx, request.ID) })
 		}
 	}
 	if delay > 0 {
@@ -666,9 +666,14 @@ func (s *Service) enqueue(id string, priority Priority, job func(ctx context.Con
 	s.mu.Lock()
 	seen := s.stops[id]
 	s.mu.Unlock()
+	s.enqueueSince(id, priority, seen, job)
+}
+
+func (s *Service) enqueueSince(id string, priority Priority, seen int, job func(ctx context.Context) error) {
 	s.queue.Add(priority, func() {
 		s.mu.Lock()
-		if s.stops[id] != seen || s.closing {
+		request, _ := s.deps.Store.Get(id)
+		if s.stops[id] != seen || s.closing || request.StopCheckpoint != "" {
 			s.mu.Unlock()
 			return // stopped while it waited: it never starts
 		}
@@ -681,7 +686,18 @@ func (s *Service) enqueue(id string, priority Priority, job func(ctx context.Con
 			delete(s.running, id)
 			s.mu.Unlock()
 		}()
-		if err := job(ctx); err != nil {
+		err := job(ctx)
+		if ctx.Err() != nil {
+			s.mu.Lock()
+			stopped := s.stops[id] != seen
+			s.mu.Unlock()
+			if stopped {
+				s.settleStopped(id, false)
+				return
+			}
+			err = ErrCancelled
+		}
+		if err != nil {
 			s.fail(id, err)
 		}
 	})
@@ -698,16 +714,16 @@ func (s *Service) Stop(id string) error {
 	}
 	s.mu.Lock()
 	s.stops[id]++
+	delete(s.threadPending, id)
+	delete(s.threadScheduled, id)
 	cancel := s.running[id]
-	s.mu.Unlock()
 	if cancel != nil {
-		cancel() // the AI process ends; its turn then fails with ErrCancelled, which settles the request
-		return nil
+		cancel()
 	}
-	s.update(id, func(r *Stored) {
-		r.Status = StatusIgnored
-		r.Entries = append(r.Entries, s.entry("system", "text", s.text("Stopped before it started.")))
-	})
+	s.mu.Unlock()
+	if cancel == nil {
+		s.settleStopped(id, true)
+	}
 	return nil
 }
 
@@ -736,7 +752,7 @@ func (s *Service) fail(id string, cause error) {
 		closing := s.closing
 		s.mu.Unlock()
 		if !closing {
-			s.settleStopped(id)
+			s.settleStopped(id, false)
 		}
 		return
 	}
@@ -797,20 +813,43 @@ func (s *Service) fail(id string, cause error) {
 
 // settleStopped leaves a stopped request open: it can be asked again or continued. A stopped write may have left
 // files half changed.
-func (s *Service) settleStopped(id string) {
+func (s *Service) settleStopped(id string, queued bool) {
 	request, ok := s.deps.Store.Get(id)
 	if !ok {
 		return
 	}
-	text := "Stopped."
-	if request.Status == StatusApplying {
+	status, text := StatusReady, "Stopped."
+	if queued {
+		status, text = StatusIgnored, "Stopped before it started."
+	} else if request.Status == StatusApplying {
 		text = "Stopped. Some files may be half changed: check the project with git status."
 	}
-	// The user stopped it themselves: there is nothing new to show them in a bubble.
 	s.quietUpdate(id, func(r *Stored) {
-		r.Status, r.Error, r.Questions, r.Proposal = StatusReady, nil, []Question{}, nil
+		var last string
+		for i := len(r.Entries) - 1; i >= 0; i-- {
+			if r.Entries[i].Kind == "step" {
+				last = r.Entries[i].Text
+				break
+			}
+		}
+		checkpoint := s.text("Investigation stopped by the user.")
+		if last != "" {
+			checkpoint += "\n" + s.text("Last recorded action: %s", last)
+		}
+		if r.TerminalProgress != "" && r.TerminalProgress != last {
+			checkpoint += "\n" + r.TerminalProgress
+		}
+		summary := r.InvestigationProgress
+		if summary == "" && r.Summary != nil {
+			summary = *r.Summary
+		}
+		if summary != "" && summary != last {
+			checkpoint += "\n" + s.text("Available summary: %s", summary)
+		}
+		r.Status, r.Error, r.Questions, r.Proposal = status, nil, []Question{}, nil
 		r.Closed = true
-		r.Entries = append(r.Entries, s.entry("system", "text", s.text(text)))
+		r.StopCheckpoint = checkpoint
+		r.Entries = append(r.Entries, s.entry("system", "text", text))
 	})
 }
 
@@ -897,11 +936,10 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	access, ok := ctx.Value(terminalAccessKey{}).(terminalAccess)
 	if !ok {
 		var err error
-		access, err = s.acquireTerminal(ctx, id, turn.Sandbox == FullAccess)
+		access, err = s.acquireTerminal(ctx, id, turn.terminalSessionID, turn.Sandbox == FullAccess)
 		if err != nil {
 			return TurnResult{}, selection.Provider, err
 		}
-		defer access.release()
 	}
 	if turn.Sandbox == FullAccess {
 		turn.sshAgent = access.socket
@@ -938,7 +976,9 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = event.ThreadID, provider })
 	case event.Type == "step":
 		text := s.deps.Redact()(event.Text)
-		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, s.entry("assistant", "step", text)) })
+		entry := s.entry("assistant", "step", text)
+		entry.ExitCode = event.ExitCode
+		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, entry) })
 	}
 }
 
