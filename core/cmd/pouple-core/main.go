@@ -30,6 +30,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/claude"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/github"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
@@ -103,6 +104,7 @@ func run() error {
 		codex.New(filepath.Join(dir, "codex")),
 		// Optional: the assistant reads them as data when they are connected.
 		gitlab.New(),
+		github.New(),
 		asana.New(),
 		slite.New(),
 		claude.New(filepath.Join(dir, "claude")),

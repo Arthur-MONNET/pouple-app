@@ -75,7 +75,7 @@ Required: **1. Slack**, and **one AI of the two alternatives 2. Codex, 3. Claude
 `Required` (needed on its own) or a `Choice` group (one connected connector of the group is enough): the two AIs
 share the group `"ai"` and are `Required: false` individually. `connector.SetupComplete` is the single rule used by
 `GET /api/state` (`setupComplete`) and by the engine (`Inactive`): Slack connected **and** (Codex **or** Claude
-connected). Optional, added later from the app: **GitLab** (order 10), **Asana** (11) and **Slite** (12); they never change whether setup is complete.
+connected). Optional, added later from the app: **GitLab** (order 10), **GitHub** (11), **Asana** (11) and **Slite** (12); they never change whether setup is complete.
 
 ### Slack
 
@@ -97,7 +97,7 @@ Slack asks for a *user* token (the assistant must read what you can read). Poupl
 3. Profile card from the login: e-mail and plan decoded from the ID token (no network call, nothing sent anywhere),
    plus the CLI version.
 
-### Optional connectors: GitLab, Asana, Slite
+### Optional connectors: GitLab, GitHub, Asana, Slite
 
 Read-only, token-based, ported from Cockpit's clients. Each has a guide with a link to the page where the token is
 created, and a `Validate` that calls the service and shows the account (name, avatar, host or workspace, e-mail,
@@ -106,6 +106,7 @@ number of open items, warnings such as a token that can write or ends soon).
 | Connector | Fields | Token page | Reads |
 |---|---|---|---|
 | `gitlab` | `url` (default `https://gitlab.com`), `token` (secret, `glpat-`, scope `read_api`) | `<url>/-/user_settings/personal_access_tokens` | the user's open merge requests (pipeline status) and review requests |
+| `github` | `token` (secret, `github_pat_` or `ghp_`), `url` (optional, default `https://api.github.com`; GitHub Enterprise: `https://host/api/v3`) | `https://github.com/settings/personal-access-tokens/new` | the user's open pull requests and review requests, only for a message about GitHub; a linked pull request in full |
 | `asana` | `token` (secret, personal access token) | `https://app.asana.com/0/my-apps` | open tasks assigned to the user, and tasks matching the message |
 | `slite` | `token` (secret, API key) | Slite organization menu, Settings, API | notes matching the message (title, short excerpt) |
 
@@ -114,7 +115,21 @@ or a log; 10 s timeout and a 2 MiB cap per answer; a redirect to another host is
 only, never the service's text. The GitLab address is typed by the user, so it must be `https`, without credentials,
 path, query or fragment, and it may not be this Mac (loopback), a link-local address (169.254.0.0/16, cloud metadata)
 or an unspecified address. Private network hosts are allowed (a company GitLab). The same rule is enforced again at
-connection time on the resolved address, which also stops a name that points at a forbidden address.
+connection time on the resolved address, which also stops a name that points at a forbidden address. The GitHub
+address follows the same rule; its only accepted path is `/api/v3` (GitHub Enterprise Server), and a `github.com` web
+address is turned into `https://api.github.com`.
+
+GitHub (`core/internal/connectors/github`) is read-only: `Validate` calls `GET /user` (profile, host, token expiry) and
+counts the open pull requests and review requests with the search API. A classic token's `X-OAuth-Scopes` gives a
+warning (`repo` can write, `public_repo` misses private repositories); a fine-grained token has no such header, so the
+profile lists the read-only permissions Pouple needs (Pull requests, Checks, Commit statuses, Contents, Metadata); an
+`X-GitHub-SSO` header asks the user to authorize the token for SAML SSO. Pull request links are accepted only on the
+configured GitHub's web host. `core/internal/githubwatch` is the event source "GitHub pull requests" (origin
+`pull-request`, like `mrwatch` for GitLab): a review requested from the user, comments and reviews of other people on
+the user's open pull requests (bots and the user's own excluded), and checks that failed on their head commit. Each
+poll makes at most two searches (`is:pr is:open author:@me`, `review-requested:@me`), reads at most 10 pull requests,
+runs at most once every 45 s, and skips a pull request whose checks are done until it changes. The first look only
+records the place; `Seen` keys report each event once.
 
 Values are read from the registry (keychain for secrets) at each use: connecting, replacing or removing a token
 applies to the next request, with no restart.
@@ -248,7 +263,9 @@ Ported from Cockpit (same behavior, the Cockpit-only parts left out):
 - Connected services: for each analysis, `core/internal/servicectx` asks the connected optional services for
   relevant data, in parallel, within a hard 3 s budget (a service that is slow, down or refused becomes one line
   saying so, never a failed turn). Asana: open tasks assigned to the user (soonest due first) and tasks matching the
-  message; GitLab: open merge requests and review requests; Slite: notes matching the message. Search words are
+  message; GitLab: open merge requests and review requests; GitHub, only when the message names GitHub or points
+  at a pull request (`github.com/…/pull/n` or `owner/repo#n`): open pull requests, review requests and the linked
+  pull requests in full (details, comments, reviews, files with patches); Slite: notes matching the message. Search words are
   ported from Cockpit (`SearchTerms`). The result goes to Codex inside `<pouple-context>`, after the Slack message,
   as data: every third-party string is reduced to one quoted, truncated line, then neutralized like Slack text
   (`neutralize`, `block`), and the prompt says which service each section comes from and that none of it is an

@@ -122,10 +122,16 @@ Slack periodically to catch the messages missed while disconnected.
 
 ### More connectors
 
-GitLab, Asana and Slite are optional and can be added from the Connectors page at any time. Once connected,
+GitLab, GitHub, Asana and Slite are optional and can be added from the Connectors page at any time. Once connected,
 the assistant is given your open tasks and merge requests and the notes that match each Slack message, as data it can
 read but never obey. Their tokens live in the Keychain like the Slack token. GitLab can also turn the end of your
-pipelines into conversations. To publish pages in Slite, ask Pouple to create them and approve the title, Markdown and
+pipelines into conversations.
+
+GitHub only reads. Create a fine-grained token at <https://github.com/settings/personal-access-tokens/new> with
+read-only access to Pull requests, Checks, Commit statuses, Contents and Metadata (keep the API address at
+`https://api.github.com`, or give `https://host/api/v3` for GitHub Enterprise). Your pull requests and review requests
+are read when a message mentions GitHub or links a pull request, and a linked pull request is read in full. A review
+requested from you, new comments of other people on your pull requests and failed checks become conversations. To publish pages in Slite, ask Pouple to create them and approve the title, Markdown and
 parent shown for each page. Slite applies the connected account’s access rights.
 
 ## Local API
