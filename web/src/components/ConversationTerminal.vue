@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -8,7 +8,7 @@ import InlineError from './InlineError.vue';
 import { ApiError, errorMessage } from '../api/client';
 import { terminalRequest, type TerminalState } from '../api/terminal';
 
-const props = defineProps<{ requestId: string }>();
+const props = defineProps<{ requestId: string; availableHeight: number }>();
 const emit = defineEmits<{ interactive: [active: boolean] }>();
 const sessions = ref<TerminalState[]>([]);
 watch(() => sessions.value.some((session) => session.interactive), (active) => emit('interactive', active));
@@ -23,6 +23,16 @@ const commands = ref('');
 const drafts = ref<Record<string, string>>({});
 const showCommands = ref(false);
 const visible = computed(() => sessions.value.length > 0);
+const panel = ref<HTMLElement>();
+const viewport = ref<HTMLElement>();
+const viewportId = useId();
+const preferredHeight = ref(192);
+const chromeHeight = ref(0);
+const maxHeight = computed(() => Math.max(0, props.availableHeight - chromeHeight.value));
+const minHeight = computed(() => Math.min(72, maxHeight.value));
+const viewportHeight = computed(() => clampHeight(preferredHeight.value));
+let chromeObserver: ResizeObserver | undefined;
+let drag: { pointer: number; y: number; height: number } | undefined;
 const lifetime = new AbortController();
 let terminal: Terminal | undefined;
 let observer: ResizeObserver | undefined;
@@ -32,6 +42,42 @@ let queue = Promise.resolve();
 const folder = (dir: string): string => dir.split('/').filter(Boolean).at(-1) ?? '/';
 const status = (session: TerminalState): string =>
   session.running ? 'terminal.running' : session.result ? `terminal.${session.result.status}` : 'terminal.idle';
+
+function clampHeight(height: number): number {
+  return Math.min(maxHeight.value, Math.max(minHeight.value, Math.round(height)));
+}
+
+function startResize(event: PointerEvent): void {
+  if (!event.isPrimary || event.button !== 0 || minHeight.value === maxHeight.value) return;
+  const handle = event.currentTarget as HTMLElement;
+  handle.focus();
+  handle.setPointerCapture(event.pointerId);
+  drag = { pointer: event.pointerId, y: event.clientY, height: viewportHeight.value };
+  event.preventDefault();
+}
+
+function moveResize(event: PointerEvent): void {
+  if (drag?.pointer === event.pointerId) {
+    preferredHeight.value = clampHeight(drag.height + drag.y - event.clientY);
+  }
+}
+
+function endResize(event: PointerEvent): void {
+  if (drag?.pointer === event.pointerId) drag = undefined;
+}
+
+function resizeWithKeyboard(event: KeyboardEvent): void {
+  let height: number;
+  switch (event.key) {
+    case 'ArrowUp': height = viewportHeight.value + 16; break;
+    case 'ArrowDown': height = viewportHeight.value - 16; break;
+    case 'Home': height = minHeight.value; break;
+    case 'End': height = maxHeight.value; break;
+    default: return;
+  }
+  event.preventDefault();
+  if (minHeight.value !== maxHeight.value) preferredHeight.value = clampHeight(height);
+}
 
 function receive(next: TerminalState): void {
   if (next.interactive && next.revision !== state.value?.revision) showCommands.value = false;
@@ -90,6 +136,7 @@ function send(action: string, extra: object = {}): Promise<void> {
 }
 
 function disposeTerminal(): void {
+  drag = undefined;
   observer?.disconnect();
   terminal?.dispose();
   terminal = undefined;
@@ -127,12 +174,15 @@ async function select(session: string): Promise<void> {
     }
   });
   terminal.onResize(({ rows, cols }) => void send('resize', { rows, cols }));
-  observer = new ResizeObserver(() => fit.fit());
+  const fitViewport = () => {
+    if (terminalHost.value?.clientHeight) fit.fit();
+  };
+  observer = new ResizeObserver(fitViewport);
   observer.observe(terminalHost.value);
   const next = await read(session);
   if (lifetime.signal.aborted) return;
   receive(next);
-  fit.fit();
+  fitViewport();
   void send('resize', { rows: terminal.rows, cols: terminal.cols });
 }
 
@@ -190,8 +240,20 @@ function submit(): void {
   });
 }
 
-onMounted(() => void poll());
+onMounted(() => {
+  const section = panel.value;
+  if (section) {
+    const measure = () => {
+      chromeHeight.value = section.offsetHeight - (viewport.value?.offsetHeight ?? 0);
+    };
+    measure();
+    chromeObserver = new ResizeObserver(measure);
+    chromeObserver.observe(section);
+  }
+  void poll();
+});
 onUnmounted(() => {
+  chromeObserver?.disconnect();
   lifetime.abort();
   clearTimeout(timer);
   disposeTerminal();
@@ -199,7 +261,28 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="shrink-0 border-t border-line-soft bg-surface px-3 py-1.5" :aria-label="$t('terminal.title')">
+  <section ref="panel" class="shrink-0 border-t border-line-soft bg-surface px-3 py-1.5" :aria-label="$t('terminal.title')">
+    <div
+      v-if="visible"
+      role="separator"
+      tabindex="0"
+      class="flex h-4 cursor-row-resize touch-none select-none items-center justify-center hover:bg-canvas focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+      :aria-label="$t('terminal.resize')"
+      aria-orientation="horizontal"
+      :aria-controls="viewportId"
+      :aria-valuemin="minHeight"
+      :aria-valuemax="maxHeight"
+      :aria-valuenow="viewportHeight"
+      :aria-disabled="minHeight === maxHeight"
+      @pointerdown="startResize"
+      @pointermove="moveResize"
+      @pointerup="endResize"
+      @pointercancel="endResize"
+      @lostpointercapture="endResize"
+      @keydown="resizeWithKeyboard"
+    >
+      <span class="h-1 w-10 rounded-full bg-ink-muted" />
+    </div>
     <div class="flex items-center gap-2">
       <div v-if="visible" class="flex min-w-0 gap-1 overflow-x-auto" role="group" :aria-label="$t('terminal.sessions')">
         <div
@@ -236,7 +319,7 @@ onUnmounted(() => {
         <AppButton v-if="state.running" variant="outline" size="sm" @click="send('interrupt')">{{ $t('terminal.interrupt') }}</AppButton>
         <AppButton variant="outline" size="sm" :aria-pressed="showCommands" @click="switchView">{{ $t(showCommands ? 'terminal.shell' : 'terminal.commands') }}</AppButton>
       </div>
-      <div class="relative h-40">
+      <div :id="viewportId" ref="viewport" class="relative" :style="{ height: `${viewportHeight}px` }">
         <div ref="terminalHost" class="h-full" :class="{ invisible: showCommands }" />
         <pre v-if="showCommands" ref="commandHost" class="absolute inset-0 overflow-auto whitespace-pre-wrap font-mono text-xs text-[#dedee3]">{{ commands || $t('terminal.noCommands') }}</pre>
       </div>
