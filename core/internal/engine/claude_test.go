@@ -476,7 +476,7 @@ func TestClaudeCommandResultsAndDenialsUseToolID(t *testing.T) {
 	}
 	if len(events) != 4 || events[0].CommandID != "a" || events[1].CommandID != "b" ||
 		events[0].Command.Status != "running" || events[1].Command.Status != "running" ||
-		events[2].CommandID != "b" || *events[2].Command != (CommandDetail{Status: "failed", Output: "failure"}) ||
+		events[2].CommandID != "b" || *events[2].Command != (CommandDetail{Status: "failed", Output: "failure", Unconfirmed: true}) ||
 		events[3].CommandID != "a" || *events[3].Command != (CommandDetail{Status: "rejected"}) {
 		t.Fatalf("unexpected command events: %+v", events)
 	}

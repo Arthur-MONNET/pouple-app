@@ -182,6 +182,8 @@ type Service struct {
 	reminderMu sync.Mutex
 	// memoryMu serializes the decisions on suggested facts.
 	memoryMu sync.Mutex
+	// terminalHistoryMu serializes terminal creation with assistant command journaling.
+	terminalHistoryMu sync.Mutex
 	// alertWake tells watchAlerts that the alerts changed, so it looks at the clock again.
 	alertWake chan struct{}
 
@@ -932,19 +934,6 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 		return TurnResult{}, selection.Provider, &providerFailure{selection.Provider, i18n.NewError("%s is not available", selection.Provider.Name())}
 	}
 	turn.Model = selection.Model
-	// CLI item IDs are scoped to a run. Persist only Pouple's stable entry IDs.
-	commandEntries := make(map[string]string)
-	pendingCommands := make(map[string]bool)
-	turn.OnEvent = func(event Event) {
-		if event.Command != nil && event.CommandID != "" {
-			if event.Command.Status == "running" {
-				pendingCommands[event.CommandID] = true
-			} else {
-				delete(pendingCommands, event.CommandID)
-			}
-		}
-		s.onEvent(id, selection.Provider, event, trackThread, commandEntries)
-	}
 	access, ok := ctx.Value(terminalAccessKey{}).(terminalAccess)
 	if !ok {
 		var err error
@@ -956,7 +945,19 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	if turn.Sandbox == FullAccess {
 		turn.sshAgent = access.socket
 	}
-	turn.onCommand = access.report
+	// CLI item IDs are scoped to a run. Persist only Pouple's stable entry IDs.
+	commandEntries := make(map[string]string)
+	pendingCommands := make(map[string]bool)
+	turn.OnEvent = func(event Event) {
+		if event.Command != nil && event.CommandID != "" {
+			if event.Command.Status == "running" {
+				pendingCommands[event.CommandID] = true
+			} else {
+				delete(pendingCommands, event.CommandID)
+			}
+		}
+		s.onEvent(id, selection.Provider, event, trackThread, commandEntries, access)
+	}
 	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
 	if len(pendingCommands) > 0 {
 		s.update(id, func(r *Stored) { settleCommands(r.Entries) })
@@ -985,7 +986,7 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	return result, selection.Provider, nil
 }
 
-func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool, commandEntries map[string]string) {
+func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool, commandEntries map[string]string, access terminalAccess) {
 	switch {
 	case event.Type == "thread" && trackThread:
 		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = event.ThreadID, provider })
@@ -1001,6 +1002,11 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 			// Redact the full command before shortening the checkpoint text.
 			entry.Text = shortLine(readableCommand(detail.Command))
 		}
+		if entry.Command != nil || entry.terminalCommand() != "" {
+			s.terminalHistoryMu.Lock()
+			defer s.terminalHistoryMu.Unlock()
+		}
+		var command string
 		s.update(id, func(r *Stored) {
 			if entry.Command != nil && event.CommandID != "" {
 				if existingID := commandEntries[event.CommandID]; existingID != "" {
@@ -1012,6 +1018,9 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 							entry.Command.Command = previous.Command.Command
 							entry.Text = previous.Text
 						}
+						if previous.terminalCommand() == "" {
+							command = entry.terminalCommand()
+						}
 						entry.ID, entry.At = previous.ID, previous.At
 						r.Entries[i] = entry
 						return
@@ -1019,8 +1028,12 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 				}
 				commandEntries[event.CommandID] = entry.ID
 			}
+			command = entry.terminalCommand()
 			r.Entries = append(r.Entries, entry)
 		})
+		if command != "" {
+			access.report(command)
+		}
 	}
 }
 

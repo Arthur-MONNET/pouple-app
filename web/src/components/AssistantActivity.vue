@@ -43,7 +43,9 @@ const activityLabel = computed(() => {
   if (props.working && props.interactive) return t('chat.activity.interactive');
   for (const entry of [...props.entries].reverse()) {
     if (/^(?:Edited|Wrote|Modifié|Écrit)/i.test(entry.text)) return t('chat.activity.edit');
-    if (/^\{"(?:session|status)":/.test(entry.text)) return t('chat.activity.terminal');
+    if (/^\{"(?:session|status)":/.test(entry.text)) {
+      return t(/"status":"(?:unavailable|start_failed)"/.test(entry.text) ? 'chat.activity.terminalRejected' : 'chat.activity.terminal');
+    }
   }
   return t(props.working ? 'chat.working' : 'chat.didLabel');
 });

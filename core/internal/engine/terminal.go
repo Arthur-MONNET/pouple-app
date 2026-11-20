@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -64,13 +65,16 @@ type TerminalView struct {
 }
 
 type interactiveResult struct {
+	Started  bool   `json:"started,omitempty"`
 	Status   string `json:"status"`
 	ExitCode *int   `json:"exitCode,omitempty"`
 	Signal   string `json:"signal,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type terminalSession struct {
 	id, agentDir, socket string
+	selected             bool
 	dir, branch          string
 	revision             uint64
 	agentInput           io.WriteCloser
@@ -262,13 +266,37 @@ func resolveTerminalDir(base, path string) (string, error) {
 	}
 	path = filepath.Clean(path)
 	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
-		return "", ErrInput
+	if err != nil {
+		return "", fmt.Errorf("cannot open terminal directory: %w", errors.Join(ErrInput, err))
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("terminal path is not a directory: %w", ErrInput)
 	}
 	return path, nil
 }
 
+func (entry Entry) terminalCommand() string {
+	if entry.Role != "assistant" || entry.Kind != "step" {
+		return ""
+	}
+	if detail := entry.Command; detail != nil {
+		if detail.Unconfirmed || (detail.Status != "completed" && detail.Status != "failed") {
+			return ""
+		}
+		if command := readableCommand(detail.Command); strings.TrimSpace(command) != "" {
+			return "$ " + command + "\n"
+		}
+		return ""
+	}
+	if strings.HasPrefix(entry.Text, "$ ") {
+		return entry.Text + "\n"
+	}
+	return ""
+}
+
 func (s *Service) OpenTerminal(id, path string) (TerminalView, error) {
+	s.terminalHistoryMu.Lock()
+	defer s.terminalHistoryMu.Unlock()
 	request, err := s.require(id)
 	if err != nil {
 		return TerminalView{}, err
@@ -280,11 +308,14 @@ func (s *Service) OpenTerminal(id, path string) (TerminalView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return TerminalView{}, ErrState
+		return TerminalView{}, fmt.Errorf("terminal service is shutting down: %w", ErrState)
 	}
 	t, err := startTerminal(dir)
 	if err != nil {
-		return TerminalView{}, err
+		return TerminalView{}, fmt.Errorf("could not start terminal session: %w", err)
+	}
+	for _, entry := range request.Entries {
+		t.commands.append([]byte(entry.terminalCommand()))
 	}
 	if s.terminals == nil {
 		s.terminals = make(map[string][]*terminalSession)
@@ -332,6 +363,10 @@ func (s *Service) Terminal(id, session, action string, revision, offset, command
 	}
 	switch action {
 	case "read":
+	case "select":
+		for _, candidate := range s.terminals[id] {
+			candidate.selected = candidate == t
+		}
 	case "close":
 		t.close()
 		s.terminals[id] = slices.DeleteFunc(s.terminals[id], func(candidate *terminalSession) bool { return candidate == t })
@@ -428,14 +463,16 @@ func (t *terminalSession) changeDir(path string) error {
 
 func (t *terminalSession) start(command string) *interactiveProcess {
 	t.command, t.result = command, nil
-	t.commands.append([]byte("$ " + command + "\n"))
-	t.output.append([]byte("\r\n\x1b[36m" + printableTerminalText(t.dir) + "\x1b[0m" + "\r\n$ " + printableTerminalText(command) + "\r\n"))
 	t.revision++
 	p, err := t.startProcess(command)
 	if err != nil {
-		t.result = &interactiveResult{Status: "start_failed"}
+		result := terminalRejected(err.Error())
+		result.Status = "start_failed"
+		t.result = &result
 		return nil
 	}
+	t.commands.append([]byte("$ " + command + "\n"))
+	t.output.append([]byte("\r\n\x1b[36m" + printableTerminalText(t.dir) + "\x1b[0m" + "\r\n$ " + printableTerminalText(command) + "\r\n"))
 	t.active = p
 	return p
 }
@@ -449,33 +486,57 @@ func printableTerminalText(text string) string {
 	}, text)
 }
 
+func terminalRejected(reason string) interactiveResult {
+	return interactiveResult{Status: "unavailable", Reason: reason}
+}
+
 func (s *Service) runInteractive(ctx context.Context, id, session, action, command string) interactiveResult {
+	s.terminalHistoryMu.Lock()
 	s.mu.Lock()
-	if ctx.Err() != nil {
-		s.mu.Unlock()
-		return interactiveResult{Status: "cancelled"}
-	}
 	t := s.terminalLocked(id, session)
-	if t == nil || t.active != nil || s.closing {
-		s.mu.Unlock()
-		return interactiveResult{Status: "unavailable"}
-	}
-	if action == "cd" {
-		defer s.mu.Unlock()
+	var p *interactiveProcess
+	var result interactiveResult
+	switch {
+	case ctx.Err() != nil:
+		result.Status = "cancelled"
+	case s.closing:
+		result = terminalRejected("terminal service is shutting down")
+	case t == nil:
+		result = terminalRejected("session not found in this conversation")
+	case t.active != nil:
+		result = terminalRejected("session is already running a command")
+	case action == "cd":
 		if err := t.changeDir(command); err != nil {
-			return interactiveResult{Status: "unavailable"}
+			result = terminalRejected(err.Error())
+		} else {
+			result.Status = "success"
+			if command == "" {
+				command = "~"
+			}
+			command = "cd " + command
 		}
-		return interactiveResult{Status: "success"}
-	}
-	p := t.start(command)
-	if p != nil {
-		p.assistant = true
+	case action == "run":
+		p = t.start(command)
+		if p == nil {
+			result = *t.result
+		} else {
+			p.assistant = true
+		}
+	default:
+		result = terminalRejected("expected terminal action run or cd")
 	}
 	s.mu.Unlock()
-	if p == nil {
-		return interactiveResult{Status: "start_failed"}
+	if p != nil || result.Status == "success" {
+		entry := s.entry("assistant", "step", "$ "+s.deps.Redact()(command))
+		s.quietUpdate(id, func(r *Stored) { r.Entries = append(r.Entries, entry) })
 	}
-	return s.finishInteractive(ctx, t, p)
+	s.terminalHistoryMu.Unlock()
+	if p != nil {
+		result = s.finishInteractive(ctx, t, p)
+		result.Started = true
+	}
+	result.Reason = s.deps.Redact()(result.Reason)
+	return result
 }
 
 func (s *Service) finishInteractive(ctx context.Context, t *terminalSession, p *interactiveProcess) interactiveResult {
@@ -552,16 +613,47 @@ func terminalLookupResult(session string, result interactiveResult) string {
 	return string(data)
 }
 
+func (s *Service) preferredTerminalLocked(id string) *terminalSession {
+	for _, t := range s.terminals[id] {
+		if t.selected {
+			return t
+		}
+	}
+	if len(s.terminals[id]) > 0 {
+		return s.terminals[id][0]
+	}
+	return nil
+}
+
+func (s *Service) defaultTerminal(id string) (TerminalView, error) {
+	s.mu.Lock()
+	t := s.preferredTerminalLocked(id)
+	if t != nil && t.active == nil && !s.closing {
+		view := t.view(t.output.end, t.commands.end)
+		s.mu.Unlock()
+		return view, nil
+	}
+	s.mu.Unlock()
+	return s.OpenTerminal(id, ".")
+}
+
 func (s *Service) terminalPrompt(id string) string {
-	views, _ := s.ListTerminals(id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	preferred := s.preferredTerminalLocked(id)
 	type sessionInfo struct {
 		ID      string `json:"id"`
 		Dir     string `json:"dir"`
 		Running bool   `json:"running"`
 	}
-	sessions := make([]sessionInfo, 0, len(views))
-	for _, view := range views {
-		sessions = append(sessions, sessionInfo{view.ID, view.Dir, view.Running})
+	sessions := make([]sessionInfo, 0, len(s.terminals[id]))
+	if preferred != nil {
+		sessions = append(sessions, sessionInfo{preferred.id, preferred.dir, preferred.active != nil})
+	}
+	for _, t := range s.terminals[id] {
+		if t != preferred {
+			sessions = append(sessions, sessionInfo{t.id, t.dir, t.active != nil})
+		}
 	}
 	data, _ := json.Marshal(sessions)
 	return string(data)
@@ -581,8 +673,8 @@ func (s *Service) acquireTerminal(ctx context.Context, id, session string, share
 		return terminalAccess{}, ErrCancelled
 	}
 	t := s.terminalLocked(id, session)
-	if session == "" && len(s.terminals[id]) > 0 {
-		t = s.terminals[id][0]
+	if session == "" {
+		t = s.preferredTerminalLocked(id)
 	}
 	var socket string
 	if t != nil && shareAgent {
@@ -591,8 +683,12 @@ func (s *Service) acquireTerminal(ctx context.Context, id, session string, share
 	return terminalAccess{socket: socket, report: func(text string) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if t != nil && s.terminalLocked(id, t.id) == t {
-			t.commands.append([]byte(text))
+		destination := t
+		if destination == nil || s.terminalLocked(id, destination.id) != destination {
+			destination = s.preferredTerminalLocked(id)
+		}
+		if destination != nil {
+			destination.commands.append([]byte(text))
 		}
 	}}, nil
 }

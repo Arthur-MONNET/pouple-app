@@ -51,7 +51,6 @@ type Turn struct {
 	Sandbox           Sandbox
 	sshAgent          string
 	terminalSessionID string
-	onCommand         func(string)
 	// Model is the model to use; "" leaves the choice to the CLI.
 	Model string
 	// ResumeThread continues an earlier conversation of the same provider.
@@ -215,7 +214,6 @@ func firstNonEmpty(values ...string) string {
 
 type line struct {
 	events       []Event
-	commandLog   string
 	failure      error
 	finalMessage string
 	tokens       Tokens
@@ -271,15 +269,13 @@ func interpretLine(raw string, lang i18n.Lang) line {
 		return line{failure: ClassifyFailure(event.Error.Message)}
 	case "item.started":
 		if event.Item["type"] == "command_execution" {
-			if command, ok := event.Item["command"].(string); ok {
-				result := line{commandLog: "$ " + readableCommand(command) + "\n"}
-				if id, _ := event.Item["id"].(string); id != "" {
-					result.events = []Event{{
-						Type: "step", CommandID: id,
-						Command: &CommandDetail{Command: command, Status: "running"},
-					}}
-				}
-				return result
+			command, _ := event.Item["command"].(string)
+			id, _ := event.Item["id"].(string)
+			if id != "" && strings.TrimSpace(readableCommand(command)) != "" {
+				return line{events: []Event{{
+					Type: "step", CommandID: id,
+					Command: &CommandDetail{Command: command, Status: "running"},
+				}}}
 			}
 		}
 	case "item.completed":
@@ -299,29 +295,30 @@ func interpretItem(item map[string]any, lang i18n.Lang) line {
 			return line{events: []Event{{Type: "message", Text: message}}, finalMessage: message}
 		}
 	case "command_execution":
-		commandLog := ""
-		var exitCode *int
-		if output := text("aggregated_output"); output != "" {
-			commandLog = strings.TrimSuffix(output, "\n") + "\n"
+		command, id := text("command"), text("id")
+		status, output := text("status"), text("aggregated_output")
+		if id == "" && (strings.TrimSpace(readableCommand(command)) == "" || status == "declined") {
+			return line{}
 		}
+		var exitCode *int
 		if code, ok := item["exit_code"].(float64); ok {
 			exitCode = ptr(int(code))
-			commandLog += fmt.Sprintf("[%d]\n", *exitCode)
 		}
-		status, output := "completed", text("aggregated_output")
+		unconfirmed := exitCode == nil && status != "" && status != "completed"
 		switch {
-		case text("status") == "declined":
+		case status == "declined":
 			status, output, exitCode = "rejected", "", nil
-		case text("status") == "failed" || (exitCode != nil && *exitCode != 0):
+		case status == "failed" || (exitCode != nil && *exitCode != 0):
 			status = "failed"
+		case unconfirmed:
+			status = "unknown"
+		default:
+			status = "completed"
 		}
-		return line{
-			events: []Event{{
-				Type: "step", ExitCode: exitCode, CommandID: text("id"),
-				Command: &CommandDetail{Command: text("command"), Output: output, Status: status},
-			}},
-			commandLog: commandLog,
-		}
+		return line{events: []Event{{
+			Type: "step", ExitCode: exitCode, CommandID: id,
+			Command: &CommandDetail{Command: command, Output: output, Status: status, Unconfirmed: status == "failed" && unconfirmed},
+		}}}
 	case "reasoning":
 		if reasoning := strings.TrimSpace(text("text")); reasoning != "" {
 			return line{events: []Event{{Type: "step", Text: shortLine(reasoning)}}}
@@ -369,9 +366,6 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	lang := i18n.FromContext(ctx)
 	end, err := runProcess(ctx, turn.withSSHAgent(spec), func(raw string) error {
 		parsed := interpretLine(raw, lang)
-		if turn.onCommand != nil && parsed.commandLog != "" {
-			turn.onCommand(parsed.commandLog)
-		}
 		for _, event := range parsed.events {
 			if event.Type == "thread" {
 				result.ThreadID = event.ThreadID

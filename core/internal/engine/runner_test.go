@@ -22,6 +22,10 @@ func TestInterpretLine(t *testing.T) {
 		command.Command.Status != "failed" || command.ExitCode == nil || *command.ExitCode != 1 {
 		t.Fatalf("command: %+v", command)
 	}
+	rejected := interpretLine(`{"type":"item.completed","item":{"type":"command_execution","command":"ssh-add","exit_code":null,"status":"declined"}}`, i18n.EN)
+	if len(rejected.events) != 0 {
+		t.Fatalf("rejected command produced activity: %+v", rejected.events)
+	}
 	edit := interpretLine(`{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"src/a.ts"},{"path":"b.ts"}]}}`, i18n.EN)
 	if edit.events[0].Text != "Edited src/a.ts, b.ts" {
 		t.Fatalf("edit: %q", edit.events[0].Text)

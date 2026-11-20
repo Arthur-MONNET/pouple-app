@@ -282,7 +282,7 @@ func (r *ClaudeRunner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		// gateway, and the API token of the local server never reaches the child.
 		Env: providers.ChildEnv(os.Environ(), claudeHomeEnv(r.opts.Home)...),
 	}
-	stream := &claudeStream{dir: turn.Dir, lang: i18n.FromContext(ctx), onEvent: turn.OnEvent, onUsage: turn.OnUsage, onCommand: turn.onCommand, result: TurnResult{ThreadID: turn.ResumeThread}}
+	stream := &claudeStream{dir: turn.Dir, lang: i18n.FromContext(ctx), onEvent: turn.OnEvent, onUsage: turn.OnUsage, result: TurnResult{ThreadID: turn.ResumeThread}}
 	end, err := runProcess(ctx, turn.withSSHAgent(spec), stream.read)
 	if err != nil {
 		return TurnResult{}, err
@@ -304,12 +304,11 @@ func claudeHomeEnv(home string) []string {
 // (verified against Claude Code 2.1.272) are system/init, system/api_retry, assistant and user messages made of
 // content blocks, and a final result with the answer and the session id. Unknown shapes are ignored.
 type claudeStream struct {
-	dir       string
-	lang      i18n.Lang
-	onEvent   func(Event)
-	onUsage   func(Tokens, *Limits)
-	onCommand func(string)
-	commands  map[string]bool // tool use IDs, true while awaiting a result
+	dir      string
+	lang     i18n.Lang
+	onEvent  func(Event)
+	onUsage  func(Tokens, *Limits)
+	commands map[string]bool // tool use IDs, true while awaiting a result
 
 	result     TurnResult
 	lastText   string
@@ -477,19 +476,16 @@ func (c *claudeStream) assistant(event claudeEvent) {
 			}
 		case "tool_use":
 			if block.Name == "Bash" && block.ID != "" {
-				if command, ok := block.Input["command"].(string); ok {
+				if command, ok := block.Input["command"].(string); ok && strings.TrimSpace(command) != "" {
 					if _, seen := c.commands[block.ID]; !seen {
 						if c.commands == nil {
 							c.commands = make(map[string]bool)
 						}
 						c.commands[block.ID] = true
 						c.emit(Event{Type: "step", CommandID: block.ID, Command: &CommandDetail{Command: command, Status: "running"}})
-						if c.onCommand != nil {
-							c.onCommand("$ " + command + "\n")
-						}
 					}
-					continue
 				}
+				continue
 			}
 			if block.Name == "StructuredOutput" {
 				if data, err := json.Marshal(block.Input); err == nil {
@@ -585,9 +581,6 @@ func (c *claudeStream) commandResults(content json.RawMessage) {
 			}
 			output = strings.Join(parts, "\n")
 		}
-		if c.onCommand != nil && output != "" {
-			c.onCommand(output + "\n")
-		}
 		status := "completed"
 		if block.IsError {
 			status = "failed"
@@ -596,15 +589,18 @@ func (c *claudeStream) commandResults(content json.RawMessage) {
 				status, output = "rejected", ""
 			}
 		}
-		c.emit(Event{Type: "step", CommandID: block.ToolUseID, Command: &CommandDetail{Output: output, Status: status}})
+		c.emit(Event{Type: "step", CommandID: block.ToolUseID, Command: &CommandDetail{Output: output, Status: status, Unconfirmed: status == "failed" && !strings.HasPrefix(output, "Exit code ")}})
 	}
 }
 
 func (c *claudeStream) rejectCommand(id string) bool {
-	if _, seen := c.commands[id]; !seen {
+	pending, seen := c.commands[id]
+	if !seen {
 		return false
 	}
-	c.commands[id] = false
-	c.emit(Event{Type: "step", CommandID: id, Command: &CommandDetail{Status: "rejected"}})
+	if pending {
+		c.commands[id] = false
+		c.emit(Event{Type: "step", CommandID: id, Command: &CommandDetail{Status: "rejected"}})
+	}
 	return true
 }

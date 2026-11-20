@@ -96,9 +96,10 @@ type AttachmentRef struct {
 }
 
 type CommandDetail struct {
-	Command string `json:"command,omitempty"`
-	Output  string `json:"output,omitempty"`
-	Status  string `json:"status"` // running | completed | failed | rejected | unknown
+	Command     string `json:"command,omitempty"`
+	Output      string `json:"output,omitempty"`
+	Status      string `json:"status"`                // running | completed | failed | rejected | unknown
+	Unconfirmed bool   `json:"unconfirmed,omitempty"` // A failure without evidence that the command ran.
 }
 
 type Entry struct {

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 func interactiveLookup(command string) func(context.Context, Turn) (TurnResult, error) {
@@ -94,6 +96,9 @@ func TestInteractiveSSHAddResumesWithStatusOnly(t *testing.T) {
 	}
 	h.svc.Idle()
 	finished := waitForTerminal(t, h.svc, session, func(v TerminalView) bool { return v.Result != nil })
+	if !strings.Contains(finished.Commands, "$ ssh-add ") || strings.Contains(finished.Commands, passphrase) {
+		t.Fatalf("unexpected command history: %q", finished.Commands)
+	}
 	if finished.Result.Status != "success" || strings.Contains(string(finished.Output), passphrase) || !strings.Contains(string(finished.Output), "Identity added") {
 		t.Fatalf("unexpected completion: %+v", finished.Result)
 	}
@@ -213,7 +218,7 @@ func TestRestrictedTurnCannotStartInteractiveCommand(t *testing.T) {
 	}
 	h.svc.Idle()
 	views, err := h.svc.ListTerminals(terminalTestID)
-	if err != nil || len(views) != 0 || h.codex.count() != 2 || !strings.Contains(h.codex.turns[1].Prompt, `{"status":"unavailable"}`) {
+	if err != nil || len(views) != 0 || h.codex.count() != 2 || !strings.Contains(h.codex.turns[1].Prompt, `"reason":"this conversation needs a current plan approval to run assistant commands"`) {
 		t.Fatal("restricted turn escaped its sandbox")
 	}
 }
@@ -233,7 +238,7 @@ func TestParallelTerminalSessionsKeepInputInterruptAndDirectoryLocal(t *testing.
 	}
 	first := openTestTerminal(t, h.svc, root)
 	// Open the other session through the assistant's lookup path.
-	opened, _ := h.svc.terminalLookups(context.Background(), terminalTestID, []Lookup{{Service: "terminal", Action: "open", Target: t.TempDir()}}, true)
+	opened, _ := h.svc.terminalLookups(context.Background(), terminalTestID, []Lookup{{Service: "terminal", Action: "open", Target: t.TempDir()}}, "")
 	var second struct{ Session string }
 	if err := json.Unmarshal([]byte(opened[0]), &second); err != nil || second.Session == "" || second.Session == first.ID {
 		t.Fatalf("unexpected open result: %s, %v", opened, err)
@@ -289,5 +294,95 @@ func TestParallelTerminalSessionsKeepInputInterruptAndDirectoryLocal(t *testing.
 	}
 	if remaining, err := h.svc.ListTerminals(terminalTestID); err != nil || len(remaining) != 1 || remaining[0].ID != second.Session {
 		t.Fatalf("closed the wrong session: %v, %v", remaining, err)
+	}
+}
+
+func TestMalformedTerminalLookupGetsDiagnosticWithoutCommand(t *testing.T) {
+	h := terminalHarness(t, lookupReply(Lookup{Service: "terminal", Action: "run", Target: "ssh-add"}), reply(nil))
+	session := openTestTerminal(t, h.svc, t.TempDir()).ID
+	if err := h.svc.Message(terminalTestID, "ssh-add", nil); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+	if h.codex.count() != 2 || !strings.Contains(h.codex.turns[1].Prompt, "put the command in text and the session ID in target") {
+		t.Fatalf("missing terminal diagnostic, turns: %d", h.codex.count())
+	}
+	view := waitForTerminal(t, h.svc, session, func(v TerminalView) bool { return !v.Running })
+	if strings.Contains(view.Commands, "ssh-add") || view.Result != nil {
+		t.Fatalf("rejected command reached terminal: %+v", view)
+	}
+	request, _ := h.svc.require(terminalTestID)
+	for _, entry := range request.Entries {
+		if strings.HasPrefix(entry.Text, "$ ssh-add") || strings.Contains(entry.Text, `"started":true`) {
+			t.Fatalf("rejected command reported as started: %s", entry.Text)
+		}
+	}
+	if request.Status != StatusReady || !strings.Contains(request.TerminalProgress, `"status":"unavailable"`) {
+		t.Fatalf("missing rejected lookup in progress: %q", request.TerminalProgress)
+	}
+}
+
+func TestTerminalResolvesSessionBeforeRunning(t *testing.T) {
+	h := terminalHarness(t)
+	lookup := []Lookup{{Service: "terminal", Action: "run", Text: "true"}}
+	first, firstID := h.svc.terminalLookups(context.Background(), terminalTestID, lookup, "")
+	if firstID == "" || !strings.Contains(first[0], "use this session ID as target") {
+		t.Fatalf("missing session before launch: %v", first)
+	}
+	second := openTestTerminal(t, h.svc, t.TempDir())
+	if _, err := h.svc.Terminal(terminalTestID, second.ID, "select", 0, 0, 0, "", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	_, selectedID := h.svc.terminalLookups(context.Background(), terminalTestID, lookup, "")
+	if selectedID != second.ID {
+		t.Fatalf("resolved %q, want selected session %q", selectedID, second.ID)
+	}
+	view := waitForTerminal(t, h.svc, selectedID, func(v TerminalView) bool { return !v.Running })
+	if view.Commands != "" || view.Result != nil {
+		t.Fatalf("command ran before the session ID was sent: %+v", view)
+	}
+	lookup[0].Target = selectedID
+	results, _ := h.svc.terminalLookups(context.Background(), terminalTestID, lookup, "")
+	if !strings.Contains(results[0], `"started":true`) {
+		t.Fatalf("command did not start: %v", results)
+	}
+}
+
+func TestTerminalRestoresConversationCommandHistory(t *testing.T) {
+	h := terminalHarness(t, func(ctx context.Context, turn Turn) (TurnResult, error) {
+		for _, raw := range []string{
+			`{"type":"item.started","item":{"type":"command_execution","id":"a","command":"printf hello"}}`,
+			`{"type":"item.started","item":{"type":"command_execution","id":"b","command":"pwd"}}`,
+			`{"type":"item.completed","item":{"type":"command_execution","id":"a","exit_code":0,"aggregated_output":"hello"}}`,
+			`{"type":"item.completed","item":{"type":"command_execution","id":"b","status":"declined"}}`,
+		} {
+			for _, event := range interpretLine(raw, i18n.EN).events {
+				turn.OnEvent(event)
+			}
+		}
+		return reply(nil)(ctx, turn)
+	})
+	h.svc.quietUpdate(terminalTestID, func(r *Stored) {
+		r.Entries = append(r.Entries,
+			h.svc.entry("assistant", "step", "$ pwd"),
+			h.svc.entry("assistant", "step", `{"status":"unavailable","reason":"session not found"}`),
+			h.svc.entry("user", "text", "$ typed in chat"),
+		)
+	})
+	opened := openTestTerminal(t, h.svc, t.TempDir())
+	if opened.Commands != "$ pwd\n" {
+		t.Fatalf("unexpected restored history: %q", opened.Commands)
+	}
+	if err := h.svc.Message(terminalTestID, "Continue", nil); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+	view := waitForTerminal(t, h.svc, opened.ID, func(v TerminalView) bool { return !v.Running })
+	if view.Commands != "$ pwd\n$ ls\n$ printf hello\n" {
+		t.Fatalf("unexpected live history: %q", view.Commands)
+	}
+	reopened := openTestTerminal(t, h.svc, t.TempDir())
+	if reopened.Commands != view.Commands {
+		t.Fatalf("unexpected history in new terminal: %q", reopened.Commands)
 	}
 }

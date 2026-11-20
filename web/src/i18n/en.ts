@@ -553,6 +553,7 @@ export const en: MessageTree = {
       tests: 'I ran tests',
       command: 'Shell command',
       edit: 'I edited files',
+      terminalRejected: 'Command did not start',
       terminal: 'I used the terminal',
     },
     didLabel: 'What the assistant did',
