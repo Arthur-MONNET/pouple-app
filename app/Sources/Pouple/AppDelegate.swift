@@ -147,6 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.usageLines = { [weak self] in UsageLines.lines(self?.store.snapshot?.status.usage) }
         controller.bubblesHidden = { [weak self] in self?.store.muted ?? false }
         controller.onOpen = { [weak self] in self?.showMainWindow() }
+        controller.onNewConversation = { [weak self] in
+            guard let self else { return }
+            (windowController ?? makeWindowController()).showNewConversation()
+        }
         controller.onToggleBubbles = { [weak self] in self?.store.muted.toggle() }
         controller.onResetPosition = { [weak self] in self?.panelController?.resetPosition() }
         controller.currentLanguage = { LanguageModel.shared.language }

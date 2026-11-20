@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import PoupleCore
 
 /// What the views show and do: the latest snapshot from the core, which bubbles are visible, and the actions on them.
@@ -34,6 +35,10 @@ final class BubbleStore: ObservableObject {
     private var tickTask: Task<Void, Never>?
     private var streamTask: Task<Void, Never>?
     private var streaming: PoupleAPI?
+    /// A snapshot failed to decode and was logged; cleared once one decodes again.
+    private var decodeFailureLogged = false
+
+    private static let logger = Logger(subsystem: "app.pouple.Pouple", category: "bubbles")
 
     private static let mutedKey = "bubblesHidden"
     private static let lingerSeconds: TimeInterval = 8
@@ -225,6 +230,12 @@ final class BubbleStore: ObservableObject {
         while !Task.isCancelled {
             do {
                 for try await snapshot in stream.snapshots() { apply(snapshot) }
+            } catch let error as DecodingError {
+                // A snapshot this build cannot read: reconnecting gets the same one, so say it once, not every few seconds.
+                if !decodeFailureLogged {
+                    decodeFailureLogged = true
+                    Self.logger.error("Cannot read the core's snapshot: \(String(describing: error), privacy: .public)")
+                }
             } catch {
                 // The core restarting is routine: wait and reconnect (the supervisor swaps the connection if needed).
             }
@@ -235,6 +246,7 @@ final class BubbleStore: ObservableObject {
     }
 
     func apply(_ snapshot: AssistantSnapshot) {
+        decodeFailureLogged = false
         self.snapshot = snapshot
         connected = true
         now = Date()

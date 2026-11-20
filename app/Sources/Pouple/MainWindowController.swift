@@ -15,8 +15,13 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
     private var activeNavigation: WKNavigation?
     private var pageShown = false
     private var coreState: CoreState = .starting
-    /// A conversation to show as soon as the page is there (the window was closed or still loading).
-    private var pendingConversation: String?
+    /// What the page must show as soon as it is there (the window was closed or still loading). The last ask wins.
+    private var pendingRequest: PageRequest?
+
+    private enum PageRequest {
+        case conversation(String)
+        case newConversation
+    }
 
     /// Called when the window closes, so the app can leave the Dock.
     var onClose: () -> Void = {}
@@ -100,18 +105,34 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
         if let conversation { openConversation(conversation) }
     }
 
+    /// Shows the window on the page's form to start a conversation ("New conversation…" in the menu).
+    func showNewConversation() {
+        show()
+        send(.newConversation)
+    }
+
     /// Shows one conversation: right away when the page is up, else once it has loaded. The page decides what the id
     /// means, and refuses anything that is not a plain id; the id travels as an argument, never as script text.
     private func openConversation(_ id: String) {
+        send(.conversation(id))
+    }
+
+    /// Tells the page what to show, once: right away when it is up, else when it has loaded.
+    private func send(_ request: PageRequest) {
         guard pageShown else {
-            pendingConversation = id
+            pendingRequest = request
             return
         }
-        pendingConversation = nil
-        webView.callAsyncJavaScript(
-            "window.dispatchEvent(new CustomEvent('pouple:open-conversation', { detail: { id } }))",
-            arguments: ["id": id], in: nil, in: .page, completionHandler: nil
-        )
+        pendingRequest = nil
+        switch request {
+        case let .conversation(id):
+            webView.callAsyncJavaScript(
+                "window.dispatchEvent(new CustomEvent('pouple:open-conversation', { detail: { id } }))",
+                arguments: ["id": id], in: nil, in: .page, completionHandler: nil
+            )
+        case .newConversation:
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('pouple:new-conversation'))", completionHandler: nil)
+        }
     }
 
     func reload() {
@@ -191,7 +212,7 @@ final class MainWindowController: NSObject, NSWindowDelegate, WKNavigationDelega
         // A hidden hosting view can still win AppKit hit-testing over the web view.
         placeholderHost.removeFromSuperview()
         webView.isHidden = false
-        if let pendingConversation { openConversation(pendingConversation) }
+        if let pendingRequest { send(pendingRequest) }
     }
 
     private func retry() {

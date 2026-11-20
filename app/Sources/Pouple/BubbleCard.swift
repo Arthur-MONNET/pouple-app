@@ -327,6 +327,8 @@ struct BubbleCard: View {
         case .pipeline: return "gearshape.2"
         case .asana: return "checklist"
         case .mergeRequest: return "arrow.triangle.merge"
+        case .pullRequest: return "arrow.triangle.pull"
+        case .inApp: return "bubble.left.and.text.bubble.right"
         case .reminder: return "bell.fill"
         case .noteToSelf: return "note.text"
         case .directMessage: return "envelope"
