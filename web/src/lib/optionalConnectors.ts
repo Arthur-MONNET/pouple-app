@@ -1,12 +1,18 @@
 import type { ConnectorStatus } from '../api/types';
 import type { WizardPosition } from './connectorFlow';
 
-/** Connectors the user may add after setup: the core marks them `required: false`. */
+/**
+ * Whether setup needs this connector: a required one, or one of a group of alternatives (Codex or Claude), of which
+ * the setup needs one connected. Those are the user's own connectors, never extras.
+ */
+export const isEssential = (connector: Pick<ConnectorStatus, 'descriptor'>): boolean => connector.descriptor.required || Boolean(connector.descriptor.choice);
+
+/** Connectors the user may add after setup (Slack, GitLab, GitHub…): not required, and not one of the AIs. */
 export const optionalConnectors = (connectors: readonly ConnectorStatus[]): ConnectorStatus[] =>
-  connectors.filter((c) => !c.descriptor.required).sort((a, b) => a.descriptor.order - b.descriptor.order);
+  connectors.filter((c) => !isEssential(c)).sort((a, b) => a.descriptor.order - b.descriptor.order);
 
 /** Ids that have their own "what it brings" line in the catalogs; any other id falls back to the generic one. */
-const KNOWN_BENEFITS: ReadonlySet<string> = new Set(['gitlab', 'asana', 'slite']);
+const KNOWN_BENEFITS: ReadonlySet<string> = new Set(['slack', 'gitlab', 'github', 'asana', 'slite']);
 
 /** The i18n key of the line saying what a connector brings to the assistant. */
 export const benefitKey = (id: string): string => (KNOWN_BENEFITS.has(id) ? `extras.benefit.${id}` : 'extras.benefit.generic');

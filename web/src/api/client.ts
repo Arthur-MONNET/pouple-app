@@ -15,7 +15,9 @@ import type {
   ConnectorValues,
   GitLabAccess,
   GitLabAccessUpdate,
+  NewConversation,
   Profile,
+  ProjectInfo,
   PlanDecision,
   ProposalDecision,
   ReminderPick,
@@ -89,6 +91,15 @@ export interface PoupleApi {
   updateAlert(id: string, patch: AlertPatch): Promise<AssistantAlert>;
   deleteAlert(id: string): Promise<void>;
   sendMessage(requestId: string, text: string, attachmentIds: string[]): Promise<void>;
+  /**
+   * Starts a conversation with the user's own words. Resolves with its id; the request itself arrives with the next
+   * snapshot. Rejects with 400 (empty, too long, unknown file or project) or 409 (no AI connected, too many waiting).
+   */
+  createConversation(body: NewConversation): Promise<{ id: string }>;
+  /** Uploads a file for a conversation not started yet; its id then goes with createConversation. */
+  uploadDraftAttachment(file: File): Promise<AttachmentRef>;
+  /** The folders of the projects folder, by name; empty when no projects folder is set. */
+  listProjects(): Promise<ProjectInfo[]>;
   ignore(requestId: string): Promise<void>;
   retry(requestId: string): Promise<void>;
   /** Makes another AI the one Pouple uses, and investigates the request again with it. */
@@ -160,6 +171,16 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
 
   const assistant = (requestId: string, rest = ''): string => `/api/assistant/requests/${enc(requestId)}${rest}`;
 
+  function uploadFile(path: string, file: File): Promise<AttachmentRef> {
+    const query = new URLSearchParams({ name: file.name || 'file', type: file.type || 'application/octet-stream' });
+    // Raw bytes: the type travels in the query so a JSON file is not parsed on the way.
+    return read<AttachmentRef>(`${path}?${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+  }
+
   return {
     getGitLabAccess: () => read<GitLabAccess>('/api/gitlab/access'),
     updateGitLabAccess: (update) => read<GitLabAccess>('/api/gitlab/access', { method: 'PUT' }, update),
@@ -229,15 +250,11 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     stop: (requestId) => post(assistant(requestId, '/stop')),
     remove: async (requestId) => void (await send(assistant(requestId), { method: 'DELETE' })),
 
-    async uploadAttachment(requestId, file) {
-      const query = new URLSearchParams({ name: file.name || 'file', type: file.type || 'application/octet-stream' });
-      // Raw bytes: the type travels in the query so a JSON file is not parsed on the way.
-      return read<AttachmentRef>(assistant(requestId, `/attachments?${query}`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: file,
-      });
-    },
+    createConversation: (body) => read<{ id: string }>('/api/assistant/requests', { method: 'POST' }, body),
+    uploadDraftAttachment: (file) => uploadFile('/api/assistant/attachments', file),
+    listProjects: async () => (await read<{ projects: ProjectInfo[] | null }>('/api/assistant/projects')).projects ?? [],
+
+    uploadAttachment: (requestId, file) => uploadFile(assistant(requestId, '/attachments'), file),
     getAttachment: async (requestId, attachmentId) =>
       (await send(assistant(requestId, `/attachments/${enc(attachmentId)}`))).blob(),
     getBrowserFrame: async (requestId) => (await send(assistant(requestId, '/browser'))).blob(),

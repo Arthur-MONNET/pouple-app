@@ -48,6 +48,9 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
 
 const nowIso = (): string => new Date().toISOString();
 
+/** The folders of the mock projects folder, by name, as GET /api/assistant/projects lists them. */
+const MOCK_PROJECTS: readonly string[] = ['api', 'front', 'mobile'];
+
 /**
  * An in-memory backend with realistic data, so the whole interface can be developed and looked at without the core
  * (`VITE_MOCK=1`). Slack accepts any well-formed token that does not contain "bad"; Codex starts "not installed".
@@ -58,9 +61,10 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const text = (): ReturnType<typeof mockText> => mockText(lang);
   const connectors: ConnectorStatus[] = [slackConnector(lang), codexConnector(lang), ...extraConnectors(lang)];
   const codex = { installed: false, signedIn: false };
+  // The main window as most people see it: Slack (now optional) and Codex connected, and a projects folder chosen.
   if (options.ready) {
     codex.installed = codex.signedIn = true;
-    for (const status of connectors.filter((c) => c.descriptor.required)) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
+    for (const status of connectors.filter((c) => c.descriptor.id === 'slack' || c.descriptor.id === 'codex')) Object.assign(status, { connected: true, profile: status.descriptor.id === 'slack' ? slackProfile(lang) : codexProfile(lang), connectedAt: nowIso() });
   }
   let requests: AssistantRequest[] = options.view === 'empty' ? [] : createFixtures(lang);
   let topics: AssistantTopic[] = options.view === 'empty' ? [] : createTopics(lang);
@@ -71,8 +75,11 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const view = (): MemoryView => structuredClone({ ...memory, enabled: settings.memory === true });
   const listeners = new Set<(snapshot: AssistantSnapshot) => void>();
   let uploads = 0;
+  /** Files uploaded for a conversation not started yet, by id: creating the conversation takes them. */
+  const drafts = new Map<string, AttachmentRef>();
+  let created = 0;
   const style = { learned: true };
-  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: '', language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all', betaUpdates: false, memory: false, memoryFolder: '/Users/you/SecondBrain' };
+  const settings: Settings = { pollSeconds: 60, dailyTurnLimit: 150, projectsRoot: options.ready ? '/Users/you/Workspace' : '',language: '', uiLanguage: lang, autoApprove: 'off', keywords: [], ignoreChannels: [], screenshotHosts: [], provider: 'codex', models: { codex: '', claude: '' }, webAccess: true, gitlabPipelines: 'all', betaUpdates: false, memory: false, memoryFolder: '/Users/you/SecondBrain' };
 
   const profileOf = (id: string): Profile => (id === 'slack' ? slackProfile(lang) : isExtraId(id) ? extraProfile(id, lang) : codexProfile(lang));
 
@@ -150,6 +157,11 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       request.entries.push({ id: `m${Date.now()}`, at: nowIso(), role: 'assistant', kind: 'text', text: reply });
       touch(request, { status: 'ready', continuable: true });
     }, workMs);
+  }
+
+  function uploaded(file: File): AttachmentRef {
+    uploads += 1;
+    return { id: `att-${uploads}`, name: file.name || 'file', mime: file.type, size: file.size, kind: file.type.startsWith('image/') ? 'image' : 'text' };
   }
 
   function checkSlackValues(values: ConnectorValues): void {
@@ -450,8 +462,57 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     },
     async uploadAttachment(_requestId, file) {
       await sleep(latency + slow(300));
-      uploads += 1;
-      return { id: `att-${uploads}`, name: file.name || 'file', mime: file.type, size: file.size, kind: file.type.startsWith('image/') ? 'image' : 'text' };
+      return uploaded(file);
+    },
+    async uploadDraftAttachment(file) {
+      await sleep(latency + slow(300));
+      const ref = uploaded(file);
+      drafts.set(ref.id, ref);
+      return ref;
+    },
+    async listProjects() {
+      await wait();
+      return settings.projectsRoot === '' ? [] : MOCK_PROJECTS.map((name) => ({ id: name, name }));
+    },
+    async createConversation(body) {
+      await wait();
+      const asked = body.text.trim();
+      if (asked === '' && body.attachmentIds.length === 0) throw new ApiError(400, text().create.empty);
+      if (new TextEncoder().encode(asked).length > 4000) throw new ApiError(400, text().create.tooLong);
+      const attachments: AttachmentRef[] = [];
+      for (const fileId of body.attachmentIds) {
+        const ref = drafts.get(fileId);
+        if (!ref) throw new ApiError(400, text().create.unknownFile);
+        attachments.push(ref);
+      }
+      if (body.projectId !== undefined && (settings.projectsRoot === '' || !MOCK_PROJECTS.includes(body.projectId))) throw new ApiError(400, text().create.unknownProject);
+      const aiConnected = !mockConnectors || connectors.some((c) => c.descriptor.id === 'codex' && c.connected);
+      if (options.view === 'paused' || !aiConnected) throw new ApiError(409, text().create.inactive);
+      for (const id of body.attachmentIds) drafts.delete(id);
+      const id = `new-${++created}`;
+      const at = nowIso();
+      const request: AssistantRequest = {
+        id,
+        source: { origin: 'in-app', channelId: `in-app:${id}`, channelName: null, senderId: 'self', senderName: 'Arthur', ts: `${Math.floor(Date.now() / 1000)}.000000`, permalink: null, label: (asked.split('\n', 1)[0] ?? '').slice(0, 80) },
+        text: asked,
+        context: '',
+        ...(attachments.length > 0 && { attachments }),
+        ...(body.projectId !== undefined && { projectId: body.projectId }),
+        receivedAt: at,
+        updatedAt: at,
+        status: 'queued',
+        summary: null,
+        draftReply: null,
+        questions: [],
+        proposal: null,
+        entries: [],
+        error: null,
+        engaged: true,
+      };
+      requests = [request, ...requests];
+      publish();
+      work(request, text().replies.started(body.projectId ?? null));
+      return { id };
     },
     async getStyle() {
       await wait();

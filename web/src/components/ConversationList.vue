@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { AssistantRequest, AssistantTopic } from '../api/types';
-import { filterLabel, FILTERS, matchesFilter, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
+import { filterLabel, FILTERS, isInApp, matchesFilter, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
 import { groupByTopic, previewOf, sourceLabel, type ConversationGroup } from '../lib/topicGroups';
 import { shownRequests } from '../lib/topicFolds';
 import { relativeTime } from '../lib/format';
 import { useSpringLoad } from '../composables/useSpringLoad';
 import { useTopicFolds } from '../composables/useTopicFolds';
+import AppIcon from './AppIcon.vue';
 import MascotStage from './MascotStage.vue';
 import StatusDot from './StatusDot.vue';
 
@@ -128,7 +129,10 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
             >
               <StatusDot :status="request.status" class="mt-1.5" />
               <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm text-ink">{{ sourceLabel(request) }}</span>
+                <span class="flex min-w-0 items-center gap-1 text-sm text-ink">
+                  <AppIcon v-if="isInApp(request)" name="pencil" size="sm" class="text-accent" data-testid="in-app-icon" />
+                  <span class="truncate">{{ sourceLabel(request) }}</span>
+                </span>
                 <span class="block truncate text-xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ previewOf(request) }}</span>
                 <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ statusLabel(request.status) }}</span>
               </span>

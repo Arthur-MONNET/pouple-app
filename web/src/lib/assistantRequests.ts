@@ -1,4 +1,4 @@
-import type { AssistantRequest, AssistantStatus, ChatEntry } from '../api/types';
+import type { AssistantRequest, AssistantStatus, ChatEntry, RequestOrigin } from '../api/types';
 import { t } from '../i18n';
 
 const WORKING = new Set<AssistantStatus>(['queued', 'analyzing', 'applying']);
@@ -34,11 +34,35 @@ export const byRecentActivity = (requests: readonly AssistantRequest[]): Assista
 /** The first line of a text: what a pipeline request puts forward ("❌ group/project · branch"). */
 export const headlineOf = (text: string): string => text.split('\n', 1)[0]?.trim() ?? '';
 
-/** "Demande de Morgan dans #front", "Note à moi-même"… */
+/** Origins where nobody wrote: a service reports something, and the first line of its text says what. */
+const EVENT_ORIGINS: ReadonlySet<RequestOrigin> = new Set<RequestOrigin>(['pipeline', 'asana', 'merge-request', 'reminder', 'pull-request']);
+
+export const isEvent = (origin: RequestOrigin): boolean => EVENT_ORIGINS.has(origin);
+
+/** A conversation the user started in Pouple: their own words, never an event. */
+export const isInApp = (request: Pick<AssistantRequest, 'source'>): boolean => request.source.origin === 'in-app';
+
+/** "Demande de Morgan dans #front", "Note à moi-même", the first line of an event or of a conversation started in Pouple… */
 export function requestTitle(request: Pick<AssistantRequest, 'source' | 'text'>): string {
   const { source } = request;
-  if (source.origin === 'pipeline' || source.origin === 'asana' || source.origin === 'merge-request' || source.origin === 'reminder') return headlineOf(request.text);
+  if (isEvent(source.origin)) return headlineOf(request.text);
+  if (source.origin === 'in-app') return source.label?.trim() || headlineOf(request.text) || t('title.in-app');
   return t(`title.${source.origin}`, { name: source.senderName, channel: source.channelName ?? source.channelId });
+}
+
+/** The i18n key of the link to the original (the permalink): where it opens depends on who sent the request. */
+export function permalinkLabelKey(origin: RequestOrigin): string {
+  switch (origin) {
+    case 'pull-request':
+      return 'chat.openInGitHub';
+    case 'merge-request':
+    case 'pipeline':
+      return 'chat.openInGitLab';
+    case 'asana':
+      return 'chat.openInAsana';
+    default:
+      return 'chat.openInSlack';
+  }
 }
 
 export type EntryGroup = { type: 'steps'; entries: ChatEntry[] } | { type: 'message'; entry: ChatEntry };

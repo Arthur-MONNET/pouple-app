@@ -9,6 +9,7 @@ defineEmits<{ start: [] }>();
 const STEPS = [
   { name: 'welcome.step1', note: 'welcome.step1Note' },
   { name: 'welcome.step2', note: 'welcome.step2Note' },
+  { name: 'welcome.step3', note: 'welcome.step3Note' },
 ] as const;
 </script>
 

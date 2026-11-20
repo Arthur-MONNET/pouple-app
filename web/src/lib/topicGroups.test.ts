@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AssistantRequest, AssistantTopic, RequestOrigin } from '../api/types';
-import { groupByTopic, previewOf, sourceLabel, UNSORTED_KEY } from './topicGroups';
+import { groupByTopic, IN_APP_KEY, previewOf, sourceLabel, UNSORTED_KEY } from './topicGroups';
 
 function request(id: string, origin: RequestOrigin = 'mention', topicId?: string, overrides: Partial<AssistantRequest['source']> = {}, status: AssistantRequest['status'] = 'ready'): AssistantRequest {
   return {
@@ -80,5 +80,35 @@ describe('previewOf', () => {
     pipeline.text = '❌ dating/vision · feat\nPipeline #1 failed';
     expect(previewOf(pipeline)).toBe('❌ dating/vision · feat');
     expect(previewOf(request('b', 'mention'))).toBe('text b');
+  });
+});
+
+describe('conversations started in Pouple and pull requests', () => {
+  it('groups unsorted in-app conversations in their own group, placed by latest activity, never in the unsorted one', () => {
+    const groups = groupByTopic([request('a'), request('b', 'in-app'), request('c', 'mention', 't1'), request('d', 'in-app', 'gone')], TOPICS);
+    expect(groups.map((group) => [group.key, group.requests.map((item) => item.id)])).toEqual([
+      [IN_APP_KEY, ['b', 'd']],
+      ['t1', ['c']],
+      [UNSORTED_KEY, ['a']],
+    ]);
+    expect(groups[0]?.label).toBe('My conversations');
+  });
+
+  it('leaves a sorted in-app conversation in its topic', () => {
+    expect(groupByTopic([request('a', 'in-app', 't1')], TOPICS).map((group) => group.key)).toEqual(['t1']);
+  });
+
+  it('labels an in-app conversation and a pull request event after what they are', () => {
+    expect(sourceLabel(request('a', 'in-app', undefined, { channelName: null, senderName: 'Arthur' }))).toBe('Conversation');
+    expect(sourceLabel(request('b', 'pull-request', undefined, { channelName: 'GitHub', senderName: 'GitHub' }))).toBe('Pull requests');
+  });
+
+  it('previews a pull request by its headline, and an in-app conversation by its whole text', () => {
+    const pr = request('a', 'pull-request');
+    pr.text = 'octo/app #12 · New review from Nina\nLooks good, one nit.';
+    expect(previewOf(pr)).toBe('octo/app #12 · New review from Nina');
+    const mine = request('b', 'in-app');
+    mine.text = 'Why is the build red?\nIt started this morning.';
+    expect(previewOf(mine)).toBe(mine.text);
   });
 });

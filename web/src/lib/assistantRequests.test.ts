@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createFixtures } from '../api/mockFixtures';
 import type { AssistantStatus, ChatEntry } from '../api/types';
-import { attentionCount, byRecentActivity, groupEntries, isWorking, matchesFilter, requestTitle } from './assistantRequests';
+import { attentionCount, byRecentActivity, groupEntries, isEvent, isWorking, matchesFilter, permalinkLabelKey, requestTitle } from './assistantRequests';
 
 const ALL: AssistantStatus[] = ['queued', 'analyzing', 'awaiting-user', 'ready', 'applying', 'done', 'ignored', 'failed'];
 
@@ -33,6 +33,27 @@ describe('requestTitle', () => {
     expect(titleOf('mention')).toMatch(/^Request from .+ in #/);
     expect(titleOf('direct-message')).toContain('(direct message)');
     expect(titleOf('note-to-self')).toBe('Note to self');
+  });
+
+  it('titles an in-app conversation with its label, then its first line, then a generic name', () => {
+    const base = { text: 'Why is the build red?\nSince this morning.', source: { origin: 'in-app', channelId: 'in-app:r1', channelName: null, senderId: 'self', senderName: '', ts: '1.0', permalink: null } } as const;
+    expect(requestTitle({ ...base, source: { ...base.source, label: 'Build is red' } })).toBe('Build is red');
+    expect(requestTitle(base)).toBe('Why is the build red?');
+    expect(requestTitle({ ...base, text: '' })).toBe('Conversation');
+  });
+
+  it('titles a pull request event with its headline, like the other events', () => {
+    const request = { text: 'octo/app #12 · New review\nLooks good.', source: { origin: 'pull-request', channelId: 'github-pull-requests', channelName: 'GitHub', senderId: 'github', senderName: 'GitHub', ts: '1.0', permalink: null } } as const;
+    expect(requestTitle(request)).toBe('octo/app #12 · New review');
+    expect(isEvent('pull-request')).toBe(true);
+    expect(isEvent('in-app')).toBe(false);
+  });
+
+  it('opens the original in the service that sent it', () => {
+    expect(permalinkLabelKey('pull-request')).toBe('chat.openInGitHub');
+    expect(permalinkLabelKey('merge-request')).toBe('chat.openInGitLab');
+    expect(permalinkLabelKey('asana')).toBe('chat.openInAsana');
+    expect(permalinkLabelKey('mention')).toBe('chat.openInSlack');
   });
 });
 

@@ -7,6 +7,7 @@ import { provideApi } from './composables/useApi';
 import { createSettingsStore, provideSettings } from './composables/useSettings';
 import { createUpdateStore, provideUpdate } from './composables/useUpdate';
 import { i18n, languageEpoch } from './i18n';
+import { onNewConversationRequest } from './lib/newConversation';
 import { conversationIdOf, OPEN_CONVERSATION_EVENT } from './lib/openConversation';
 import { createAppRouter } from './router';
 import './style.css';
@@ -19,6 +20,10 @@ window.addEventListener(OPEN_CONVERSATION_EVENT, (event) => {
   const id = conversationIdOf(event);
   if (id) showConversation(id);
 });
+// The menu bar's "New conversation" (Cmd+N): same wait as above, the composer opens once the router exists.
+let newConversationWaiting = false;
+let showNewConversation: () => void = () => { newConversationWaiting = true; };
+onNewConversationRequest(() => showNewConversation());
 
 const api = await createApi();
 const connectors = createConnectorsStore(api);
@@ -39,6 +44,9 @@ app.use(router);
 // The bubble's "Open Pouple" button: the shell names the conversation, the router shows it.
 showConversation = (id) => void router.push({ name: 'conversation', params: { id } });
 if (waitingConversation) showConversation(waitingConversation);
+// The router's guard sends the composer to the setup while no AI is connected.
+showNewConversation = () => void router.push({ name: 'new' });
+if (newConversationWaiting) showNewConversation();
 app.mount('#app');
 // Once at startup, then every 5 minutes while the window is open; never awaited, errors ignored.
 updates.startPolling();

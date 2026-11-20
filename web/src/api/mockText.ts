@@ -32,7 +32,9 @@ export interface MockText {
   };
   logs: { install: [string, string]; login1: [string, string]; login2: string };
   paused: string;
-  replies: { answered: string; applied: string; more: (asked: string) => string; again: string; filesOnly: string };
+  replies: { answered: string; applied: string; more: (asked: string) => string; again: string; filesOnly: string; started: (project: string | null) => string };
+  /** What the mock core answers when a new conversation is refused. */
+  create: { empty: string; tooLong: string; unknownFile: string; unknownProject: string; inactive: string };
   fixtures: {
     /** The Slack messages, in the order of the fixtures. */
     q: string[];
@@ -47,6 +49,10 @@ export interface MockText {
     rename: string;
     noteDone: string;
     limit: string;
+    /** A conversation the user started in Pouple, and its answer. */
+    inApp: { text: string; label: string; reply: string };
+    /** What GitHub reports on a pull request of the user. */
+    pullRequest: { text: string; summary: string };
     /** A Slack message that leaves something to do by a date: the assistant suggests reminders for it. */
     leave: { message: string; summary: string; reminders: [string, string, string]; memories: { noteTitle: string; fact: string; replaces: string; newNoteTitle: string; newFact: string } };
   };
@@ -96,7 +102,7 @@ I did not change anything. Say the word and I will prepare the fix in the \`fron
 
 const fr: MockText = {
   slack: {
-    tagline: 'Là où arrivent tes demandes',
+    tagline: 'Les messages qui te mentionnent deviennent des demandes',
     label: 'Jeton OAuth utilisateur',
     help: 'Il commence par xoxp-. Il reste dans le trousseau de ton Mac et ne s’affiche plus jamais.',
     patternHint: 'ne ressemble pas à un jeton Slack (il commence par xoxp-)',
@@ -163,6 +169,14 @@ const fr: MockText = {
     more: (asked) => `Un peu plus de détails.\n\n- J’ai relu les fichiers.\n- Rien d’autre n’en dépend.\n\nDemandé : ${asked}`,
     again: 'J’ai regardé de nouveau et la réponse est la même : rien n’a changé de mon côté.',
     filesOnly: '(fichiers seulement)',
+    started: (project) => `Je regarde ça${project ? ` en commençant par le projet ${project}` : ''}. Rien ne sera modifié sans ton accord.`,
+  },
+  create: {
+    empty: 'Écris un message ou joins un fichier',
+    tooLong: 'Le message dépasse 4000 caractères',
+    unknownFile: 'Un fichier joint est introuvable : ajoute-le à nouveau',
+    unknownProject: 'Ce projet n’existe pas dans ton dossier de projets',
+    inactive: 'Aucune IA n’est connectée : connecte Codex ou Claude dans Connecteurs',
   },
   fixtures: {
     q: [
@@ -203,6 +217,15 @@ const fr: MockText = {
     rename: 'J’ai trouvé 6 occurrences dans `settings/`. J’applique le renommage.',
     noteDone: 'C’est fait : `.github/workflows/ci.yml` utilise maintenant Node 22. Le changement est commité sur une branche locale, rien n’est poussé.',
     limit: 'Codex a besoin d’une pause. On reprend à 18:30.',
+    inApp: {
+      text: 'Pourquoi le build de l’API est si lent depuis lundi ?\nIl a doublé, de 4 à 8 minutes.',
+      label: 'Pourquoi le build de l’API est si lent depuis lundi ?',
+      reply: 'Le cache des dépendances n’est plus restauré depuis le passage à pnpm 10 : la clé du cache vise encore `package-lock.json`. Pointer la clé sur `pnpm-lock.yaml` ramène le build à 4 minutes.',
+    },
+    pullRequest: {
+      text: 'acme/api #482 · Nina a demandé des changements\nLe test de migration ne couvre pas le retour arrière.',
+      summary: 'Nina attend un test du retour arrière de la migration 0042 avant d’approuver.',
+    },
     leave: {
       message: 'Dac, tu peux me tenir au courant d’ici fin de semaine ?',
       summary: '**Tu confirmeras tes congés à Jocelyn d’ici vendredi.**\n- Tu envisages de prendre uniquement le 31 décembre.',
@@ -214,7 +237,7 @@ const fr: MockText = {
 
 const en: MockText = {
   slack: {
-    tagline: 'Where your requests come from',
+    tagline: 'Messages that mention you become requests',
     label: 'User OAuth Token',
     help: 'Starts with xoxp-. It stays in your Mac’s keychain and is never shown again.',
     patternHint: 'does not look like a Slack token (it starts with xoxp-)',
@@ -281,6 +304,14 @@ const en: MockText = {
     more: (asked) => `Here is a bit more detail on that.\n\n- I looked at the files again.\n- Nothing else depends on it.\n\nAsked: ${asked}`,
     again: 'I looked again and the answer is the same: nothing changed on my side.',
     filesOnly: '(files only)',
+    started: (project) => `Looking into it${project ? `, starting with the ${project} project` : ''}. Nothing will change without your approval.`,
+  },
+  create: {
+    empty: 'Write a message or attach a file',
+    tooLong: 'The message is longer than 4000 characters',
+    unknownFile: 'An attached file cannot be found: add it again',
+    unknownProject: 'This project is not in your projects folder',
+    inactive: 'No AI is connected: connect Codex or Claude in Connectors',
   },
   fixtures: {
     q: [
@@ -321,6 +352,15 @@ const en: MockText = {
     rename: 'Found 6 occurrences in `settings/`. Applying the rename.',
     noteDone: 'Done: `.github/workflows/ci.yml` now uses Node 22. The change is committed on a local branch, nothing is pushed.',
     limit: 'Codex needs a breather. Back at 18:30.',
+    inApp: {
+      text: 'Why has the API build been so slow since Monday?\nIt doubled, from 4 to 8 minutes.',
+      label: 'Why has the API build been so slow since Monday?',
+      reply: 'The dependency cache is no longer restored since the move to pnpm 10: the cache key still targets `package-lock.json`. Pointing the key at `pnpm-lock.yaml` brings the build back to 4 minutes.',
+    },
+    pullRequest: {
+      text: 'acme/api #482 · Nina requested changes\nThe migration test does not cover the rollback.',
+      summary: 'Nina wants a test of the 0042 migration rollback before approving.',
+    },
     leave: {
       message: 'Ok, can you keep me posted by the end of the week?',
       summary: '**You will confirm your leave to Jocelyn by Friday.**\n- You plan to take only December 31.',

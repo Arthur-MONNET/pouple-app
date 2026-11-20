@@ -6,6 +6,7 @@ import { useConnectorsStore } from '../composables/useConnectorsStore';
 import { useExtrasHint } from '../composables/useExtrasHint';
 import { useSettings } from '../composables/useSettings';
 import { useUpdate } from '../composables/useUpdate';
+import AppIcon from './AppIcon.vue';
 import BrandMark from './BrandMark.vue';
 import ConversationList from './ConversationList.vue';
 import SidebarLink from './SidebarLink.vue';
@@ -51,6 +52,18 @@ const select = (id: string): void => void router.push({ name: 'conversation', pa
     </div>
 
     <nav :aria-label="$t('nav.main')" class="flex shrink-0 flex-col gap-0.5 px-2 pb-3">
+      <RouterLink
+        :to="{ name: 'new' }"
+        class="mb-2 flex h-9 items-center gap-2.5 rounded-lg border px-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-accent motion-reduce:transition-none"
+        :class="{ 'border-accent bg-accent/15 text-ink': route.name === 'new', 'border-accent/50 bg-accent/10 text-ink hover:bg-accent/20': route.name !== 'new' }"
+        :aria-current="route.name === 'new' ? 'page' : undefined"
+        aria-keyshortcuts="Meta+N Control+N"
+        data-testid="new-conversation-link"
+      >
+        <AppIcon name="pencil" class="text-accent" />
+        <span class="min-w-0 flex-1 truncate">{{ $t('nav.newConversation') }}</span>
+        <kbd class="shrink-0 rounded border border-line-strong px-1 font-sans text-2xs text-ink-dim" :title="$t('nav.newConversationShortcut')">&#8984;N</kbd>
+      </RouterLink>
       <SidebarLink to="/" icon="message" :label="$t('nav.conversations')" :active="onConversations" :count="store.attention.value" urgent />
       <SidebarLink to="/alerts" icon="bell" :label="$t('nav.alerts')" :active="route.name === 'alerts'" :count="store.alerts.value.length" />
       <SidebarLink v-if="memoryOn" to="/memory" icon="book" :label="$t('nav.memory')" :active="route.name === 'memory'" />

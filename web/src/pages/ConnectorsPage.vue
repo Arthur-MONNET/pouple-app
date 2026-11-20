@@ -8,7 +8,7 @@ import ConnectorCard from '../components/ConnectorCard.vue';
 import ConnectorStep from '../components/ConnectorStep.vue';
 import SideSheet from '../components/SideSheet.vue';
 import { connectorSettingsLocation } from '../lib/connectorSettings';
-import { optionalConnectors } from '../lib/optionalConnectors';
+import { isEssential, optionalConnectors } from '../lib/optionalConnectors';
 import { useApi } from '../composables/useApi';
 import { useConnectorsStore } from '../composables/useConnectorsStore';
 
@@ -23,7 +23,8 @@ const reconnectingId = ref<string | null>(null);
 const reconnecting = computed(() => store.connectors.value.find((c) => c.descriptor.id === reconnectingId.value) ?? null);
 
 const sorted = computed(() => [...store.connectors.value].sort((a, b) => a.descriptor.order - b.descriptor.order));
-const required = computed(() => sorted.value.filter((c) => c.descriptor.required));
+/** The AIs (and any required connector): what setup needs. Slack, now optional, is listed with the extras. */
+const required = computed(() => sorted.value.filter(isEssential));
 const extras = computed(() => optionalConnectors(store.connectors.value));
 
 onMounted(() => void store.refresh());
