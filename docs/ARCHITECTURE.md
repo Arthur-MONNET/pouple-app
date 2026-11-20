@@ -378,7 +378,8 @@ The target is described in [PRODUCT.md](PRODUCT.md), "Writing". The model lives 
 creates a plan yet, and the current proposal flow is unchanged.
 
 - A **scope** is one place a write approval covers: a project folder (`code`), a GitLab project (`gitlab`), an Asana project
-  (`asana`) or a Slite space (`slite`). Only the service and the ID match; the name is for display.
+  (`asana`), a Slite space (`slite`) or the conversation's interactive terminal (`terminal`, whose only ID is `.`: sessions
+  come and go, so a grant never names one). Only the service and the ID match; the name is for display.
 - An **action** is one typed write. Each kind writes in one service (`code.edit`; `gitlab.push`,
   `gitlab.merge-request`; `asana.comment`, `asana.create-task`; `slite.write`), so an action can only name a scope of
   that service. The AI never pushes, calls GitLab or writes in Asana or Slite itself: the core carries out typed
@@ -391,6 +392,14 @@ creates a plan yet, and the current proposal flow is unchanged.
   space a plain ID), a text that is too long, or a character the user would not see as written (control and format
   characters such as bidirectional overrides; line breaks only in the brief). Nothing is cut: the user approves what
   the AI wrote. The AI that writes receives the plan, never the request's own text.
+- `terminal.run` is carried out by `runTerminalPlan`, a turn of its own like a code action: `TerminalPlanPrompt` holds the
+  goal and the approved summaries only (no request text, no brief, no investigation thread), the process runs `ReadOnly`
+  without the ssh-agent, and only its `terminal` lookups are run, through `terminalLookups`, for at most
+  `maxLookupRounds`. Only its recap is kept. `Normalize` refuses a plan that mixes it with other kinds; `proposePlan`
+  refuses it when the turn that wrote it could not act (the request came from someone else), never treats it as covered by
+  an earlier grant, and never lets the "approve every change" setting approve it. Its grant does not count in `trusted()`
+  and its approval leaves `ForeignSinceGrant` as it was, so it never opens direct work. A user-written turn that is not
+  trusted yet is told, with `terminalPlanHint`, to answer with such a plan instead of a refusal.
 - Approving a plan **grants** each of its scopes with the kinds of action it asked for there, for the rest of the
   conversation (`Grants.With`, which refuses a plan that is not approved or was not checked). Matching is exact on the
   service and the ID, so a trimming or case difference asks again. `Grants.Covers` never covers an action whose kind

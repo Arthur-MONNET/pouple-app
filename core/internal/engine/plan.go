@@ -29,7 +29,13 @@ const (
 	ScopeAsana ScopeService = "asana"
 	// ScopeSlite is a Slite space.
 	ScopeSlite ScopeService = "slite"
+	// ScopeTerminal is the interactive terminal of the conversation: its sessions, local or reached from it (ssh).
+	ScopeTerminal ScopeService = "terminal"
 )
+
+// ConversationTerminal is the only identifier of ScopeTerminal: sessions come and go within a conversation, so an
+// approval covers its terminal as a whole, never a session that could be swapped for another under the same name.
+const ConversationTerminal = "."
 
 // Scope is one place a write approval covers: a project folder, a GitLab project, an Asana project or a Slite space.
 type Scope struct {
@@ -59,6 +65,9 @@ const (
 	CommentTask  ActionKind = "asana.comment"
 	CreateTask   ActionKind = "asana.create-task"
 	WriteNote    ActionKind = "slite.write"
+	// RunTerminal lets the assistant work in the conversation's interactive terminal, as the summary says. Only a request
+	// the user wrote may plan it, and a plan that holds it holds nothing else.
+	RunTerminal ActionKind = "terminal.run"
 )
 
 var actionServices = map[ActionKind]ScopeService{
@@ -69,6 +78,7 @@ var actionServices = map[ActionKind]ScopeService{
 	CommentTask:  ScopeAsana,
 	CreateTask:   ScopeAsana,
 	WriteNote:    ScopeSlite,
+	RunTerminal:  ScopeTerminal,
 }
 
 // Service is the service an action of this kind writes in; false for a kind Pouple does not know.
@@ -125,12 +135,14 @@ const (
 
 // scopeIDs say what an identifier of each service looks like, checked before a place is ever shown. A project folder
 // is a plain folder name directly under the projects root, never hidden (the rule of projectPath); a GitLab project is
-// its numeric ID or its "group/project" path; an Asana project is its numeric gid; a Slite space is a plain ID.
+// its numeric ID or its "group/project" path; an Asana project is its numeric gid; a Slite space is a plain ID; the
+// terminal is the conversation's own (ConversationTerminal).
 var scopeIDs = map[ScopeService]func(string) bool{
-	ScopeCode:   func(id string) bool { return projectID.MatchString(id) && !strings.HasPrefix(id, ".") },
-	ScopeGitLab: gitlabProjectID.MatchString,
-	ScopeAsana:  asanaGID.MatchString,
-	ScopeSlite:  sliteID.MatchString,
+	ScopeCode:     func(id string) bool { return projectID.MatchString(id) && !strings.HasPrefix(id, ".") },
+	ScopeGitLab:   gitlabProjectID.MatchString,
+	ScopeAsana:    asanaGID.MatchString,
+	ScopeSlite:    sliteID.MatchString,
+	ScopeTerminal: func(id string) bool { return id == ConversationTerminal },
 }
 
 var (
@@ -170,6 +182,13 @@ func (p Plan) Normalize() (Plan, error) {
 		if !slices.Contains(out.Actions, kept) {
 			out.Actions = append(out.Actions, kept)
 		}
+	}
+
+	// Terminal work is approved on its own: mixed with code or service writes, a click on the plan would hand over the
+	// terminal with them without the user reading that it does.
+	terminal := slices.ContainsFunc(out.Actions, func(a Action) bool { return a.Kind == RunTerminal })
+	if terminal && slices.ContainsFunc(out.Actions, func(a Action) bool { return a.Kind != RunTerminal }) {
+		return Plan{}, i18n.Wrap(ErrOutcome, "Work in the terminal is planned on its own, not with other writes")
 	}
 
 	for i, a := range out.Actions {

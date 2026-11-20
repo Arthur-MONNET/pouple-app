@@ -166,6 +166,7 @@ Reading is free. **Every write needs your approval first**, and the approval is 
 | GitLab | One GitLab project. |
 | Asana | One Asana project. |
 | Slite | One Slite space. |
+| Terminal | The interactive terminal of this conversation, with the sessions opened in it (an `ssh` to a server included). |
 
 - Pouple asks before the first write in a scope: "may I change this project, in this way".
 - The approval lasts for **this conversation** only. A new conversation asks again, even for the same project.
@@ -269,6 +270,20 @@ write access is needed for creation; existing `read_api` tokens remain usable fo
 **Git LFS** objects are explicitly transferred to `origin` before both code edit and sync pushes, including objects in
 unpublished history. Repository hooks stay disabled. Missing git-lfs, missing local objects and upload failures stop the
 push and the MR; committed work is retained and the error explains what to restore before retrying.
+
+**Working in the terminal** uses `terminal.run`. Each conversation has an interactive terminal: you type in it yourself
+(an `ssh` to a server, a passphrase), and the assistant can run commands in it. For a request you wrote yourself (in
+Pouple, or a note to yourself), the investigating AI that needs the terminal before you approved anything answers with a
+plan of `terminal.run` actions instead of saying it is blocked: each says exactly what it will run and check there ("list
+the home folders and the containers, then start ngrok on the n8n port"). Once you approve, the plan is carried out like a
+code plan, by an AI of its own that receives the goal and the actions you ticked, never the request, the investigation or
+the brief: it stays read-only on your computer and acts only through the conversation's terminal, one command per session
+at a time, and Pouple runs nothing else it asks for. The approval covers that plan only: it opens no level 2 (and does not
+restore it after text written by strangers), and every later terminal plan is asked again, since a session opened since
+(another server) is not what you approved. Such a plan holds terminal work only, never mixed with code or GitLab writes. A
+request that came from someone else can never plan terminal work, and "Apply all changes" never approves it. In the bubble,
+a plan of one terminal action shows what it will run, in full, under its goal. The assistant never asks for, types or shows
+a secret: a passphrase is typed by you.
 
 Not built yet: automatic fixes after a failed pipeline or a review, and plan writes in Asana and Slite.
 

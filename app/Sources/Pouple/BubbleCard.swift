@@ -229,6 +229,10 @@ struct BubbleCard: View {
             // is read in the window.
             VStack(alignment: .leading, spacing: 8) {
                 Text(plan.goal).font(.system(size: 13, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                if plan.canApproveAtOnce, let action = plan.actions.first, action.isTerminalWork {
+                    // Shown whole (at most 300 characters): what is approved here is read here.
+                    Text(action.summary).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                }
                 if plan.canApproveAtOnce {
                     HStack {
                         Button(L10n.text(.bubbleApprovePlan)) { store.decidePlan(request, approve: true) }.buttonStyle(PillButtonStyle(role: .primary)).disabled(busy)

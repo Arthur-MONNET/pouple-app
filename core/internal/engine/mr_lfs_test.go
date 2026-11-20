@@ -295,7 +295,7 @@ func TestAutomaticPlanCannotGrantMRAndForeignDataInvalidatesReuse(t *testing.T) 
 	id := requests[0].ID
 	grants := grantsOf(t, p)
 	h.svc.update(id, func(r *Stored) { r.Grants = grants; r.ForeignSinceGrant = true })
-	h.svc.proposePlan(id, Outcome{Plan: &p, Summary: "Open MR"}, h.svc.entry("assistant", "text", "Open MR"))
+	h.svc.proposePlan(id, Outcome{Plan: &p, Summary: "Open MR"}, h.svc.entry("assistant", "text", "Open MR"), true)
 	waitingPlan(t, h)
 }
 

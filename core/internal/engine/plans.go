@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
@@ -9,11 +10,12 @@ import (
 
 // supportedKinds are the kinds of write Pouple can carry out today. A plan that asks for another kind is refused when it
 // is made, not when the user has already approved it.
-var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest}
+var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest, RunTerminal}
 
 // proposePlan shows the plan the investigating AI wrote for the user to approve. Inside places the user already approved
-// in this conversation it is carried out at once: a grant is for the whole conversation.
-func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
+// in this conversation it is carried out at once: a grant is for the whole conversation. canAct is whether the turn that
+// wrote the plan could act (the user wrote the request themselves): only such a turn may plan work in the terminal.
+func (s *Service) proposePlan(id string, outcome Outcome, summary Entry, canAct bool) {
 	refuse := func(reason string) {
 		s.update(id, func(r *Stored) {
 			r.Status, r.Summary, r.DraftReply = StatusReady, ptr(outcome.Summary), outcome.Reply
@@ -36,6 +38,12 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
 			refuse(s.text("The plan asks for a kind of write Pouple cannot do yet: %s", action.Summary))
 			return
 		}
+		// Text others wrote can shape a plan; it must never be what puts the terminal (and the hosts reached from it)
+		// one click away.
+		if action.Kind == RunTerminal && !canAct {
+			refuse(s.text("Work in the terminal can only be planned for a request you wrote yourself."))
+			return
+		}
 		if codeKind(action.Kind) && s.projectPath(action.Scope.ID) == "" {
 			refuse(s.text("A change was planned for “%s”, which is not a project in your projects folder.", action.Scope.ID))
 			return
@@ -49,13 +57,15 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry) {
 	// The user is asked once, when the first plan is made: what they approved then covers the rest of the conversation,
 	// branch updates included (for the branches they read). It stops covering as soon as text written by strangers
 	// reaches the conversation (a message in its thread, the web), since it may shape a brief the user has not read.
-	covered := len(request.Grants.Uncovered(plan.Actions)) == 0 && !request.ForeignSinceGrant
+	// Terminal work is asked every time: a session opened later (another server) is not what the user approved before.
+	terminal := slices.ContainsFunc(plan.Actions, func(a Action) bool { return a.Kind == RunTerminal })
+	covered := len(request.Grants.Uncovered(plan.Actions)) == 0 && !request.ForeignSinceGrant && !terminal
 	// The user chose to trust the assistant with every change: a plan is then approved as it is made. It is written on a
 	// branch of its own, so this is the gentlest way a change can be applied.
 	trusted := s.deps.AutoApproveAll != nil && s.deps.AutoApproveAll()
-	// Automatic approval of local code never authorizes GitLab writes.
+	// Automatic approval of local code never authorizes GitLab writes, nor the terminal.
 	for _, a := range plan.Actions {
-		if a.Kind == MergeRequest {
+		if a.Kind == MergeRequest || a.Kind == RunTerminal {
 			trusted = false
 		}
 	}
@@ -144,7 +154,11 @@ func (s *Service) DecidePlanActions(id string, approve bool, wanted string, sele
 				return false
 			}
 			r.Grants, r.Status, label = grants, StatusApplying, "Approved the plan: %s"
-			r.ForeignSinceGrant = false
+			// Approving terminal work does not vouch for what others wrote in the conversation: only a plan that opens
+			// direct work restores it (see trusted).
+			if plan.Actions[0].Kind != RunTerminal {
+				r.ForeignSinceGrant = false
+			}
 		} else {
 			plan.Status = PlanDeclined
 			// Declining ends the conversation: there is nothing left to show in a bubble.
@@ -183,6 +197,11 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 		return err
 	}
 	ctx = context.WithValue(ctx, terminalAccessKey{}, access)
+	// A plan for the terminal holds nothing else (Normalize): it is carried out by the investigation itself, which the
+	// approval just made direct, rather than by a fresh turn in a copy of a project.
+	if len(plan.Actions) > 0 && plan.Actions[0].Kind == RunTerminal {
+		return s.runTerminalPlan(ctx, id, plan)
+	}
 	var written []string
 	codePushes := map[string]bool{}
 	for _, action := range plan.Actions {
@@ -236,6 +255,79 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 	// The user is told what was pushed: it left their computer without a question.
 	s.alert(id, strings.Join(written, "\n"))
 	return nil
+}
+
+// runTerminalPlan carries out an approved plan for the conversation's terminal in a turn of its own, like a code plan: it
+// sees the plan the user read and nothing else, neither the request nor the investigation's thread, where text written by
+// others may sit. The AI process stays read-only and gets no ssh-agent: the commands it asks for run in the conversation's
+// terminal through Pouple, one lookup round after another, and nothing but terminal lookups is carried out.
+func (s *Service) runTerminalPlan(ctx context.Context, id string, plan Plan) error {
+	if plan.Automatic {
+		return i18n.NewError("Work in the terminal needs your approval")
+	}
+	s.update(id, func(r *Stored) {
+		r.Entries = append(r.Entries, s.entry("assistant", "step", s.text("Working in the terminal: %s", plan.Goal)))
+	})
+	persona := s.deps.Persona()
+	prompt, resume, session := persona.TerminalPlanPrompt(plan), "", ""
+	for round := 0; ; round++ {
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
+		turn := Turn{Prompt: s.clockNote() + prompt + "\n" + terminalHowTo + s.terminalPrompt(id), Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume}
+		turn.terminalSessionID = session
+		// The plan's turn has a thread of its own: the investigation's thread stays the conversation's.
+		result, provider, err := s.runProvider(ctx, id, turn, false)
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
+		if result.FinalMessage == "" {
+			return i18n.NewError("%s finished without an answer", provider.Name())
+		}
+		outcome, err := ParseOutcome(result.FinalMessage)
+		if err != nil {
+			return err
+		}
+		outcome = outcome.Redact(s.deps.Redact())
+		if outcome.Outcome != LookupOutcome {
+			// Only the recap is kept: questions, plans, reminders or memories written from command output are not.
+			s.update(id, func(r *Stored) {
+				r.Status, r.Summary, r.Questions, r.Proposal = StatusReady, ptr(outcome.Summary), []Question{}, nil
+				r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary))
+			})
+			s.alert(id, outcome.Summary)
+			return nil
+		}
+		if round == maxLookupRounds {
+			return i18n.Wrap(ErrOutcome, "The AI kept asking for lookups instead of answering")
+		}
+		if result.ThreadID == "" && resume == "" {
+			return i18n.NewError("%s finished without an answer", provider.Name())
+		}
+		if result.ThreadID != "" {
+			resume = result.ThreadID
+		}
+		var terminals []Lookup
+		refused := ""
+		for _, lookup := range outcome.Lookups {
+			if lookup.Service == "terminal" {
+				terminals = append(terminals, lookup)
+			} else {
+				refused = "\nOnly terminal lookups are carried out for this plan: the others were not run."
+			}
+		}
+		results, used := s.terminalLookups(ctx, id, terminals, "")
+		if used != "" {
+			session = used
+		}
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
+		prompt = persona.LookupResultsPrompt(strings.Join(results, "\n")+refused, round == maxLookupRounds-1)
+	}
 }
 
 // runCodeEdit writes the code of one action, on a branch of its own, and commits it. It returns what was committed, or
