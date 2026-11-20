@@ -180,3 +180,11 @@ func TestTheFieldPatternsLetRotatingTokensReachTheExplanation(t *testing.T) {
 		}
 	}
 }
+
+// Slack is optional: requests can also start in the app, so the setup is complete without it.
+func TestSlackIsAnOptionalConnectorListedFirst(t *testing.T) {
+	descriptor := New().Descriptor()
+	if descriptor.Required || descriptor.Choice != "" || descriptor.Order != 1 {
+		t.Fatalf("descriptor %+v", descriptor)
+	}
+}

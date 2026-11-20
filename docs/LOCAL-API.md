@@ -44,3 +44,28 @@ Paths below are relative to `/api/assistant`. URL-encode IDs from the snapshot w
 Use `Content-Type: application/json` for JSON bodies. Action responses return 202 or 204. A missing request
 returns 404, an invalid body returns 400, and a stale proposal or invalid action for the current state returns
 409. On 409, read the new snapshot before showing the action again. Use the proposal action for decisions.
+
+## Origins
+
+Each request's `source.origin` says where it came from. `note-to-self` (a message the user wrote to themselves in
+Slack) and `in-app` (a conversation the user started in the Pouple app) are the user's own text and carry the user's
+rights. `pipeline`, `asana`, `merge-request`, `pull-request` and `reminder` are events of a service. Every other
+origin is a Slack message written by someone else. An `in-app` request has `channelId` `in-app:<id>`, `senderId`
+`self`, no `channelName` and no `permalink`; its `label` is the start of its first line, and `projectId` (when
+present) is the project folder the user chose.
+
+## Starting a conversation (app only)
+
+The socket cannot start a conversation. A conversation started this way is the user's own request, with the rights of
+a note to themselves, so only the app's token-protected HTTP API offers these routes (Bearer token, same-origin
+requests only). They are listed here so that the contract is in one place.
+
+| Method | Path | Body |
+|---|---|---|
+| POST | `/attachments?name=example.txt` | Raw file bytes, at most 10 MB. Returns 201 and the attachment (`id`, `name`, `mime`, `size`, `kind`), to send with the conversation. An empty or too large file returns 400. |
+| GET | `/projects` | Returns `{"projects":[{"id":"web","name":"web"}]}`: the folders directly under the projects folder, by name; `[]` when none is chosen. |
+| POST | `/requests` | `{"text":"Fix the login redirect","attachmentIds":[],"projectId":"web"}`. `projectId` is optional. Returns 201 and `{"id":"…"}`; the request arrives in the next snapshot, and its analysis starts at once. |
+
+`POST /requests` returns 400 when the text is empty with no file, longer than 4000 characters, names an unknown
+attachment or a folder that is not a project, 409 when no AI is connected, and 409 when too many requests are waiting.
+A conversation of the app is never skipped silently.

@@ -35,5 +35,6 @@ func SetupGaps(statuses []Status) []Gap {
 	return gaps
 }
 
-// SetupComplete is true when nothing is lacking: Slack is connected and so is at least one AI.
+// SetupComplete is true when nothing is lacking: every required connector is connected, and one of each choice group (at
+// least one AI). Slack is optional: conversations can also start in the app.
 func SetupComplete(statuses []Status) bool { return len(SetupGaps(statuses)) == 0 }

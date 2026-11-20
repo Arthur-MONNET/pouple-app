@@ -26,14 +26,15 @@ func (s *Service) analyze(ctx context.Context, id string) error {
 	// What other people send waits while the limit of the AI that would run is reached; what the user asks themselves
 	// still goes through. The other AI is not affected.
 	active := s.deps.Selection().Provider
-	if request.Source.Origin != "note-to-self" && s.pausedFor(active) {
+	if !request.Source.FromUser() && s.pausedFor(active) {
 		return &providerFailure{active, ErrLimit}
 	}
 	// Sorted first, so that the analysis reads the other conversations of the subject. It never stops the analysis.
 	s.sortIntoTopic(ctx, id)
 	prompt, images := s.freshPrompt(ctx, request)
-	// What a note to oneself says is the user's own request; a message from someone else is not.
-	return s.runInvestigation(ctx, id, prompt, "", images, request.Source.Origin == "note-to-self")
+	// What the user wrote themselves (a note to oneself, a conversation of the app) is their own request; a message from
+	// someone else is not.
+	return s.runInvestigation(ctx, id, prompt, "", images, request.Source.FromUser())
 }
 
 // continueWith carries on the AI's conversation; it starts a fresh one, with the transcript so far, when the thread is
@@ -537,7 +538,7 @@ func (s *Service) showOutcome(id string, outcome Outcome, canAct bool) {
 		request, _ := s.deps.Store.Get(id)
 		auto := s.deps.AutoApproveAll != nil && s.deps.AutoApproveAll()
 		auto = auto || (s.deps.AutoApproveOwnNotes != nil && s.deps.AutoApproveOwnNotes() &&
-			request.Source.Origin == "note-to-self" && !request.ServicesUsed && !request.WebUsed)
+			request.Source.Origin == OriginNoteToSelf && !request.ServicesUsed && !request.WebUsed)
 		write := s.update
 		if auto {
 			// No question is put to the user, so the work stays silent until the change is made.
@@ -871,8 +872,9 @@ func (s *Service) Retry(id string) error {
 			r.Status, r.StopCheckpoint = StatusQueued, ""
 		})
 		// The button carries no text from the user, so the resumed turn gets the rights of a fresh investigation: only a
-		// note to self may write. A resume typed as a message goes through Send, which may act.
-		canAct := request.Source.Origin == "note-to-self"
+		// request of the user's own (a note to self, a conversation of the app) may write. A resume typed as a message goes
+		// through Send, which may act.
+		canAct := request.Source.FromUser()
 		s.enqueue(id, Interactive, func(ctx context.Context) error {
 			prompt := "Resume the investigation from this checkpoint. No reason for pausing was supplied.\n" + block("checkpoint", request.StopCheckpoint)
 			return s.continueWith(ctx, id, prompt, nil, canAct)
@@ -926,7 +928,7 @@ func (s *Service) Recover() {
 		switch request.Status {
 		case StatusQueued, StatusAnalyzing:
 			priority := Background
-			if request.Source.Origin == "note-to-self" {
+			if request.Source.FromUser() {
 				priority = Interactive
 			}
 			s.update(request.ID, func(r *Stored) {

@@ -385,8 +385,12 @@ func memorySource(r Stored, now time.Time) memory.Source {
 		source.Link = *r.Source.Permalink
 	}
 	switch r.Source.Origin {
-	case "note-to-self":
+	case OriginNoteToSelf:
 		source.Label = "Note to self"
+	case OriginInApp:
+		source.Label = "Pouple conversation"
+	case OriginPullRequest:
+		source.Label = "GitHub pull request"
 	case OriginPipeline:
 		source.Label = "GitLab pipeline"
 	case OriginAsana:

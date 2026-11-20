@@ -22,13 +22,13 @@ func withSilence(ctx context.Context) context.Context {
 func isSilent(ctx context.Context) bool { silent, _ := ctx.Value(silentKey{}).(bool); return silent }
 
 // threadKeyOf names the Slack thread a message belongs to: the thread it replies to, or itself when it starts one.
-// "" for what is not a Slack conversation (notes to oneself, events, actions).
+// "" for what is not a Slack conversation (the user's own text, events, actions).
 func threadKeyOf(source Source) string {
 	switch source.Origin {
-	case "", "note-to-self", "cockpit-action", "pouple-action":
+	case "", "cockpit-action", "pouple-action":
 		return ""
 	}
-	if IsEvent(source.Origin) || source.ChannelID == "" {
+	if source.FromUser() || IsEvent(source.Origin) || source.ChannelID == "" {
 		return ""
 	}
 	thread := source.TS

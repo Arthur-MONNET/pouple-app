@@ -40,12 +40,23 @@ const (
 	OriginMergeRequest = "merge-request"
 	// OriginReminder: an alert the user set came due. Pouple wrote it, to the user, at the time they chose.
 	OriginReminder = "reminder"
+	// OriginPullRequest: someone commented on, or reviewed, a GitHub pull request of the user, or asked for their review.
+	OriginPullRequest = "pull-request"
+)
+
+// The origins of a request the user wrote themselves: their own text, with the rights of their own request.
+const (
+	// OriginNoteToSelf: a message the user wrote to themselves in Slack.
+	OriginNoteToSelf = "note-to-self"
+	// OriginInApp: a conversation the user started in the Pouple app. Only Service.StartConversation creates it: a
+	// request any source reports with this origin is refused, so no service can give its text the user's rights.
+	OriginInApp = "in-app"
 )
 
 // IsEvent says whether a request is an event of a service, not a message someone wrote to the user: its text is what
 // the service reports, there is no one to answer, and two events are never one conversation.
 func IsEvent(origin string) bool {
-	return origin == OriginPipeline || origin == OriginAsana || origin == OriginMergeRequest || origin == OriginReminder
+	return origin == OriginPipeline || origin == OriginAsana || origin == OriginMergeRequest || origin == OriginReminder || origin == OriginPullRequest
 }
 
 // Source says where a request came from.
@@ -60,6 +71,13 @@ type Source struct {
 	Label       *string `json:"label,omitempty"`
 	// RelatedRequestID is the conversation a reminder was set from; empty for any other request.
 	RelatedRequestID string `json:"relatedRequestId,omitempty"`
+}
+
+// FromUser says whether the text of a request is the user's own: a note to themselves or a conversation they started in
+// the app. Only such a request is their own order to the assistant (it may act, it answers at once, it reads what is
+// private); the text of anyone else, or of a service, is data.
+func (s Source) FromUser() bool {
+	return s.Origin == OriginNoteToSelf || s.Origin == OriginInApp
 }
 
 type Option struct {
@@ -123,6 +141,9 @@ type Request struct {
 	ReceivedAt  string          `json:"receivedAt"`
 	UpdatedAt   string          `json:"updatedAt"`
 	Status      Status          `json:"status"`
+	// ProjectID is the project folder the user chose when they started the conversation in the app; empty otherwise. It
+	// only tells the AI where to look first.
+	ProjectID string `json:"projectId,omitempty"`
 	// TopicID is the subject the conversation was sorted into; empty until it was (or when it never is, like a message
 	// that needed nothing).
 	TopicID    string     `json:"topicId,omitempty"`

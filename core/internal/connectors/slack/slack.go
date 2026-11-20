@@ -93,8 +93,8 @@ func (c *Connector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		ID:       ID,
 		Name:     "Slack",
-		Tagline:  "Where your requests come from",
-		Required: true,
+		Tagline:  "Messages that mention you become requests",
+		Required: false,
 		Order:    1,
 		Fields: []connector.Field{{
 			ID:          "token",

@@ -11,7 +11,8 @@ import (
 )
 
 // slackSource adapts the Slack inbox to the engine. The client is built from the keychain at the time it is needed,
-// so a token connected or replaced while Pouple runs takes effect at the next poll.
+// so a token connected or replaced while Pouple runs takes effect at the next poll. Slack is optional: while it is not
+// connected, every call returns engine.ErrSourceOff, which the engine reads as "nothing to read".
 type slackSource struct {
 	registry *connector.Registry
 	settings *config.File
@@ -43,6 +44,11 @@ func (s *slackSource) current() (*slackinbox.Client, *slackinbox.Inbox, error) {
 }
 
 func (s *slackSource) cached() (*slackinbox.Client, *slackinbox.Inbox, error) {
+	if status, err := s.registry.Status("slack"); err != nil {
+		return nil, nil, err
+	} else if !status.Connected {
+		return nil, nil, engine.ErrSourceOff
+	}
 	values, err := s.registry.Values("slack")
 	if err != nil {
 		return nil, nil, err
