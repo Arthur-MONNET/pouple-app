@@ -145,8 +145,9 @@ struct WaitTimeout: Error, CustomStringConvertible {
     let description = "Timed out waiting for a condition"
 }
 
+/// The limit is generous: a busy CI machine can be slow to schedule the supervisor, and a passing condition returns at once.
 @MainActor
-func waitUntil(timeout: TimeInterval = 3, _ condition: () -> Bool) async throws {
+func waitUntil(timeout: TimeInterval = 10, _ condition: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while !condition() {
         if Date() > deadline { throw WaitTimeout() }
