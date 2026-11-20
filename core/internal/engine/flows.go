@@ -873,12 +873,16 @@ func (s *Service) Recover() {
 			if request.Source.Origin == "note-to-self" {
 				priority = Interactive
 			}
-			s.update(request.ID, func(r *Stored) { r.Status = StatusQueued })
+			s.update(request.ID, func(r *Stored) {
+				settleCommands(r.Entries)
+				r.Status = StatusQueued
+			})
 			id := request.ID
 			s.enqueue(id, priority, func(ctx context.Context) error { return s.analyze(ctx, id) })
 		case StatusApplying:
 			// A write that was cut short is not repeated on its own: the user decides.
 			s.update(request.ID, func(r *Stored) {
+				settleCommands(r.Entries)
 				r.Status = StatusReady
 				r.Entries = append(r.Entries, s.entry("system", "text", s.text("Pouple was closed while the change was being made. Check the project with git status, then ask again if needed.")))
 			})

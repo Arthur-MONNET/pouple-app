@@ -767,3 +767,62 @@ func TestOwnNoteIsNotAutoApprovedWhenOtherPeoplesServiceTextWasInThePrompt(t *te
 		t.Fatal("the flag is internal: it must not appear in the snapshot")
 	}
 }
+
+func TestCommandJournalKeepsStartOrderAndRedactsBeforePersisting(t *testing.T) {
+	h := newHarness(t)
+	store := h.svc.deps.Store
+	store.Add(Stored{Request: Request{ID: "journal", Entries: []Entry{
+		{ID: "legacy", Kind: "step", Text: "$ ls"},
+	}}})
+	const secret = "pouple-test-credential"
+	h.svc.deps.Redact = func() Redactor { return NewRedactor(secret) }
+	h.codex.steps = []func(context.Context, Turn) (TurnResult, error){
+		func(_ context.Context, turn Turn) (TurnResult, error) {
+			send := func(raw string) {
+				for _, event := range interpretLine(raw, i18n.EN).events {
+					turn.OnEvent(event)
+				}
+			}
+			send(`{"type":"item.started","item":{"type":"command_execution","id":"a","command":"printf 'pouple-test-credential'"}}`)
+			send(`{"type":"item.started","item":{"type":"command_execution","id":"b","command":"go test ./..."}}`)
+			running, _ := store.Get("journal")
+			first, second := running.Entries[2], running.Entries[3]
+			if first.Command.Status != "running" || second.Command.Status != "running" {
+				t.Fatalf("missing live commands: %+v %+v", first, second)
+			}
+			send(`{"type":"item.completed","item":{"type":"command_execution","id":"b","aggregated_output":"test failed\n","exit_code":1}}`)
+			send(`{"type":"item.completed","item":{"type":"command_execution","id":"a","aggregated_output":"pouple-test-credential\n","exit_code":0}}`)
+			send(`{"type":"item.completed","item":{"type":"command_execution","id":"c","command":"git status","status":"declined","aggregated_output":"denial metadata"}}`)
+			send(`{"type":"item.started","item":{"type":"command_execution","id":"d","command":"ls"}}`)
+			finished, _ := store.Get("journal")
+			if len(finished.Entries) != 6 || finished.Entries[2].ID != first.ID || finished.Entries[3].ID != second.ID {
+				t.Fatalf("commands did not update in place: %+v", finished.Entries)
+			}
+			return TurnResult{}, nil
+		},
+	}
+	if _, _, err := h.svc.runProvider(context.Background(), "journal", Turn{}, false); err != nil {
+		t.Fatal(err)
+	}
+	store.Flush()
+	reopened, err := OpenStore(store.path, func(err error) { t.Error(err) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := reopened.Get("journal")
+	legacy := request.Entries[0]
+	if legacy.Text != "$ ls" || legacy.Command != nil {
+		t.Fatalf("legacy entry changed: %+v", legacy)
+	}
+	want := []CommandDetail{
+		{Command: "printf '[redacted]'", Output: "[redacted]\n", Status: "completed"},
+		{Command: "go test ./...", Output: "test failed\n", Status: "failed"},
+		{Command: "git status", Status: "rejected"},
+		{Command: "ls", Status: "unknown"},
+	}
+	for i, expected := range want {
+		if got := request.Entries[i+2].Command; got == nil || *got != expected {
+			t.Errorf("command %d = %+v, want %+v", i, got, expected)
+		}
+	}
+}

@@ -157,7 +157,9 @@ var tokenPatterns = compile(
 	// what a dev server prints of its environment: payment keys, npm tokens, passwords inside an address, and any
 	// KEY, SECRET, TOKEN or PASSWORD variable with its value
 	`\b[rs]k_(?:live|test)_[A-Za-z0-9]{10,}`, `\bnpm_[A-Za-z0-9]{30,}`, `://[^/\s:@]+:[^@\s]+@`,
-	`(?i)\b[A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*\s*[=:]\s*\S+`,
+	`(?i)["']?\b[A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'[^']*'|\S+)`,
+	`(?i)["']?\bAuthorization["']?\s*:\s*["']?(?:Bearer|Basic)\s+[^\s"']+`,
+	`(?i)--(?:api-key|token|secret|password|passwd)(?:=|\s+)(?:"(?:\\.|[^"\\])*"|'[^']*'|\S+)`,
 )
 
 const redacted = "[redacted]"

@@ -36,10 +36,12 @@ func writeSandbox(approvedByPerson bool) Sandbox {
 
 // Event is what an AI CLI reports while it works, reduced to what the chat shows.
 type Event struct {
-	Type     string // thread | step | message
-	ThreadID string
-	ExitCode *int
-	Text     string
+	Type      string // thread | step | message
+	ThreadID  string
+	ExitCode  *int
+	Text      string
+	CommandID string
+	Command   *CommandDetail
 }
 
 // Turn is one run of the AI.
@@ -270,7 +272,14 @@ func interpretLine(raw string, lang i18n.Lang) line {
 	case "item.started":
 		if event.Item["type"] == "command_execution" {
 			if command, ok := event.Item["command"].(string); ok {
-				return line{commandLog: "$ " + readableCommand(command) + "\n"}
+				result := line{commandLog: "$ " + readableCommand(command) + "\n"}
+				if id, _ := event.Item["id"].(string); id != "" {
+					result.events = []Event{{
+						Type: "step", CommandID: id,
+						Command: &CommandDetail{Command: command, Status: "running"},
+					}}
+				}
+				return result
 			}
 		}
 	case "item.completed":
@@ -290,7 +299,7 @@ func interpretItem(item map[string]any, lang i18n.Lang) line {
 			return line{events: []Event{{Type: "message", Text: message}}, finalMessage: message}
 		}
 	case "command_execution":
-		suffix, commandLog := "", ""
+		commandLog := ""
 		var exitCode *int
 		if output := text("aggregated_output"); output != "" {
 			commandLog = strings.TrimSuffix(output, "\n") + "\n"
@@ -298,12 +307,19 @@ func interpretItem(item map[string]any, lang i18n.Lang) line {
 		if code, ok := item["exit_code"].(float64); ok {
 			exitCode = ptr(int(code))
 			commandLog += fmt.Sprintf("[%d]\n", *exitCode)
-			if code != 0 {
-				suffix = i18n.T(lang, "  (exit %d)", int(code))
-			}
+		}
+		status, output := "completed", text("aggregated_output")
+		switch {
+		case text("status") == "declined":
+			status, output, exitCode = "rejected", "", nil
+		case text("status") == "failed" || (exitCode != nil && *exitCode != 0):
+			status = "failed"
 		}
 		return line{
-			events:     []Event{{Type: "step", Text: "$ " + shortLine(readableCommand(text("command"))) + suffix, ExitCode: exitCode}},
+			events: []Event{{
+				Type: "step", ExitCode: exitCode, CommandID: text("id"),
+				Command: &CommandDetail{Command: text("command"), Output: output, Status: status},
+			}},
 			commandLog: commandLog,
 		}
 	case "reasoning":

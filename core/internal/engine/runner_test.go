@@ -17,8 +17,10 @@ func TestInterpretLine(t *testing.T) {
 		t.Fatalf("thread: %+v", got)
 	}
 	step := interpretLine(`{"type":"item.completed","item":{"type":"command_execution","command":"/bin/zsh -lc 'nl -ba a.ts'","exit_code":1}}`, i18n.EN)
-	if step.events[0].Text != "$ nl -ba a.ts  (exit 1)" {
-		t.Fatalf("step: %q", step.events[0].Text)
+	command := step.events[0]
+	if command.Command == nil || command.Command.Command != "/bin/zsh -lc 'nl -ba a.ts'" ||
+		command.Command.Status != "failed" || command.ExitCode == nil || *command.ExitCode != 1 {
+		t.Fatalf("command: %+v", command)
 	}
 	edit := interpretLine(`{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"src/a.ts"},{"path":"b.ts"}]}}`, i18n.EN)
 	if edit.events[0].Text != "Edited src/a.ts, b.ts" {

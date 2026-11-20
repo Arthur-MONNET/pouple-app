@@ -932,7 +932,19 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 		return TurnResult{}, selection.Provider, &providerFailure{selection.Provider, i18n.NewError("%s is not available", selection.Provider.Name())}
 	}
 	turn.Model = selection.Model
-	turn.OnEvent = func(event Event) { s.onEvent(id, selection.Provider, event, trackThread) }
+	// CLI item IDs are scoped to a run. Persist only Pouple's stable entry IDs.
+	commandEntries := make(map[string]string)
+	pendingCommands := make(map[string]bool)
+	turn.OnEvent = func(event Event) {
+		if event.Command != nil && event.CommandID != "" {
+			if event.Command.Status == "running" {
+				pendingCommands[event.CommandID] = true
+			} else {
+				delete(pendingCommands, event.CommandID)
+			}
+		}
+		s.onEvent(id, selection.Provider, event, trackThread, commandEntries)
+	}
 	access, ok := ctx.Value(terminalAccessKey{}).(terminalAccess)
 	if !ok {
 		var err error
@@ -946,6 +958,9 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	}
 	turn.onCommand = access.report
 	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
+	if len(pendingCommands) > 0 {
+		s.update(id, func(r *Stored) { settleCommands(r.Entries) })
+	}
 	if err != nil {
 		return result, selection.Provider, &providerFailure{selection.Provider, err}
 	}
@@ -970,15 +985,53 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	return result, selection.Provider, nil
 }
 
-func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool) {
+func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool, commandEntries map[string]string) {
 	switch {
 	case event.Type == "thread" && trackThread:
 		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = event.ThreadID, provider })
 	case event.Type == "step":
-		text := s.deps.Redact()(event.Text)
-		entry := s.entry("assistant", "step", text)
+		redact := s.deps.Redact()
+		entry := s.entry("assistant", "step", redact(event.Text))
 		entry.ExitCode = event.ExitCode
-		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, entry) })
+		if event.Command != nil {
+			detail := *event.Command
+			detail.Command = redact(detail.Command)
+			detail.Output = redact(detail.Output)
+			entry.Command = &detail
+			// Redact the full command before shortening the checkpoint text.
+			entry.Text = shortLine(readableCommand(detail.Command))
+		}
+		s.update(id, func(r *Stored) {
+			if entry.Command != nil && event.CommandID != "" {
+				if existingID := commandEntries[event.CommandID]; existingID != "" {
+					for i, previous := range r.Entries {
+						if previous.ID != existingID {
+							continue
+						}
+						if entry.Command.Command == "" {
+							entry.Command.Command = previous.Command.Command
+							entry.Text = previous.Text
+						}
+						entry.ID, entry.At = previous.ID, previous.At
+						r.Entries[i] = entry
+						return
+					}
+				}
+				commandEntries[event.CommandID] = entry.ID
+			}
+			r.Entries = append(r.Entries, entry)
+		})
+	}
+}
+
+// A missing result gives no evidence of success, failure or refusal.
+func settleCommands(entries []Entry) {
+	for i, entry := range entries {
+		if entry.Command != nil && entry.Command.Status == "running" {
+			detail := *entry.Command
+			detail.Status = "unknown"
+			entries[i].Command = &detail
+		}
 	}
 }
 

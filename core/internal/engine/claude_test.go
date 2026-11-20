@@ -457,3 +457,27 @@ func TestClaudeGetsTheWebToolsOnlyForAnAllowedReadOnlyTurn(t *testing.T) {
 		t.Errorf("the web is off by default: %q", off)
 	}
 }
+
+func TestClaudeCommandResultsAndDenialsUseToolID(t *testing.T) {
+	var events []Event
+	stream := claudeStream{lang: i18n.EN, onEvent: func(event Event) {
+		if event.Command != nil {
+			events = append(events, event)
+		}
+	}}
+	for _, raw := range []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{"command":"ls"}},{"type":"tool_use","id":"b","name":"Bash","input":{"command":"go test"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b","is_error":true,"content":[{"type":"text","text":"failure"}]}]}}`,
+		`{"type":"result","permission_denials":[{"tool_name":"Bash","tool_use_id":"a"}]}`,
+	} {
+		if err := stream.read(raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(events) != 4 || events[0].CommandID != "a" || events[1].CommandID != "b" ||
+		events[0].Command.Status != "running" || events[1].Command.Status != "running" ||
+		events[2].CommandID != "b" || *events[2].Command != (CommandDetail{Status: "failed", Output: "failure"}) ||
+		events[3].CommandID != "a" || *events[3].Command != (CommandDetail{Status: "rejected"}) {
+		t.Fatalf("unexpected command events: %+v", events)
+	}
+}

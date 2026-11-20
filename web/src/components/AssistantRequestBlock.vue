@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AssistantQuestion, AssistantRequest, ChatEntry, PlanAction, QuestionAnswer, ReminderPick } from '../api/types';
+import type { AssistantQuestion, AssistantRequest, PlanAction, QuestionAnswer, ReminderPick } from '../api/types';
 import { errorMessage } from '../api/client';
 import { useAssistantStore } from '../composables/assistantStore';
 import { t } from '../i18n';
-import { groupEntries, isWorking, requestTitle, statusLabel } from '../lib/assistantRequests';
+import { groupEntries, isWorking, requestTitle } from '../lib/assistantRequests';
 import { compactCount, formatReceived } from '../lib/format';
 import { providerName, totalTokens } from '../lib/usage';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
+import AssistantActivity from './AssistantActivity.vue';
 import AssistantQuestionCard from './AssistantQuestionCard.vue';
 import AttachmentList from './AttachmentList.vue';
 import BrowserLive from './BrowserLive.vue';
@@ -39,21 +40,6 @@ const groups = computed(() => {
   if (working.value && all.at(-1)?.type !== 'steps') all.push({ type: 'steps', entries: [] });
   return all;
 });
-
-function activityLabel(entries: readonly ChatEntry[], active: boolean): string {
-  if (active && props.request.status === 'queued') return statusLabel('queued');
-  if (active && props.interactiveTerminal) return t('chat.activity.interactive');
-  for (const entry of [...entries].reverse()) {
-    if (/^\$ .*\bgit (?:diff|log|merge-base)\b/.test(entry.text)) return t('chat.activity.git');
-    if (/^\$ (?:go test|(?:npm|pnpm|yarn) (?:run )?test|pytest|vitest)\b[^;&|]*$/.test(entry.text)) {
-      return t(entry.exitCode === 0 ? 'chat.activity.testsPassed' : 'chat.activity.tests');
-    }
-    if (/^\$ /.test(entry.text)) return t('chat.activity.command');
-    if (/^(?:Edited|Wrote|Modifié|Écrit)/i.test(entry.text)) return t('chat.activity.edit');
-    if (/^\{"(?:session|status)":/.test(entry.text)) return t('chat.activity.terminal');
-  }
-  return t(active ? 'chat.working' : 'chat.didLabel');
-}
 
 /** A reminder is what the user asked to be reminded of: there is nothing to investigate again. */
 const isReminder = computed(() => props.request.source.origin === 'reminder');
@@ -200,23 +186,13 @@ watch(
     <AttachmentList v-if="request.attachments && request.attachments.length > 0" :request-id="request.id" :attachments="request.attachments" />
 
     <template v-for="(group, index) in groups" :key="index">
-      <details v-if="group.type === 'steps'" class="rounded-md border border-line-soft bg-surface px-2.5 py-1.5" data-testid="activity-detail">
-        <summary class="cursor-pointer text-xs text-ink-muted hover:text-ink">
-          <span v-if="working && index === groups.length - 1" class="mx-1 inline-block size-1.5 rounded-full bg-accent motion-safe:animate-pulse" aria-hidden="true" />
-          {{ activityLabel(group.entries, working && index === groups.length - 1) }}
-        </summary>
-        <ul v-if="group.entries.length" class="mt-1.5 flex flex-col gap-0.5 border-l border-line pl-2.5" :aria-label="$t('chat.didLabel')">
-          <li
-            v-for="entry in group.entries"
-            :key="entry.id"
-            class="line-clamp-3 break-all text-2xs leading-snug text-ink-dim"
-            :class="entry.text.startsWith('$ ') ? 'font-mono' : ''"
-            :title="entry.text"
-          >
-            {{ entry.text }}
-          </li>
-        </ul>
-      </details>
+      <AssistantActivity
+        v-if="group.type === 'steps'"
+        :entries="group.entries"
+        :working="working && index === groups.length - 1"
+        :queued="request.status === 'queued'"
+        :interactive="interactiveTerminal"
+      />
       <div
         v-else
         class="max-w-[92%] rounded-lg px-3 py-2"

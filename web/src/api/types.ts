@@ -296,6 +296,12 @@ export interface AttachmentRef {
   kind: 'image' | 'text' | 'other';
 }
 
+export interface CommandDetail {
+  command?: string;
+  output?: string;
+  status: 'running' | 'completed' | 'failed' | 'rejected' | 'unknown';
+}
+
 export interface ChatEntry {
   id: string;
   at: string;
@@ -305,6 +311,7 @@ export interface ChatEntry {
   text: string;
   attachments?: AttachmentRef[];
   exitCode?: number;
+  command?: CommandDetail;
 }
 
 /** What is known of the user's learned writing style (the style itself stays in the core). */

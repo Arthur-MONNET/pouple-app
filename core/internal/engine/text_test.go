@@ -38,6 +38,16 @@ func TestRedactor(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
+	for _, credential := range []string{
+		`PASSWORD="several secret words"`,
+		`"api_token": "another secret value"`,
+		`--password 'several secret words'`,
+		`Authorization: Bearer opaque-value`,
+	} {
+		if got := redact("before " + credential + " after"); got != "before [redacted] after" {
+			t.Errorf("credential not fully redacted: %q", got)
+		}
+	}
 }
 
 func TestNeutralizeBlocksDelimiters(t *testing.T) {

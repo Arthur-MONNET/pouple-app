@@ -309,7 +309,7 @@ type claudeStream struct {
 	onEvent   func(Event)
 	onUsage   func(Tokens, *Limits)
 	onCommand func(string)
-	commands  map[string]bool
+	commands  map[string]bool // tool use IDs, true while awaiting a result
 
 	result     TurnResult
 	lastText   string
@@ -327,16 +327,20 @@ type claudeEvent struct {
 	Message         struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
-	IsError          bool            `json:"is_error"`
-	Result           json.RawMessage `json:"result"`
-	StructuredOutput json.RawMessage `json:"structured_output"`
-	Errors           []string        `json:"errors"`
-	Error            json.RawMessage `json:"error"`
-	Attempt          int             `json:"attempt"`
-	ErrorStatus      *int            `json:"error_status"`
-	ToolName         string          `json:"tool_name"`
-	RateLimitInfo    json.RawMessage `json:"rate_limit_info"`
-	Usage            struct {
+	IsError           bool            `json:"is_error"`
+	Result            json.RawMessage `json:"result"`
+	StructuredOutput  json.RawMessage `json:"structured_output"`
+	Errors            []string        `json:"errors"`
+	Error             json.RawMessage `json:"error"`
+	Attempt           int             `json:"attempt"`
+	ErrorStatus       *int            `json:"error_status"`
+	ToolUseID         string          `json:"tool_use_id"`
+	PermissionDenials []struct {
+		ToolUseID string `json:"tool_use_id"`
+	} `json:"permission_denials"`
+	ToolName      string          `json:"tool_name"`
+	RateLimitInfo json.RawMessage `json:"rate_limit_info"`
+	Usage         struct {
 		InputTokens              int64 `json:"input_tokens"`
 		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
@@ -351,6 +355,7 @@ type claudeBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`
 	Name      string          `json:"name"`
+	IsError   bool            `json:"is_error"`
 	Input     map[string]any  `json:"input"`
 }
 
@@ -386,6 +391,9 @@ func (c *claudeStream) read(raw string) error {
 		c.commandResults(event.Message.Content)
 	case "result":
 		c.session(event.SessionID)
+		for _, denied := range event.PermissionDenials {
+			c.rejectCommand(denied.ToolUseID)
+		}
 		c.finished(event)
 		// Claude counts the cached tokens apart from the input ones: both are read.
 		usage := event.Usage
@@ -421,6 +429,9 @@ func (c *claudeStream) system(event claudeEvent) error {
 			c.result.Model = event.Model
 		}
 	case "permission_denied":
+		if c.rejectCommand(event.ToolUseID) {
+			return nil
+		}
 		if event.ToolName != "" {
 			c.emit(Event{Type: "step", Text: i18n.T(c.lang, "Not allowed: %s", event.ToolName)})
 		}
@@ -465,13 +476,19 @@ func (c *claudeStream) assistant(event claudeEvent) {
 				c.emit(Event{Type: "message", Text: text})
 			}
 		case "tool_use":
-			if c.onCommand != nil && block.Name == "Bash" && block.ID != "" {
+			if block.Name == "Bash" && block.ID != "" {
 				if command, ok := block.Input["command"].(string); ok {
-					if c.commands == nil {
-						c.commands = make(map[string]bool)
+					if _, seen := c.commands[block.ID]; !seen {
+						if c.commands == nil {
+							c.commands = make(map[string]bool)
+						}
+						c.commands[block.ID] = true
+						c.emit(Event{Type: "step", CommandID: block.ID, Command: &CommandDetail{Command: command, Status: "running"}})
+						if c.onCommand != nil {
+							c.onCommand("$ " + command + "\n")
+						}
 					}
-					c.commands[block.ID] = true
-					c.onCommand("$ " + command + "\n")
+					continue
 				}
 			}
 			if block.Name == "StructuredOutput" {
@@ -555,18 +572,39 @@ func (c *claudeStream) commandResults(content json.RawMessage) {
 		if block.Type != "tool_result" || !c.commands[block.ToolUseID] {
 			continue
 		}
-		delete(c.commands, block.ToolUseID)
-		var text string
-		if json.Unmarshal(block.Content, &text) == nil {
-			c.onCommand(text + "\n")
-			continue
+		c.commands[block.ToolUseID] = false
+		var output string
+		if json.Unmarshal(block.Content, &output) != nil {
+			var blocks []claudeBlock
+			_ = json.Unmarshal(block.Content, &blocks)
+			var parts []string
+			for _, part := range blocks {
+				if part.Type == "text" {
+					parts = append(parts, part.Text)
+				}
+			}
+			output = strings.Join(parts, "\n")
 		}
-		var parts []claudeBlock
-		_ = json.Unmarshal(block.Content, &parts)
-		for _, part := range parts {
-			if part.Type == "text" {
-				c.onCommand(part.Text + "\n")
+		if c.onCommand != nil && output != "" {
+			c.onCommand(output + "\n")
+		}
+		status := "completed"
+		if block.IsError {
+			status = "failed"
+			if strings.HasPrefix(output, "Permission to use Bash has been denied") ||
+				strings.HasPrefix(output, "The user doesn't want to proceed with this tool use.") {
+				status, output = "rejected", ""
 			}
 		}
+		c.emit(Event{Type: "step", CommandID: block.ToolUseID, Command: &CommandDetail{Output: output, Status: status}})
 	}
+}
+
+func (c *claudeStream) rejectCommand(id string) bool {
+	if _, seen := c.commands[id]; !seen {
+		return false
+	}
+	c.commands[id] = false
+	c.emit(Event{Type: "step", CommandID: id, Command: &CommandDetail{Status: "rejected"}})
+	return true
 }

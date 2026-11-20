@@ -95,6 +95,12 @@ type AttachmentRef struct {
 	Kind string `json:"kind"`
 }
 
+type CommandDetail struct {
+	Command string `json:"command,omitempty"`
+	Output  string `json:"output,omitempty"`
+	Status  string `json:"status"` // running | completed | failed | rejected | unknown
+}
+
 type Entry struct {
 	ID          string          `json:"id"`
 	At          string          `json:"at"`
@@ -102,6 +108,7 @@ type Entry struct {
 	Kind        string          `json:"kind"` // text | step
 	Text        string          `json:"text"`
 	ExitCode    *int            `json:"exitCode,omitempty"`
+	Command     *CommandDetail  `json:"command,omitempty"`
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
 }
 
