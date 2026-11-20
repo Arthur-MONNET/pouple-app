@@ -20,6 +20,7 @@ export function createAppRouter(store: ConnectorsStore): Router {
         children: [
           { path: '', name: 'home', component: () => import('./pages/ConversationsPage.vue') },
           { path: 'c/:id', name: 'conversation', component: () => import('./pages/ConversationsPage.vue') },
+          { path: 'new', name: 'new', component: () => import('./pages/NewConversationPage.vue') },
           { path: 'alerts', name: 'alerts', component: () => import('./pages/AlertsPage.vue') },
           { path: 'memory', name: 'memory', component: () => import('./pages/MemoryPage.vue') },
           { path: 'connectors', name: 'connectors', component: () => import('./pages/ConnectorsPage.vue') },

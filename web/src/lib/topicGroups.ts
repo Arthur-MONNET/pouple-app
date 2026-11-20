@@ -1,9 +1,11 @@
 import type { AssistantRequest, AssistantTopic } from '../api/types';
 import { t } from '../i18n';
-import { headlineOf, needsAttention } from './assistantRequests';
+import { headlineOf, isEvent, isInApp, needsAttention } from './assistantRequests';
 
 /** The key of the trailing group of conversations the core has not sorted into a topic. */
 export const UNSORTED_KEY = 'unsorted';
+/** The key of the group of conversations the user started in Pouple and the core has not sorted yet. */
+export const IN_APP_KEY = 'in-app';
 
 export interface ConversationGroup {
   /** The topic id, or `unsorted`. Stable across refreshes: what keeps a folded topic folded. */
@@ -17,7 +19,8 @@ export interface ConversationGroup {
 
 /**
  * Groups requests by topic. Topics are ordered by their latest activity (the input is already newest first). A request
- * with no topic, or one the snapshot does not know, goes in one trailing `unsorted` group.
+ * with no topic, or one the snapshot does not know, goes in one trailing `unsorted` group, except a conversation the
+ * user started in Pouple: those go in their own `in-app` group, placed by its latest activity like a topic.
  */
 export function groupByTopic(requests: readonly AssistantRequest[], topics: readonly AssistantTopic[]): ConversationGroup[] {
   const titles = new Map(topics.map((topic) => [topic.id, topic.title]));
@@ -26,7 +29,14 @@ export function groupByTopic(requests: readonly AssistantRequest[], topics: read
   for (const request of requests) {
     const title = request.topicId ? titles.get(request.topicId) : undefined;
     let group = unsorted;
-    if (request.topicId && title !== undefined) {
+    if (!(request.topicId && title !== undefined) && isInApp(request)) {
+      let mine = groups.get(IN_APP_KEY);
+      if (!mine) {
+        mine = { key: IN_APP_KEY, label: t('list.mine'), requests: [], attention: 0 };
+        groups.set(IN_APP_KEY, mine);
+      }
+      group = mine;
+    } else if (request.topicId && title !== undefined) {
       let known = groups.get(request.topicId);
       if (!known) {
         known = { key: request.topicId, label: title, requests: [], attention: 0 };
@@ -58,6 +68,10 @@ export function sourceLabel(request: AssistantRequest): string {
       return t('groups.mergeRequests');
     case 'reminder':
       return t('groups.reminders');
+    case 'pull-request':
+      return t('groups.pullRequests');
+    case 'in-app':
+      return t('groups.inApp');
     case 'direct-message':
       return source.senderName;
     case 'group-message':
@@ -67,8 +81,5 @@ export function sourceLabel(request: AssistantRequest): string {
   }
 }
 
-const EVENT_ORIGINS: readonly AssistantRequest['source']['origin'][] = ['pipeline', 'asana', 'merge-request', 'reminder'];
-
 /** The one-line preview under the title: the message, or for an event of a service its headline. */
-export const previewOf = (request: AssistantRequest): string =>
-  EVENT_ORIGINS.includes(request.source.origin) ? headlineOf(request.text) : request.text;
+export const previewOf = (request: AssistantRequest): string => (isEvent(request.source.origin) ? headlineOf(request.text) : request.text);

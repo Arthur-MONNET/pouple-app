@@ -4,7 +4,7 @@ import type { AssistantRequest } from '../api/types';
 import { useAssistantStore } from '../composables/assistantStore';
 import { useAsyncAction } from '../composables/useAsyncAction';
 import { t } from '../i18n';
-import { isWorking, requestTitle, statusLabel } from '../lib/assistantRequests';
+import { isWorking, permalinkLabelKey, requestTitle, statusLabel } from '../lib/assistantRequests';
 import { compactCount, formatReceived } from '../lib/format';
 import { totalTokens } from '../lib/usage';
 import ActionMenu, { type MenuItem } from './ActionMenu.vue';
@@ -60,7 +60,7 @@ async function onSelect(id: string): Promise<void> {
         class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
       >
         <AppIcon name="external" size="sm" />
-        {{ $t('chat.openInSlack') }}
+        {{ $t(permalinkLabelKey(request.source.origin)) }}
       </a>
       <ActionMenu :label="$t('chat.actionsMenu')" :items="items" :disabled="action.busy.value" @select="onSelect" />
     </div>

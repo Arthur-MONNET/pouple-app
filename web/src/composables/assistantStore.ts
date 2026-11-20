@@ -7,6 +7,7 @@ import type {
   AssistantRequest,
   AssistantSnapshot,
   AssistantTopic,
+  NewConversation,
   PlanDecision,
   ProposalDecision,
   QuestionAnswer,
@@ -145,6 +146,15 @@ export function createAssistantStore(api: PoupleApi) {
       if (!stopped.value.includes(id)) stopped.value = [...stopped.value, id];
     },
     remove: (id: string) => act(() => api.remove(id)),
+    /**
+     * Starts a conversation and resolves with its id once the list knows it: the snapshot is read at once, so the
+     * conversation can be opened without waiting for the stream (which would otherwise land on another one).
+     */
+    createConversation: async (body: NewConversation): Promise<string> => {
+      const { id } = await api.createConversation(body);
+      await refresh();
+      return id;
+    },
   };
 }
 

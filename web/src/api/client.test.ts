@@ -177,6 +177,39 @@ describe('http api', () => {
   });
 });
 
+describe('http api, new conversation', () => {
+  it('starts a conversation with POST and the body as typed, and unwraps the id', async () => {
+    const { fetch, calls } = recorder(() => json(201, { id: 'r9' }));
+    const created = await createHttpApi(fetch).createConversation({ text: 'Why is the build red?', attachmentIds: ['a1'], projectId: 'front' });
+    expect(created).toEqual({ id: 'r9' });
+    expect(calls[0]).toMatchObject({ path: '/api/assistant/requests', init: { method: 'POST' } });
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ text: 'Why is the build red?', attachmentIds: ['a1'], projectId: 'front' });
+  });
+
+  it('uploads a draft file as raw bytes, not tied to a request', async () => {
+    const { fetch, calls } = recorder(() => json(201, { id: 'a1', name: 'log.txt', mime: 'text/plain', size: 3, kind: 'text' }));
+    const ref = await createHttpApi(fetch).uploadDraftAttachment(new File(['abc'], 'log.txt', { type: 'text/plain' }));
+    expect(ref.id).toBe('a1');
+    expect(calls[0]?.path).toBe('/api/assistant/attachments?name=log.txt&type=text%2Fplain');
+    expect(calls[0]?.init.method).toBe('POST');
+    expect((calls[0]?.init.headers as Record<string, string>)['Content-Type']).toBe('application/octet-stream');
+  });
+
+  it('lists the projects with GET, and reads a null list as none', async () => {
+    const listed = recorder(() => json(200, { projects: [{ id: 'api', name: 'api' }] }));
+    expect(await createHttpApi(listed.fetch).listProjects()).toEqual([{ id: 'api', name: 'api' }]);
+    expect(listed.calls[0]?.path).toBe('/api/assistant/projects');
+    expect(listed.calls[0]?.init.method).toBeUndefined();
+    const none = recorder(() => json(200, { projects: null }));
+    expect(await createHttpApi(none.fetch).listProjects()).toEqual([]);
+  });
+
+  it('keeps the status and message of a refused conversation', async () => {
+    const { fetch } = recorder(() => json(409, { message: 'No AI is connected' }));
+    await expect(createHttpApi(fetch).createConversation({ text: 'hi', attachmentIds: [] })).rejects.toMatchObject({ status: 409, message: 'No AI is connected' });
+  });
+});
+
 describe('http api, update', () => {
   it('reads the state with GET and forces a check with POST', async () => {
     const { fetch, calls } = recorder(() => json(200, { supported: true, available: false }));

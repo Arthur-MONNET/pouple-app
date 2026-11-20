@@ -14,7 +14,8 @@ export function slackConnector(lang: Lang): ConnectorStatus {
       id: 'slack',
       name: 'Slack',
       tagline: text.tagline,
-      required: true,
+      // Optional since Pouple works without Slack: the setup needs an AI only.
+      required: false,
       order: 1,
       fields: [
         {
@@ -304,6 +305,25 @@ export function createFixtures(lang: Lang): AssistantRequest[] {
           },
         ],
       },
+    }),
+    build({
+      status: 'ready',
+      minutes: 12,
+      text: f.inApp.text,
+      source: { origin: 'in-app', channelId: 'in-app:mine', channelName: null, senderId: 'self', senderName: 'Arthur', permalink: null, label: f.inApp.label },
+      patch: {
+        engaged: true,
+        continuable: true,
+        projectId: 'api',
+        entries: [step('s1', '$ rg "cache" -n .gitlab-ci.yml', 11), reply('e1', f.inApp.reply, 10)],
+      },
+    }),
+    build({
+      status: 'ready',
+      minutes: 35,
+      text: f.pullRequest.text,
+      source: { origin: 'pull-request', channelId: 'github-pull-requests', channelName: 'GitHub', senderId: 'github', senderName: 'GitHub', permalink: 'https://github.com/acme/api/pull/482' },
+      patch: { summary: f.pullRequest.summary, entries: [reply('e1', f.pullRequest.summary, 34)] },
     }),
     build({
       status: 'queued',

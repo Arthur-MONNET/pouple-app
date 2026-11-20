@@ -101,6 +101,14 @@ describe('the AI step is a choice between alternatives', () => {
     expect(requiredSteps([slack, ai('codex', 2, false), ai('claude', 3, true)], { ai: 'codex' }).map((c) => c.descriptor.id)).toEqual(['slack', 'claude']);
   });
 
+  it('leaves an optional Slack out of the setup: an AI alone is the whole wizard', () => {
+    const optionalSlack = status('slack', 1, false, false);
+    const steps = requiredSteps([optionalSlack, ai('codex', 2, false), ai('claude', 3, false), status('github', 11, false, false)]);
+    expect(steps.map((c) => c.descriptor.id)).toEqual(['codex']);
+    expect(resumePosition(steps)).toEqual({ kind: 'welcome' });
+    expect(resumePosition(requiredSteps([optionalSlack, ai('codex', 2, true), ai('claude', 3, false)]))).toEqual({ kind: 'done' });
+  });
+
   it('offers the other AI only while none is connected', () => {
     const codex = ai('codex', 2, false);
     expect(alternativesTo([slack, codex, ai('claude', 3, false)], codex).map((c) => c.descriptor.id)).toEqual(['claude']);

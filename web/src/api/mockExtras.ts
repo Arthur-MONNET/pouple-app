@@ -3,12 +3,13 @@ import { ApiError } from './client';
 import type { ConnectorStatus, ConnectorValues, Field, GuideStep, Profile } from './types';
 
 /**
- * The optional connectors of the mock backend (GitLab, Asana, Slite), in both languages. Like the real core they are
- * ordinary connector statuses with `required: false`. Accepted tokens, for a quick try in the browser:
- *   GitLab  glpat-abcdefghijklmnopqrstu      Asana  1/1234567890:abcdefghijklmnopqrstuvwx      Slite  any 24+ letters or digits
+ * The optional connectors of the mock backend (GitLab, GitHub, Asana, Slite), in both languages. Like the real core
+ * they are ordinary connector statuses with `required: false`. Accepted tokens, for a quick try in the browser:
+ *   GitLab  glpat-abcdefghijklmnopqrstu      GitHub  ghp_abcdefghijklmnopqrstuvwx
+ *   Asana   1/1234567890:abcdefghijklmnopqrstuvwx      Slite  any 24+ letters or digits
  * Any token containing "bad" is refused with a 422 on the `token` field.
  */
-export const EXTRA_IDS = ['gitlab', 'asana', 'slite'] as const;
+export const EXTRA_IDS = ['gitlab', 'github', 'asana', 'slite'] as const;
 export type ExtraId = (typeof EXTRA_IDS)[number];
 export const isExtraId = (id: string): id is ExtraId => (EXTRA_IDS as readonly string[]).includes(id);
 
@@ -22,7 +23,7 @@ interface ExtraText {
   linkLabel: string;
   guide: [GuideStep['title'], GuideStep['body']][];
   profile: { subtitle: string; facts: string[]; values: string[]; warning?: { title: string; detail: string } };
-  /** GitLab only: the address of a self-hosted instance. */
+  /** GitLab and GitHub: the address of a self-hosted instance. */
   host?: { label: string; help: string; hint: string };
 }
 
@@ -33,6 +34,8 @@ interface ExtraSpec {
   pattern: string;
   link: string;
   profileName: string;
+  /** The id and placeholder of the address field, when there is one (GitLab: baseUrl, GitHub: url). */
+  hostField?: { id: string; placeholder: string; default?: string };
   text: Record<Lang, ExtraText>;
 }
 
@@ -44,6 +47,7 @@ const SPECS: Record<ExtraId, ExtraSpec> = {
     pattern: '^glpat-[A-Za-z0-9_-]{20,}$',
     link: 'https://gitlab.com/-/user_settings/personal_access_tokens',
     profileName: 'Arthur Monnet',
+    hostField: { id: 'baseUrl', placeholder: 'https://gitlab.example.com' },
     text: {
       fr: {
         tagline: 'Tes merge requests et tes tickets',
@@ -84,6 +88,55 @@ const SPECS: Record<ExtraId, ExtraSpec> = {
           warning: { title: 'The token expires in 9 days', detail: 'Create a new one before then, and reconnect GitLab here.' },
         },
         host: { label: 'Your instance address', help: 'Only for a self-hosted instance. Leave empty for gitlab.com.', hint: 'must start with https://' },
+      },
+    },
+  },
+  github: {
+    name: 'GitHub',
+    order: 11,
+    placeholder: 'github_pat_…',
+    pattern: '^(ghp_|github_pat_)[A-Za-z0-9_]{20,}$',
+    link: 'https://github.com/settings/personal-access-tokens/new',
+    profileName: 'Arthur Monnet',
+    hostField: { id: 'url', placeholder: 'https://api.github.com', default: 'https://api.github.com' },
+    text: {
+      fr: {
+        tagline: 'Tes pull requests et tes relectures',
+        tokenLabel: 'Jeton d’accès personnel',
+        tokenHelp: 'Il commence par github_pat_ ou ghp_. Il reste dans le trousseau de ton Mac et ne s’affiche plus jamais.',
+        patternHint: 'ne ressemble pas à un jeton GitHub (il commence par github_pat_ ou ghp_)',
+        refused: 'GitHub refuse ce jeton (401 Bad credentials). Recopie-le depuis tes jetons d’accès personnels.',
+        linkLabel: 'Ouvrir les jetons GitHub',
+        guide: [
+          ['Crée un jeton à accès précis', 'Dans GitHub, ouvre Settings, Developer settings, puis Personal access tokens. Un clic ci-dessous t’y emmène.'],
+          ['Donne-lui la lecture seule', 'Pull requests, Contents et Metadata en lecture : Pouple ne fait que lire tes pull requests et leurs commentaires.'],
+          ['Copie le jeton', 'GitHub ne l’affiche qu’une fois. Colle-le ici. Pour GitHub Enterprise, renseigne aussi l’adresse de son API.'],
+        ],
+        profile: {
+          subtitle: '@arthur-monnet · github.com',
+          facts: ['Compte', 'Pull requests ouvertes', 'Relectures demandées'],
+          values: ['arthur-monnet', '4', '2'],
+        },
+        host: { label: 'Adresse de l’API', help: 'Seulement pour GitHub Enterprise. Laisse la valeur par défaut pour github.com.', hint: 'doit commencer par https://' },
+      },
+      en: {
+        tagline: 'Your pull requests and reviews',
+        tokenLabel: 'Personal access token',
+        tokenHelp: 'Starts with github_pat_ or ghp_. It stays in your Mac’s keychain and is never shown again.',
+        patternHint: 'does not look like a GitHub token (it starts with github_pat_ or ghp_)',
+        refused: 'GitHub does not accept this token (401 Bad credentials). Copy it again from your personal access tokens.',
+        linkLabel: 'Open GitHub tokens',
+        guide: [
+          ['Create a fine-grained token', 'In GitHub, open Settings, Developer settings, then Personal access tokens. The button below takes you there.'],
+          ['Give it read-only access', 'Pull requests, Contents and Metadata, read-only: Pouple just reads your pull requests and their comments.'],
+          ['Copy the token', 'GitHub shows it once. Paste it here. For GitHub Enterprise, enter its API address too.'],
+        ],
+        profile: {
+          subtitle: '@arthur-monnet · github.com',
+          facts: ['Account', 'Open pull requests', 'Reviews requested'],
+          values: ['arthur-monnet', '4', '2'],
+        },
+        host: { label: 'API address', help: 'Only for GitHub Enterprise. Keep the default for github.com.', hint: 'must start with https://' },
       },
     },
   },
@@ -190,7 +243,8 @@ export function extraConnector(id: ExtraId, lang: Lang): ConnectorStatus {
   const spec = SPECS[id];
   const text = spec.text[lang];
   const fields: Field[] = [{ id: 'token', label: text.tokenLabel, help: text.tokenHelp, placeholder: spec.placeholder, secret: true, pattern: spec.pattern, patternHint: text.patternHint }];
-  if (text.host) fields.push({ id: 'baseUrl', label: text.host.label, help: text.host.help, placeholder: 'https://gitlab.example.com', secret: false, optional: true, pattern: '^https://\\S+$', patternHint: text.host.hint });
+  const host = spec.hostField;
+  if (text.host && host) fields.push({ id: host.id, label: text.host.label, help: text.host.help, placeholder: host.placeholder, secret: false, optional: true, pattern: '^https://\\S+$', patternHint: text.host.hint, ...(host.default ? { default: host.default } : {}) });
   const guide: GuideStep[] = text.guide.map(([title, body], index) => ({ title, body, ...(index === 0 && { link: { label: text.linkLabel, url: spec.link } }) }));
   return { connected: false, descriptor: { id, name: spec.name, tagline: text.tagline, required: false, order: spec.order, fields, guide } };
 }

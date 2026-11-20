@@ -23,12 +23,16 @@ export function fileProblem(file: Pick<File, 'name' | 'size' | 'type'>, alreadyA
   return null;
 }
 
+/** Uploads one file for the given target (a request id, or a fixed key for a conversation not started yet). */
+export type FileUploader = (target: string, file: File) => Promise<AttachmentRef>;
+
 /**
  * The files being added to the next message of a request: each is uploaded as soon as it is chosen, pasted or dropped,
- * so sending the message only has to name them.
+ * so sending the message only has to name them. A new conversation passes its own uploader (draft files).
  */
-export function useComposerFiles(requestId: Ref<string | null>) {
+export function useComposerFiles(requestId: Ref<string | null>, uploader?: FileUploader) {
   const api = useApi();
+  const upload: FileUploader = uploader ?? ((id, file) => api.uploadAttachment(id, file));
   const files = ref<DraftFile[]>([]);
   const uploading = ref(false);
   const error = ref<string | null>(null);
@@ -52,7 +56,7 @@ export function useComposerFiles(requestId: Ref<string | null>) {
       for (const file of list) {
         const problem = fileProblem(file, files.value.length);
         if (problem) throw new Error(problem);
-        const uploaded = await api.uploadAttachment(id, file);
+        const uploaded = await upload(id, file);
         files.value = [...files.value, { ref: uploaded, preview: uploaded.kind === 'image' ? URL.createObjectURL(file) : null }];
       }
     } catch (cause) {

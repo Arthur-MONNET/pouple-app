@@ -10,6 +10,7 @@ import {
   hasExtrasStep,
   HINT_KEY,
   initialExtras,
+  isEssential,
   optionalConnectors,
   readHintDismissed,
   shouldShowHint,
@@ -64,9 +65,18 @@ describe('cards', () => {
     expect(asana).toMatchObject({ id: 'asana', connected: false, profileName: null, avatarUrl: null });
   });
 
+  it('offers Slack and GitHub as extras now that Slack is optional, but never an AI of the setup', () => {
+    const ai = (id: string, order: number, connected: boolean): ConnectorStatus => ({ ...status(id, order, false, connected), descriptor: { ...status(id, order, false).descriptor, choice: 'ai' } });
+    const core = [status('slack', 1, false), ai('codex', 2, true), ai('claude', 3, false), status('gitlab', 10, false), status('github', 11, false)];
+    expect(optionalConnectors(core).map((c) => c.descriptor.id)).toEqual(['slack', 'gitlab', 'github']);
+    expect(extraCards(core).map((card) => card.id)).toEqual(['slack', 'gitlab', 'github']);
+    expect(core.filter(isEssential).map((c) => c.descriptor.id)).toEqual(['codex', 'claude']);
+    expect(hasExtrasStep([ai('codex', 2, true), ai('claude', 3, false)])).toBe(false);
+  });
+
   it('uses a known line per known id and the generic one for an id it has never heard of', () => {
     setLanguage('en');
-    for (const id of ['gitlab', 'asana', 'slite']) {
+    for (const id of ['slack', 'gitlab', 'github', 'asana', 'slite']) {
       expect(benefitKey(id)).toBe(`extras.benefit.${id}`);
       expect(t(benefitKey(id))).not.toBe(t('extras.benefit.generic'));
     }

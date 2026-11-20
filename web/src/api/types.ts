@@ -113,7 +113,10 @@ export type ActionEvent =
 // Conversations (/api/assistant)
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Why a Slack message reached the assistant: the same situations in which Slack itself would notify. */
+/**
+ * Why a request reached the assistant. The Slack origins are the situations in which Slack itself would notify; the
+ * others are events of a service, or the user's own words typed in Pouple.
+ */
 export type RequestOrigin =
   | 'mention'
   | 'direct-message'
@@ -130,7 +133,11 @@ export type RequestOrigin =
   /** A reviewer wrote on a merge request of the user: the text is what GitLab reports. */
   | 'merge-request'
   /** An alert the user set came due: the text is its title, which the user wrote. */
-  | 'reminder';
+  | 'reminder'
+  /** The user started the conversation in Pouple: their own words, with the same rights as a note to self. */
+  | 'in-app'
+  /** Someone commented or reviewed on a pull request of the user, or asked for their review: the text is what GitHub reports. */
+  | 'pull-request';
 
 export interface RequestSource {
   origin: RequestOrigin;
@@ -144,6 +151,8 @@ export interface RequestSource {
   permalink: string | null;
   /** For a reminder: the conversation it was set from, when it came from one. */
   relatedRequestId?: string;
+  /** For a conversation started in Pouple: its first line, at most 80 characters. */
+  label?: string;
 }
 
 export type AssistantStatus =
@@ -286,6 +295,21 @@ export interface AlertInput {
 /** What the user changes of an alert; a field left out stays as it is. */
 export type AlertPatch = Partial<AlertInput>;
 
+/** What the user types to start a conversation in Pouple (POST /api/assistant/requests). */
+export interface NewConversation {
+  text: string;
+  /** Files uploaded beforehand with POST /api/assistant/attachments. */
+  attachmentIds: string[];
+  /** A folder of the projects folder; absent when the user picked none. */
+  projectId?: string;
+}
+
+/** A folder directly under the projects folder (GET /api/assistant/projects). */
+export interface ProjectInfo {
+  id: string;
+  name: string;
+}
+
 /** A file that came with a message. The bytes stay on the core. */
 export interface AttachmentRef {
   id: string;
@@ -342,8 +366,10 @@ export interface AssistantRequest {
   source: RequestSource;
   /** The topic the core sorted this conversation into. Absent or empty: not sorted yet (small talk, or not looked at yet). */
   topicId?: string;
-  /** The Slack message, as received. Untrusted content. */
+  /** The message, as received: someone else's words are untrusted content. */
   text: string;
+  /** The project folder the user picked when starting the conversation in Pouple: a hint for the assistant. */
+  projectId?: string;
   /** The few messages posted just before it. Untrusted content. */
   context: string;
   attachments?: AttachmentRef[];
@@ -371,12 +397,12 @@ export interface AssistantRequest {
 }
 
 export interface AssistantStatusInfo {
-  /** The assistant runs: enabled, Slack connected and Codex found. */
+  /** The assistant runs: enabled and an AI connected. */
   active: boolean;
-  /** Why it is not running, or the last problem met while polling. */
+  /** Why it is not running, or the last problem met while working. */
   problem: string | null;
   lastPollAt: string | null;
-  /** Parts of Slack that could not be watched; the rest keeps working. */
+  /** Parts of the connected services that could not be watched; the rest keeps working. */
   notices: string[];
   /** AI turns started today, the daily limit (null when there is none), tokens and each AI's own usage windows. */
   usage: Usage;
