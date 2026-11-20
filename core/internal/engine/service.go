@@ -182,6 +182,8 @@ type Service struct {
 	reminderMu sync.Mutex
 	// memoryMu serializes the decisions on suggested facts.
 	memoryMu sync.Mutex
+	// terminalHistoryMu serializes terminal creation with assistant command journaling.
+	terminalHistoryMu sync.Mutex
 	// alertWake tells watchAlerts that the alerts changed, so it looks at the clock again.
 	alertWake chan struct{}
 
@@ -932,7 +934,6 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 		return TurnResult{}, selection.Provider, &providerFailure{selection.Provider, i18n.NewError("%s is not available", selection.Provider.Name())}
 	}
 	turn.Model = selection.Model
-	turn.OnEvent = func(event Event) { s.onEvent(id, selection.Provider, event, trackThread) }
 	access, ok := ctx.Value(terminalAccessKey{}).(terminalAccess)
 	if !ok {
 		var err error
@@ -944,7 +945,9 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	if turn.Sandbox == FullAccess {
 		turn.sshAgent = access.socket
 	}
-	turn.onCommand = access.report
+	turn.OnEvent = func(event Event) {
+		s.onEvent(id, selection.Provider, event, trackThread, access)
+	}
 	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
 	if err != nil {
 		return result, selection.Provider, &providerFailure{selection.Provider, err}
@@ -970,7 +973,7 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	return result, selection.Provider, nil
 }
 
-func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool) {
+func (s *Service) onEvent(id string, provider providers.ID, event Event, trackThread bool, access terminalAccess) {
 	switch {
 	case event.Type == "thread" && trackThread:
 		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = event.ThreadID, provider })
@@ -978,7 +981,16 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 		text := s.deps.Redact()(event.Text)
 		entry := s.entry("assistant", "step", text)
 		entry.ExitCode = event.ExitCode
+		entry.Command = s.deps.Redact()(event.Command)
+		command := entry.terminalCommand()
+		if command != "" {
+			s.terminalHistoryMu.Lock()
+			defer s.terminalHistoryMu.Unlock()
+		}
 		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, entry) })
+		if command != "" {
+			access.report(command)
+		}
 	}
 }
 

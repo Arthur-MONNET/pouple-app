@@ -96,6 +96,7 @@ type AttachmentRef struct {
 }
 
 type Entry struct {
+	Command     string          `json:"command,omitempty"`
 	ID          string          `json:"id"`
 	At          string          `json:"at"`
 	Role        string          `json:"role"` // system | assistant | user

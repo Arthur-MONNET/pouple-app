@@ -50,6 +50,7 @@ function activityLabel(entries: readonly ChatEntry[], active: boolean): string {
     }
     if (/^\$ /.test(entry.text)) return t('chat.activity.command');
     if (/^(?:Edited|Wrote|Modifié|Écrit)/i.test(entry.text)) return t('chat.activity.edit');
+    if (/^\{"(?:session|status)":/.test(entry.text) && /"status":"(?:unavailable|start_failed)"/.test(entry.text)) return t('chat.activity.terminalRejected');
     if (/^\{"(?:session|status)":/.test(entry.text)) return t('chat.activity.terminal');
   }
   return t(active ? 'chat.working' : 'chat.didLabel');

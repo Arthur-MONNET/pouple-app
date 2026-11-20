@@ -545,6 +545,7 @@ export const fr: MessageTree = {
       tests: 'J’ai lancé des tests',
       command: 'J’ai lancé une commande',
       edit: 'J’ai modifié des fichiers',
+      terminalRejected: 'Commande non lancée',
       terminal: 'J’ai utilisé le terminal',
     },
     didLabel: "Ce que l'assistant a fait",

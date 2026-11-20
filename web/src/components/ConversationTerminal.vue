@@ -179,7 +179,7 @@ async function select(session: string): Promise<void> {
   };
   observer = new ResizeObserver(fitViewport);
   observer.observe(terminalHost.value);
-  const next = await read(session);
+  const next = await read(session, 'select');
   if (lifetime.signal.aborted) return;
   receive(next);
   fitViewport();
@@ -189,9 +189,14 @@ async function select(session: string): Promise<void> {
 async function refresh(): Promise<void> {
   const next = await terminalRequest<TerminalState[]>(props.requestId, { action: 'list' }, lifetime.signal);
   if (lifetime.signal.aborted) return;
+  const previous = sessions.value;
   sessions.value = next;
   const active = next.find((session) => session.id === selected.value);
-  if (!active || !state.value) {
+  const interactive = next.find((session) => session.interactive);
+  const justStarted = interactive && !previous.some((session) => session.id === interactive.id && session.interactive);
+  if (justStarted && !active?.interactive) {
+    await select(interactive.id);
+  } else if (!active || !state.value) {
     await select(active?.id ?? next.find((session) => session.running)?.id ?? next[0]?.id ?? '');
   } else {
     const view = await read(active.id);

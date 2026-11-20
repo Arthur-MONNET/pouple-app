@@ -238,18 +238,19 @@ func ParseOutcome(text string) (Outcome, error) {
 		out.Reminders = append(out.Reminders, OutcomeReminder{Label: label, Note: note, At: strings.TrimSpace(reminder.At)})
 	}
 	for _, lookup := range raw.Lookups {
+		if len(out.Lookups) == maxLookups {
+			break
+		}
 		target := strings.TrimSpace(lookup.Target)
-		if len(out.Lookups) == maxLookups || !slices.Contains(lookupActions[lookup.Service], lookup.Action) || target == "" {
+		if lookup.Service == "terminal" {
+			lookup.Target, lookup.Text = target, strings.TrimSpace(lookup.Text)
+			out.Lookups = append(out.Lookups, lookup)
+			continue
+		}
+		if !slices.Contains(lookupActions[lookup.Service], lookup.Action) || target == "" {
 			continue
 		}
 		kept := Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)}
-		if kept.Service == "terminal" {
-			text := strings.TrimSpace(lookup.Text)
-			if len([]rune(target)) > maxLookupTarget || len([]rune(text)) > maxLookupTarget || strings.ContainsAny(target+text, "\r\n\x00") || (lookup.Action == "run" && text == "") {
-				continue
-			}
-			kept.Text = text
-		}
 		if kept.IsScreenshot() {
 			// A screen size is a word; what to start is a script name or a command.
 			limit := 12
