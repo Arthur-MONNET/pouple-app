@@ -34,7 +34,9 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slack"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
+	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/machine"
+	"github.com/Arthur-MONNET/pouple/core/internal/remote"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 	"github.com/Arthur-MONNET/pouple/core/internal/slackinbox"
 	"github.com/Arthur-MONNET/pouple/core/internal/ui"
@@ -175,6 +177,12 @@ func run() error {
 		}
 		return current.UILanguage
 	}
+	// The phones' access: off unless the user turns it on, on the interfaces they chose, never the loopback API.
+	remoteAccess, err := newRemoteAccess(dir, vault, settings, service, attachments, language)
+	if err != nil {
+		return err
+	}
+	mountRemoteAdmin := api.MountRemoteAdmin(remoteAccess)
 	handler := api.New(api.Options{
 		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
 		Mount: func(mux *http.ServeMux) {
@@ -187,6 +195,7 @@ func run() error {
 			mountSettings(mux)
 			mountProviders(mux)
 			mountUpdates(mux)
+			mountRemoteAdmin(mux)
 		},
 	}, port)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -228,6 +237,7 @@ func run() error {
 	// The disk and the memory are shown with the AIs' usage, and followed as they change.
 	go resources.Run(ctx, 15*time.Second, service.UsageChanged)
 	go runAssistant(ctx, service, settings, wake)
+	go remoteAccess.Run(ctx)
 	shutdownComplete := make(chan struct{})
 	go func() {
 		defer close(shutdownComplete)
@@ -244,6 +254,7 @@ func run() error {
 		if local != nil {
 			servers.Go(func() { drain(local) })
 		}
+		servers.Go(remoteAccess.Shutdown)
 		servers.Wait()
 		service.Shutdown()
 	}()
@@ -254,6 +265,43 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// newRemoteAccess builds the phones' access. Its routes are the assistant's, mounted on a mux of their own behind the
+// remote handler's authentication, allowlist and step-up.
+func newRemoteAccess(dir string, vault secrets.Store, settings *config.File, service *engine.Service, attachments *engine.Attachments, language func() string) (*remote.Service, error) {
+	return remote.NewService(remote.Options{
+		Dir:     filepath.Join(dir, "remote"),
+		Secrets: vault,
+		Load: func() (config.RemoteSettings, error) {
+			current, err := settings.Load()
+			return current.Remote, err
+		},
+		Save: func(next config.RemoteSettings) error {
+			_, err := settings.Update(func(current *config.Settings) { current.Remote = next })
+			return err
+		},
+		Handler: remote.HandlerOptions{
+			Mount:   api.MountRemote(service, attachments),
+			Granted: func(id string) bool { return conversationGranted(service.Snapshot(), id) },
+			AutoApproveAll: func() bool {
+				// Unreadable settings ask for the fingerprint: the stricter answer.
+				current, err := settings.Load()
+				return err != nil || current.AutoApprove == "all"
+			},
+			Language: language,
+		},
+	})
+}
+
+// conversationGranted says whether a conversation has write approvals, so what is typed there can lead to writes.
+func conversationGranted(snapshot engine.Snapshot, id string) bool {
+	for _, request := range snapshot.Requests {
+		if request.ID == id {
+			return len(request.Grants) > 0
+		}
+	}
+	return false
 }
 
 func envOr(name, fallback string) string {

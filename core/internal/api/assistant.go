@@ -137,6 +137,27 @@ func LocalAssistant(assistant localAssistantEngine, attachments *engine.Attachme
 	})
 }
 
+// RemoteAssistant is what the phone's API needs from the engine: the conversations, starting one, and the alerts.
+type RemoteAssistant interface {
+	localAssistantEngine
+	ConversationStarter
+	Alerts
+}
+
+// MountRemote adds the routes the remote API picks from (see remote's allowlist). A message uses the local API's
+// semantics: a typed "yes" never approves a proposal, and a proposal decision must name the proposal that was read.
+// The remote handler does its own authentication, allowlist and step-up: this mux is never the loopback API's.
+func MountRemote(assistant RemoteAssistant, attachments *engine.Attachments) func(mux *http.ServeMux) {
+	conversations := mountAssistant(assistant, attachments, assistant.MessageFromLocalAPI, true)
+	starts := mountConversationStart(assistant, attachments)
+	alerts := MountAlerts(assistant)
+	return func(mux *http.ServeMux) {
+		conversations(mux)
+		starts(mux)
+		alerts(mux)
+	}
+}
+
 func mountAssistant(assistant Assistant, attachments *engine.Attachments, message func(string, string, []string) error, requireProposalID bool) func(mux *http.ServeMux) {
 	return func(mux *http.ServeMux) {
 		handle := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
