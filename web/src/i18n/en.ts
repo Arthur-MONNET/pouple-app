@@ -4,6 +4,7 @@ import type { MessageTree } from './typography';
 export const en: MessageTree = {
   terminal: {
     title: 'Terminal',
+    resize: 'Resize terminal',
     open: 'Open terminal',
     waiting: 'Waiting for handoff',
     busy: 'Assistant running',

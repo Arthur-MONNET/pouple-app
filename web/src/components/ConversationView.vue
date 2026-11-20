@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onMounted, ref, watch } from 'vue';
+import { defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { AssistantRequest } from '../api/types';
 import AssistantRequestBlock from './AssistantRequestBlock.vue';
 import ConversationComposer from './ConversationComposer.vue';
@@ -53,11 +53,33 @@ watch(
     void scrollToBottom();
   },
 );
-onMounted(scrollToBottom);
+const layout = ref<HTMLElement>();
+const composerBar = ref<HTMLElement>();
+const terminalSpace = ref(0);
+let layoutObserver: ResizeObserver | undefined;
+
+onMounted(() => {
+  void scrollToBottom();
+  const container = layout.value;
+  const footer = composerBar.value;
+  if (!terminalAvailable || !container || !footer) return;
+
+  const measure = () => {
+    const space = Math.max(0, container.clientHeight - footer.offsetHeight);
+    terminalSpace.value = space - Math.min(96, Math.floor(space / 4));
+  };
+
+  measure();
+  layoutObserver = new ResizeObserver(measure);
+  layoutObserver.observe(container);
+  layoutObserver.observe(footer);
+});
+onUnmounted(() => layoutObserver?.disconnect());
 </script>
 
 <template>
   <div
+    ref="layout"
     class="relative flex min-h-0 flex-1 flex-col"
     data-testid="conversation-drop"
     @dragenter.prevent="onDragEnter"
@@ -78,8 +100,8 @@ onMounted(scrollToBottom);
         <AssistantRequestBlock :key="request.id" :request="request" @removed="$emit('removed')" />
       </div>
     </div>
-    <ConversationTerminal v-if="terminalAvailable" :key="request.id" :request-id="request.id" />
-    <div class="border-t border-line-soft">
+    <ConversationTerminal v-if="terminalAvailable" :key="request.id" :request-id="request.id" :available-height="terminalSpace" />
+    <div ref="composerBar" class="shrink-0 border-t border-line-soft">
       <div class="mx-auto w-full max-w-2xl"><ConversationComposer ref="composer" :request="request" /></div>
     </div>
   </div>

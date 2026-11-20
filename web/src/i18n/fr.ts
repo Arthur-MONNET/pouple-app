@@ -8,6 +8,7 @@ import type { MessageTree } from './typography';
 export const fr: MessageTree = {
   terminal: {
     title: 'Terminal',
+    resize: 'Redimensionner le terminal',
     open: 'Ouvrir le terminal',
     waiting: 'En attente du passage de relais',
     busy: 'Assistant en cours',
