@@ -29,7 +29,7 @@ const OutcomeSchema = `{
         "required": ["service", "action", "target", "text"],
         "properties": {
           "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "slack", "screenshot", "notes", "terminal"]},
-          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "thread", "around", "capture", "serve", "run"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "thread", "around", "capture", "serve", "run", "open", "cd"]},
           "target": {"type": "string"},
           "text": {"type": "string"}
         }
@@ -182,7 +182,7 @@ const (
 
 // lookupActions are the lookups each service understands.
 var lookupActions = map[string][]string{
-	"terminal": {"run"},
+	"terminal": {"run", "open", "cd"},
 	"slite":    {"search", "children", "read", "ask"},
 	"gitlab":   {"mr", "diff"},
 	"asana":    {"task", "comment"},
@@ -244,9 +244,11 @@ func ParseOutcome(text string) (Outcome, error) {
 		}
 		kept := Lookup{Service: lookup.Service, Action: lookup.Action, Target: clipRunes(target, maxLookupTarget)}
 		if kept.Service == "terminal" {
-			if len([]rune(target)) > maxLookupTarget || strings.ContainsAny(target, "\r\n\x00") {
+			text := strings.TrimSpace(lookup.Text)
+			if len([]rune(target)) > maxLookupTarget || len([]rune(text)) > maxLookupTarget || strings.ContainsAny(target+text, "\r\n\x00") || (lookup.Action == "run" && text == "") {
 				continue
 			}
+			kept.Text = text
 		}
 		if kept.IsScreenshot() {
 			// A screen size is a word; what to start is a script name or a command.

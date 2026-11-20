@@ -207,7 +207,7 @@ type Service struct {
 	stops        map[string]int
 	subscribers  map[chan struct{}]struct{}
 	closing      bool
-	terminals    map[string]*terminalSession
+	terminals    map[string][]*terminalSession
 	// organizing says a look at all the topics is queued or running; organizeTried is when one was last started.
 	organizing    bool
 	organizeTried time.Time
@@ -936,7 +936,7 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	access, ok := ctx.Value(terminalAccessKey{}).(terminalAccess)
 	if !ok {
 		var err error
-		access, err = s.acquireTerminal(ctx, id, turn.Sandbox == FullAccess)
+		access, err = s.acquireTerminal(ctx, id, turn.terminalSessionID, turn.Sandbox == FullAccess)
 		if err != nil {
 			return TurnResult{}, selection.Provider, err
 		}
@@ -976,7 +976,9 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 		s.update(id, func(r *Stored) { r.ThreadID, r.ThreadProvider = event.ThreadID, provider })
 	case event.Type == "step":
 		text := s.deps.Redact()(event.Text)
-		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, s.entry("assistant", "step", text)) })
+		entry := s.entry("assistant", "step", text)
+		entry.ExitCode = event.ExitCode
+		s.update(id, func(r *Stored) { r.Entries = append(r.Entries, entry) })
 	}
 }
 

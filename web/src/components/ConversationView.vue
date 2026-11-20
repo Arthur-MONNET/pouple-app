@@ -15,6 +15,7 @@ const NEAR_BOTTOM_PX = 140;
 const composer = ref<InstanceType<typeof ConversationComposer> | null>(null);
 /** A file is being dragged over the conversation. A counter, since entering a child fires dragenter before dragleave. */
 const dragDepth = ref(0);
+const interactiveTerminal = ref(false);
 
 function onDragEnter(event: DragEvent): void {
   if (hasFiles(event)) dragDepth.value += 1;
@@ -50,6 +51,7 @@ watch(
   () => props.request.id,
   () => {
     followBottom = true;
+    interactiveTerminal.value = false;
     void scrollToBottom();
   },
 );
@@ -75,10 +77,10 @@ onMounted(scrollToBottom);
     </div>
     <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto px-4 py-3" @scroll.passive="onScroll">
       <div class="mx-auto max-w-2xl">
-        <AssistantRequestBlock :key="request.id" :request="request" @removed="$emit('removed')" />
+        <AssistantRequestBlock :key="request.id" :request="request" :interactive-terminal="interactiveTerminal" @removed="$emit('removed')" />
       </div>
     </div>
-    <ConversationTerminal v-if="terminalAvailable" :key="request.id" :request-id="request.id" />
+    <ConversationTerminal v-if="terminalAvailable" :key="request.id" :request-id="request.id" @interactive="interactiveTerminal = $event" />
     <div class="border-t border-line-soft">
       <div class="mx-auto w-full max-w-2xl"><ConversationComposer ref="composer" :request="request" /></div>
     </div>

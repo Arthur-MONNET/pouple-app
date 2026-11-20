@@ -64,7 +64,13 @@ func (s *Service) followThread(in Incoming) bool {
 	}
 	for _, candidate := range s.deps.Store.List() {
 		open := candidate.Status == StatusReady || candidate.Status == StatusAwaitingUser
-		if !open || candidate.ThreadID == "" || threadKeyOf(candidate.Source) != key || !newerThan(in.Source.TS, candidate.Source.TS) {
+		if threadKeyOf(candidate.Source) != key || !newerThan(in.Source.TS, candidate.Source.TS) {
+			continue
+		}
+		if candidate.StopCheckpoint != "" {
+			return true
+		}
+		if !open || candidate.ThreadID == "" {
 			continue
 		}
 		if candidate.StopCheckpoint != "" {

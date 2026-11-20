@@ -178,7 +178,7 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 	if plan.Status != PlanApproved {
 		return i18n.NewError("The plan has not been approved")
 	}
-	access, err := s.acquireTerminal(ctx, id, !plan.Automatic)
+	access, err := s.acquireTerminal(ctx, id, "", !plan.Automatic)
 	if err != nil {
 		return err
 	}

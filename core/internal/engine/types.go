@@ -101,6 +101,7 @@ type Entry struct {
 	Role        string          `json:"role"` // system | assistant | user
 	Kind        string          `json:"kind"` // text | step
 	Text        string          `json:"text"`
+	ExitCode    *int            `json:"exitCode,omitempty"`
 	Attachments []AttachmentRef `json:"attachments,omitempty"`
 }
 

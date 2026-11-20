@@ -304,6 +304,7 @@ export interface ChatEntry {
   kind: 'text' | 'step';
   text: string;
   attachments?: AttachmentRef[];
+  exitCode?: number;
 }
 
 /** What is known of the user's learned writing style (the style itself stays in the core). */
