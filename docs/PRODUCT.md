@@ -96,6 +96,13 @@ learned helps you there, and what you write there helps Pouple.
   other people said, and `[private]` until you share it (by hand, a mark covers its item and what is indented under it,
   or, on a heading, the whole section):
   `- Lina has preprod 1. ([Slack #qa, 2026-11-12](https://…)) (review 2026-12-10) [unconfirmed] [private]`.
+  A fact you keep in the review gets `(kept DATE)` after its source, the day you confirmed it, and a new review date:
+  `- Lina has preprod 1. ([Slack #qa, 2026-11-12](https://…)) (kept 2026-12-10) (review 2027-01-07) [private]`. The kept
+  date counts as the fact's age from then on (the last date of the line, the review date aside), and keeping it again
+  replaces it. The source says who said it: a fact you wrote yourself in the app, even in a conversation that started
+  from someone else's message, is labelled with your name and "Pouple conversation", not with that person's name or
+  link. A note left with no fact and nothing else than its headings (the review dropped its last fact, or the AI took it
+  out) is removed with its line of the index.
   The folder is a git repository on your computer only (never pushed: a folder whose repository has a remote, such as a
   vault synced with git, is refused). Pouple commits before each of its writes, which
   keeps what you or your CLIs changed apart, and after it: every change can be read and undone, and the history shows what
@@ -105,7 +112,10 @@ learned helps you there, and what you write there helps Pouple.
   place of the old one), and takes out one that no longer holds. Before adding a fact, it searches the notes on its
   subject, so it corrects instead of writing a second one. At most four changes per answer, each answer's changes being
   one commit. The conversation lists them (added, changed with what it said before, taken out), with **Undo** for the whole
-  write and **Share** for each fact; the bubble says it in one line, with Undo. A new fact is **private**: a private fact
+  write and **Share** for each fact; the bubble says it in one line, with Undo. Undo works on the facts as they are now,
+  in one commit: an added fact is taken out, a changed one gets its previous line back, a removed one comes back at the
+  end of its note (made again if it was removed), even after the review kept, shared or dropped some of them or a tidy-up
+  merged their note. Only a fact you changed by hand since stops it, and the message names that fact and its note. A new fact is **private**: a private fact
   never reaches a request of someone else, and such a request can change none. A fact written from a conversation that held
   text of other people is marked `[unconfirmed]`: nobody vouched for it.
 - **How long a fact holds.** The AI says it of each fact: weeks (who has an environment, a current assignment), months, or
