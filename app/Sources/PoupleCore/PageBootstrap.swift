@@ -18,7 +18,7 @@ public enum PageBootstrap {
 
     /// The document-start script. It does nothing outside the core's own origin, whatever frame it lands in.
     public static func userScript(token: String, port: Int) -> String {
-        "if (location.origin === \"http://127.0.0.1:\(port)\") { window.__POUPLE__ = { token: \(javaScriptString(token)) }; }"
+        "if (location.origin === \"http://127.0.0.1:\(port)\") { window.__POUPLE__ = { token: \(javaScriptString(token)), terminal: true }; }"
     }
 
 }

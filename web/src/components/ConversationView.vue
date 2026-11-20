@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { defineAsyncComponent, nextTick, onMounted, ref, watch } from 'vue';
 import type { AssistantRequest } from '../api/types';
 import AssistantRequestBlock from './AssistantRequestBlock.vue';
 import ConversationComposer from './ConversationComposer.vue';
 import { hasFiles } from '../lib/dropFiles';
+
+const ConversationTerminal = defineAsyncComponent(() => import('./ConversationTerminal.vue'));
+const terminalAvailable = window.__POUPLE__?.terminal === true;
 
 const props = defineProps<{ request: AssistantRequest }>();
 defineEmits<{ removed: [] }>();
@@ -75,6 +78,7 @@ onMounted(scrollToBottom);
         <AssistantRequestBlock :key="request.id" :request="request" @removed="$emit('removed')" />
       </div>
     </div>
+    <ConversationTerminal v-if="terminalAvailable" :key="request.id" :request-id="request.id" />
     <div class="border-t border-line-soft">
       <div class="mx-auto w-full max-w-2xl"><ConversationComposer ref="composer" :request="request" /></div>
     </div>

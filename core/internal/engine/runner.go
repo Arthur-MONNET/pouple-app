@@ -43,9 +43,11 @@ type Event struct {
 
 // Turn is one run of the AI.
 type Turn struct {
-	Prompt  string
-	Dir     string
-	Sandbox Sandbox
+	Prompt    string
+	Dir       string
+	Sandbox   Sandbox
+	sshAgent  string
+	onCommand func(string)
 	// Model is the model to use; "" leaves the choice to the CLI.
 	Model string
 	// ResumeThread continues an earlier conversation of the same provider.
@@ -209,6 +211,7 @@ func firstNonEmpty(values ...string) string {
 
 type line struct {
 	events       []Event
+	commandLog   string
 	failure      error
 	finalMessage string
 	tokens       Tokens
@@ -262,6 +265,12 @@ func interpretLine(raw string, lang i18n.Lang) line {
 			return line{failure: i18n.NewError("%s turn failed", "Codex")}
 		}
 		return line{failure: ClassifyFailure(event.Error.Message)}
+	case "item.started":
+		if event.Item["type"] == "command_execution" {
+			if command, ok := event.Item["command"].(string); ok {
+				return line{commandLog: "$ " + readableCommand(command) + "\n"}
+			}
+		}
 	case "item.completed":
 		return interpretItem(event.Item, lang)
 	case "turn.completed":
@@ -279,11 +288,20 @@ func interpretItem(item map[string]any, lang i18n.Lang) line {
 			return line{events: []Event{{Type: "message", Text: message}}, finalMessage: message}
 		}
 	case "command_execution":
-		suffix := ""
-		if code, ok := item["exit_code"].(float64); ok && code != 0 {
-			suffix = i18n.T(lang, "  (exit %d)", int(code))
+		suffix, commandLog := "", ""
+		if output := text("aggregated_output"); output != "" {
+			commandLog = strings.TrimSuffix(output, "\n") + "\n"
 		}
-		return line{events: []Event{{Type: "step", Text: "$ " + shortLine(readableCommand(text("command"))) + suffix}}}
+		if code, ok := item["exit_code"].(float64); ok {
+			commandLog += fmt.Sprintf("[%d]\n", int(code))
+			if code != 0 {
+				suffix = i18n.T(lang, "  (exit %d)", int(code))
+			}
+		}
+		return line{
+			events:     []Event{{Type: "step", Text: "$ " + shortLine(readableCommand(text("command"))) + suffix}},
+			commandLog: commandLog,
+		}
 	case "reasoning":
 		if reasoning := strings.TrimSpace(text("text")); reasoning != "" {
 			return line{events: []Event{{Type: "step", Text: shortLine(reasoning)}}}
@@ -329,8 +347,11 @@ func (r *Runner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 	result := TurnResult{ThreadID: turn.ResumeThread}
 	var failure error
 	lang := i18n.FromContext(ctx)
-	end, err := runProcess(ctx, spec, func(raw string) error {
+	end, err := runProcess(ctx, turn.withSSHAgent(spec), func(raw string) error {
 		parsed := interpretLine(raw, lang)
+		if turn.onCommand != nil && parsed.commandLog != "" {
+			turn.onCommand(parsed.commandLog)
+		}
 		for _, event := range parsed.events {
 			if event.Type == "thread" {
 				result.ThreadID = event.ThreadID

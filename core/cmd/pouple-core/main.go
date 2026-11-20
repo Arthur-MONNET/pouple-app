@@ -170,6 +170,9 @@ func run() error {
 		Registry: registry, Token: token, UI: ui.Files(), TokenFromShell: tokenFromShell, Language: language,
 		Mount: func(mux *http.ServeMux) {
 			mountAssistant(mux)
+			if tokenFromShell && runtime.GOOS == "darwin" {
+				api.MountTerminal(mux, service)
+			}
 			mountAlerts(mux)
 			mountSettings(mux)
 			mountProviders(mux)

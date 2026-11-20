@@ -169,6 +169,12 @@ func (s *Service) DecidePlanActions(id string, approve bool, wanted string, sele
 // executePlan carries out an approved plan, one action after another, each in a fresh turn that sees the plan and never
 // the request's own text.
 func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
+	access, err := s.acquireTerminal(ctx, id, !plan.Automatic)
+	if err != nil {
+		return err
+	}
+	defer access.release()
+	ctx = context.WithValue(ctx, terminalAccessKey{}, access)
 	var written []string
 	for _, action := range plan.Actions {
 		switch action.Kind {
@@ -179,6 +185,9 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 			line, err := run(ctx, id, plan, action)
 			if err != nil {
+				if ctx.Err() != nil {
+					return ErrCancelled
+				}
 				return err
 			}
 			if line != "" {

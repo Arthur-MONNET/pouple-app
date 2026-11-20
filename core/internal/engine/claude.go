@@ -274,8 +274,8 @@ func (r *ClaudeRunner) Run(ctx context.Context, turn Turn) (TurnResult, error) {
 		// gateway, and the API token of the local server never reaches the child.
 		Env: providers.ChildEnv(os.Environ(), claudeHomeEnv(r.opts.Home)...),
 	}
-	stream := &claudeStream{dir: turn.Dir, lang: i18n.FromContext(ctx), onEvent: turn.OnEvent, onUsage: turn.OnUsage, result: TurnResult{ThreadID: turn.ResumeThread}}
-	end, err := runProcess(ctx, spec, stream.read)
+	stream := &claudeStream{dir: turn.Dir, lang: i18n.FromContext(ctx), onEvent: turn.OnEvent, onUsage: turn.OnUsage, onCommand: turn.onCommand, result: TurnResult{ThreadID: turn.ResumeThread}}
+	end, err := runProcess(ctx, turn.withSSHAgent(spec), stream.read)
 	if err != nil {
 		return TurnResult{}, err
 	}
@@ -296,10 +296,12 @@ func claudeHomeEnv(home string) []string {
 // (verified against Claude Code 2.1.272) are system/init, system/api_retry, assistant and user messages made of
 // content blocks, and a final result with the answer and the session id. Unknown shapes are ignored.
 type claudeStream struct {
-	dir     string
-	lang    i18n.Lang
-	onEvent func(Event)
-	onUsage func(Tokens, *Limits)
+	dir       string
+	lang      i18n.Lang
+	onEvent   func(Event)
+	onUsage   func(Tokens, *Limits)
+	onCommand func(string)
+	commands  map[string]bool
 
 	result     TurnResult
 	lastText   string
@@ -335,10 +337,13 @@ type claudeEvent struct {
 }
 
 type claudeBlock struct {
-	Type  string         `json:"type"`
-	Text  string         `json:"text"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
+	ID        string          `json:"id"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	Name      string          `json:"name"`
+	Input     map[string]any  `json:"input"`
 }
 
 func (c *claudeStream) emit(event Event) {
@@ -369,6 +374,8 @@ func (c *claudeStream) read(raw string) error {
 	case "assistant":
 		c.session(event.SessionID)
 		c.assistant(event)
+	case "user":
+		c.commandResults(event.Message.Content)
 	case "result":
 		c.session(event.SessionID)
 		c.finished(event)
@@ -450,6 +457,15 @@ func (c *claudeStream) assistant(event claudeEvent) {
 				c.emit(Event{Type: "message", Text: text})
 			}
 		case "tool_use":
+			if c.onCommand != nil && block.Name == "Bash" && block.ID != "" {
+				if command, ok := block.Input["command"].(string); ok {
+					if c.commands == nil {
+						c.commands = make(map[string]bool)
+					}
+					c.commands[block.ID] = true
+					c.onCommand("$ " + command + "\n")
+				}
+			}
 			if block.Name == "StructuredOutput" {
 				if data, err := json.Marshal(block.Input); err == nil {
 					c.structured = string(data)
@@ -519,4 +535,30 @@ func (c *claudeStream) finished(event claudeEvent) {
 func (c *claudeStream) finish() TurnResult {
 	c.result.FinalMessage = c.answer
 	return c.result
+}
+
+func (c *claudeStream) commandResults(content json.RawMessage) {
+	if len(c.commands) == 0 {
+		return
+	}
+	var blocks []claudeBlock
+	_ = json.Unmarshal(content, &blocks)
+	for _, block := range blocks {
+		if block.Type != "tool_result" || !c.commands[block.ToolUseID] {
+			continue
+		}
+		delete(c.commands, block.ToolUseID)
+		var text string
+		if json.Unmarshal(block.Content, &text) == nil {
+			c.onCommand(text + "\n")
+			continue
+		}
+		var parts []claudeBlock
+		_ = json.Unmarshal(block.Content, &parts)
+		for _, part := range parts {
+			if part.Type == "text" {
+				c.onCommand(part.Text + "\n")
+			}
+		}
+	}
 }
