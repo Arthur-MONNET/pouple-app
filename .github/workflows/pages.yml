@@ -4,7 +4,7 @@ name: Site
 on:
   push:
     branches: [main]
-    paths: ["site/**"]
+    paths: ["site/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,8 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # A deploy that started finishes: cancelling one halfway can leave Pages without a site.
+  cancel-in-progress: false
 
 jobs:
   deploy:

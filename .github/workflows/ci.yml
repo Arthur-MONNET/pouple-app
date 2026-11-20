@@ -5,24 +5,48 @@ on:
     branches: [main, develop]
   pull_request:
 
+permissions:
+  contents: read
+
+# A newer push replaces the run still going on the same branch, except on main, where every commit keeps its own run:
+# each main commit gets a group of its own, since a shared group would still drop a run that waits behind another.
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   core:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
+      - name: Check formatting
+        working-directory: core
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted:"
+            echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+      - name: Time the process and port scans the dev server uses
+        run: |
+          time /usr/sbin/lsof -nP -a -p $$ -iTCP -sTCP:LISTEN > /dev/null || true
+          time /bin/ps -axo pid=,ppid= > /dev/null
       - name: Vet and test
         working-directory: core
         run: |
-          test -z "$(gofmt -l .)"
           go vet ./...
-          go test -race ./...
+          go test -race -timeout 5m ./...
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -42,6 +66,7 @@ jobs:
 
   app:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Test the Swift app

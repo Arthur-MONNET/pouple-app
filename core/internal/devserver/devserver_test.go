@@ -42,7 +42,9 @@ func freePort(t *testing.T) int {
 	return listener.Addr().(*net.TCPAddr).Port
 }
 
-// manager runs a tiny local server where the project's script would, on a port it chose.
+// manager runs a tiny local server where the project's script would, on a port it chose. It is told that port instead of
+// scanning the system's processes and sockets (ps and lsof), which can take tens of seconds a call on a CI machine: the
+// real lookup is checked once, by TestStartsTheProjectsOwnScriptWaitsForItAndReusesIt.
 func manager(root string, port int, started *[]string) *Manager {
 	return &Manager{
 		Root: func() string { return root }, Shell: "/bin/sh",
@@ -61,6 +63,7 @@ func manager(root string, port int, started *[]string) *Manager {
 			response.Body.Close()
 			return true
 		},
+		Listening: func(context.Context, int) []Listener { return []Listener{{Port: port}} },
 	}
 }
 
@@ -69,6 +72,8 @@ func TestStartsTheProjectsOwnScriptWaitsForItAndReusesIt(t *testing.T) {
 	port := freePort(t)
 	var started []string
 	m := manager(root, port, &started)
+	// The real lookup of the ports the server's processes listen on (ps and lsof), not the other tests' shortcut.
+	m.Listening = nil
 	t.Cleanup(m.Shutdown)
 
 	var said []string
@@ -138,19 +143,19 @@ func TestAnythingUnusualWaitsForTheUsersApprovalAndRunsExactlyWhatTheyAllowed(t 
 
 	// Once allowed, the shell line runs as a line (it was read by the user as one), and a plain command as words.
 	var plans []Plan
-	m := manager(root, freePort(t), new([]string))
+	port := freePort(t)
+	m := manager(root, port, new([]string))
+	t.Cleanup(m.Shutdown)
 	m.Start = func(dir string, plan Plan) *exec.Cmd {
 		plans = append(plans, plan)
-		return exec.Command("python3", "-m", "http.server", strconv.Itoa(freePort(t)), "--bind", "127.0.0.1")
+		return exec.Command("python3", "-m", "http.server", strconv.Itoa(port), "--bind", "127.0.0.1")
 	}
-	m.Listening = nil
-	if _, err := m.Serve(context.Background(), "app", "FOO=1 vite --port 8001", true, nil); err == nil || len(plans) != 1 || plans[0].Shell != "FOO=1 vite --port 8001" || plans[0].Argv != nil {
-		// The fake server's port is unknown to the real lookup in this call: only the plan matters here.
-		if len(plans) != 1 || plans[0].Shell != "FOO=1 vite --port 8001" {
-			t.Fatalf("an allowed shell line runs as the line: %+v", plans)
-		}
+	if _, err := m.Serve(context.Background(), "app", "FOO=1 vite --port 8001", true, nil); err != nil {
+		t.Fatal(err)
 	}
-	m.Shutdown()
+	if len(plans) != 1 || plans[0].Shell != "FOO=1 vite --port 8001" || plans[0].Argv != nil {
+		t.Fatalf("an allowed shell line runs as the line: %+v", plans)
+	}
 }
 
 func TestAnInvalidProjectIsRefusedBeforeAnything(t *testing.T) {
