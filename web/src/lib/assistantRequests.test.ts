@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { createFixtures } from '../api/mockFixtures';
 import type { AssistantStatus, ChatEntry } from '../api/types';
-import { attentionCount, byRecentActivity, groupEntries, isEvent, isWorking, matchesFilter, permalinkLabelKey, requestTitle } from './assistantRequests';
+import {
+  attentionCount,
+  byRecentActivity,
+  groupEntries,
+  isEvent,
+  isWorking,
+  leavesAfterRemoval,
+  matchesFilter,
+  permalinkLabelKey,
+  requestTitle,
+} from './assistantRequests';
 
 const ALL: AssistantStatus[] = ['queued', 'analyzing', 'awaiting-user', 'ready', 'applying', 'done', 'ignored', 'failed'];
 
@@ -69,5 +79,16 @@ describe('ordering and grouping', () => {
     const groups = groupEntries([entry('a', 'step'), entry('b', 'step'), entry('c', 'text'), entry('d', 'step')]);
     expect(groups.map((g) => g.type)).toEqual(['steps', 'message', 'steps']);
     expect(groups[0]).toMatchObject({ entries: [{ id: 'a' }, { id: 'b' }] });
+  });
+});
+
+describe('leavesAfterRemoval', () => {
+  it('leaves the conversation that was deleted while it is shown', () => {
+    expect(leavesAfterRemoval('a1', 'a1')).toBe(true);
+  });
+
+  it('stays on the conversation the user opened while another one was being deleted', () => {
+    expect(leavesAfterRemoval('a1', 'b2')).toBe(false);
+    expect(leavesAfterRemoval('a1', null)).toBe(false);
   });
 });

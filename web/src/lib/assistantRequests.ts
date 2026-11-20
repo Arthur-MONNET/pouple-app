@@ -42,6 +42,9 @@ export const isEvent = (origin: RequestOrigin): boolean => EVENT_ORIGINS.has(ori
 /** A conversation the user started in Pouple: their own words, never an event. */
 export const isInApp = (request: Pick<AssistantRequest, 'source'>): boolean => request.source.origin === 'in-app';
 
+/** A deleted conversation is left only while it is still the one shown: a slow deletion never pulls the user off another. */
+export const leavesAfterRemoval = (removedId: string, selectedId: string | null): boolean => removedId === selectedId;
+
 /** "Demande de Morgan dans #front", "Note à moi-même", the first line of an event or of a conversation started in Pouple… */
 export function requestTitle(request: Pick<AssistantRequest, 'source' | 'text'>): string {
   const { source } = request;

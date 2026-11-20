@@ -13,7 +13,7 @@ import InlineError from './InlineError.vue';
 import StatusDot from './StatusDot.vue';
 
 const props = defineProps<{ request: AssistantRequest }>();
-const emit = defineEmits<{ removed: [] }>();
+const emit = defineEmits<{ removed: [id: string] }>();
 const store = useAssistantStore();
 const action = useAsyncAction();
 
@@ -32,7 +32,11 @@ const items = computed<MenuItem[]>(() => [
 async function onSelect(id: string): Promise<void> {
   if (id === 'retry') await action.run(() => store.retry(props.request.id));
   else if (id === 'dismiss') await action.run(() => store.ignore(props.request.id));
-  else if (id === 'delete' && (await action.run(() => store.remove(props.request.id)))) emit('removed');
+  else if (id === 'delete') {
+    // The conversation deleted, not the one shown when the deletion ends: the user may have opened another one meanwhile.
+    const removed = props.request.id;
+    if (await action.run(() => store.remove(removed))) emit('removed', removed);
+  }
 }
 </script>
 

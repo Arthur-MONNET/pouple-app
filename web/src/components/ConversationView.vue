@@ -12,7 +12,7 @@ const ConversationTerminal = defineAsyncComponent(() => import('./ConversationTe
 const terminalAvailable = window.__POUPLE__?.terminal === true;
 
 const props = defineProps<{ request: AssistantRequest }>();
-defineEmits<{ removed: [] }>();
+defineEmits<{ removed: [id: string] }>();
 
 const NEAR_BOTTOM_PX = 140;
 const composer = ref<InstanceType<typeof ConversationComposer> | null>(null);
@@ -102,7 +102,8 @@ onUnmounted(() => layoutObserver?.disconnect());
     >
       {{ $t('composer.dropHint') }}
     </div>
-    <ConversationHeader :request="request" @removed="$emit('removed')" />
+    <!-- Keyed like the rest: a slow action, its error and its disabled menu never move to another conversation. -->
+    <ConversationHeader :key="`header-${request.id}`" :request="request" @removed="$emit('removed', $event)" />
     <!-- A short thread sits at the bottom, against the dock: the last message stays next to what answers it. -->
     <div ref="scroller" class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4" @scroll.passive="onScroll">
       <div class="mx-auto mt-auto w-full max-w-3xl">
