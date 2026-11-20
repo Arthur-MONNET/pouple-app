@@ -10,7 +10,7 @@ import (
 
 // supportedKinds are the kinds of write Pouple can carry out today. A plan that asks for another kind is refused when it
 // is made, not when the user has already approved it.
-var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest, RunTerminal}
+var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest, RunTerminal, WriteNote}
 
 // proposePlan shows the plan the investigating AI wrote for the user to approve. Inside places the user already approved
 // in this conversation it is carried out at once: a grant is for the whole conversation. canAct is whether the turn that
@@ -32,6 +32,16 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry, canAct 
 	if err != nil {
 		refuse(s.text("The plan could not be used: %s", i18n.ErrorText(s.deps.Language(), err)))
 		return
+	}
+	if plan.hasSlitePages() {
+		if !canAct {
+			refuse(s.text("Slite pages can only be proposed at your request."))
+			return
+		}
+		if s.deps.CreateSlitePage == nil {
+			refuse(s.text("Slite page creation is unavailable."))
+			return
+		}
 	}
 	for _, action := range plan.Actions {
 		if !containsKind(supportedKinds, action.Kind) {
@@ -69,7 +79,7 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry, canAct 
 			trusted = false
 		}
 	}
-	if covered || trusted {
+	if !plan.hasSlitePages() && (covered || trusted) {
 		plan.Status = PlanApproved
 		why := "Inside what you already approved here: carrying it out"
 		if !covered {
@@ -192,6 +202,15 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 	if plan.Status != PlanApproved {
 		return i18n.NewError("The plan has not been approved")
 	}
+	hasSlitePages := plan.hasSlitePages()
+	if hasSlitePages {
+		request, ok := s.deps.Store.Get(id)
+		if !ok || request.Status != StatusApplying || request.Plan == nil ||
+			plan.Automatic || request.Plan.Status != PlanApproved || request.Plan.Automatic ||
+			PlanFingerprint(*request.Plan) != PlanFingerprint(plan) {
+			return i18n.Wrap(ErrState, "Slite page creation requires explicit approval")
+		}
+	}
 	access, err := s.acquireTerminal(ctx, id, "", !plan.Automatic)
 	if err != nil {
 		return err
@@ -203,8 +222,16 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 		return s.runTerminalPlan(ctx, id, plan)
 	}
 	var written []string
+	var sliteCreated, sliteTotal int
 	codePushes := map[string]bool{}
-	for _, action := range plan.Actions {
+	recordSkippedPages := func(actions []Action) {
+		for _, pending := range actions {
+			if pending.Kind == WriteNote {
+				s.recordSliteResult(id, "system", s.text("Slite: “%s” was skipped after publication stopped.", pending.Title))
+			}
+		}
+	}
+	for i, action := range plan.Actions {
 		switch action.Kind {
 		case EditCode, SyncBranch:
 			run := s.runCodeEdit
@@ -213,6 +240,7 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 			line, err := run(ctx, id, plan, action)
 			if err != nil {
+				recordSkippedPages(plan.Actions[i+1:])
 				if ctx.Err() != nil {
 					return ErrCancelled
 				}
@@ -228,13 +256,16 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 		case MergeRequest:
 			if pushed, ran := codePushes[action.Branch]; ran && !pushed {
+				recordSkippedPages(plan.Actions[i+1:])
 				return i18n.NewError("The source branch was not pushed; the merge request was not created")
 			}
 			if plan.Automatic || s.deps.OpenMergeRequest == nil {
+				recordSkippedPages(plan.Actions[i+1:])
 				return i18n.NewError("Merge request creation needs user approval and a connected GitLab account")
 			}
 			link, err := s.deps.OpenMergeRequest(ctx, action, plan.Goal)
 			if err != nil {
+				recordSkippedPages(plan.Actions[i+1:])
 				failure := i18n.Wrap(err, "Merge request %s → %s could not be opened: %s", action.Branch, action.Base, err)
 				if len(written) > 0 {
 					return i18n.Wrap(failure, "%s\n%s", strings.Join(written, "\n"), failure)
@@ -244,9 +275,26 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			line := s.text("Merge request: %s", link)
 			written = append(written, line)
 			s.update(id, func(r *Stored) { r.Summary = ptr(line); r.Entries = append(r.Entries, s.entry("system", "text", line)) })
+		case WriteNote:
+			sliteTotal++
+			if s.publishSlitePage(ctx, id, action) {
+				sliteCreated++
+			}
 		default:
 			return i18n.NewError("Pouple cannot carry out this kind of write yet")
 		}
+	}
+	if hasSlitePages {
+		summary := s.text("Slite pages created: %d of %d", sliteCreated, sliteTotal)
+		s.update(id, func(r *Stored) {
+			r.Status, r.Summary = StatusDone, ptr(summary)
+			if sliteCreated != sliteTotal {
+				r.Status = StatusReady
+			}
+		})
+		written = append(written, summary)
+		s.alert(id, strings.Join(written, "\n"))
+		return nil
 	}
 	if len(written) == 0 {
 		return nil
@@ -362,7 +410,9 @@ func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action 
 	if line == "" {
 		// The AI stopped on something it lacked: say it plainly and keep the request open.
 		s.update(id, func(r *Stored) {
-			r.Status = StatusReady
+			if !plan.hasSlitePages() {
+				r.Status = StatusReady
+			}
 			r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary), s.entry("system", "text", s.text("No file was changed.")))
 		})
 		s.alert(id, s.text("Nothing was changed: %s", outcome.Summary))

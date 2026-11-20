@@ -119,13 +119,14 @@ final class ModelsTests: XCTestCase {
     }
 
     func testOnlyAPlanOfOneActionCanBeApprovedFromTheBubble() throws {
-        func plan(id: String?, status: String = "proposed", actions: Int) throws -> AssistantPlan {
-            let action = #"{"kind":"code.edit","scope":{"service":"code","id":"login-app"},"summary":"Keep the page","branch":"fix/login"}"#
+        func plan(id: String?, status: String = "proposed", actions: Int, kind: String = "code.edit") throws -> AssistantPlan {
+            let action = #"{"kind":"\#(kind)","scope":{"service":"code","id":"login-app"},"summary":"Keep the page","branch":"fix/login"}"#
             let idField = id.map { #""id":"\#($0)","# } ?? ""
             let json = #"{\#(idField)"goal":"Fix the login redirect","brief":"b","status":"\#(status)","actions":[\#(Array(repeating: action, count: actions).joined(separator: ","))]}"#
             return try JSONDecoder().decode(AssistantPlan.self, from: Data(json.utf8))
         }
         XCTAssertTrue(try plan(id: "p1", actions: 1).canApproveAtOnce)
+        XCTAssertFalse(try plan(id: "p1", actions: 1, kind: "slite.write").canApproveAtOnce)
         // Several courses to tick: approving them all blindly could run two that exclude each other.
         XCTAssertFalse(try plan(id: "p1", actions: 2).canApproveAtOnce)
         // An approval names the plan that was read; and a plan already decided waits for nothing.

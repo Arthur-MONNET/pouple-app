@@ -204,6 +204,8 @@ export interface PlanAction {
   /** Source and base branches for code; source and target branches for gitlab.merge-request. */
   branch?: string;
   base?: string;
+  title?: string;
+  markdown?: string;
 }
 
 /** What the assistant wants to write, for the user to approve before anything is written. */

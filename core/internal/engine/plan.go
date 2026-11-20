@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
@@ -27,7 +28,7 @@ const (
 	ScopeGitLab ScopeService = "gitlab"
 	// ScopeAsana is an Asana project.
 	ScopeAsana ScopeService = "asana"
-	// ScopeSlite is a Slite space.
+	// ScopeSlite is the Slite parent note under which a page will be created.
 	ScopeSlite ScopeService = "slite"
 	// ScopeTerminal is the interactive terminal of the conversation: its sessions, local or reached from it (ssh).
 	ScopeTerminal ScopeService = "terminal"
@@ -37,11 +38,11 @@ const (
 // approval covers its terminal as a whole, never a session that could be swapped for another under the same name.
 const ConversationTerminal = "."
 
-// Scope is one place a write approval covers: a project folder, a GitLab project, an Asana project or a Slite space.
+// Scope is one place a write approval covers, such as a project folder, a Slite parent note or the conversation terminal.
 type Scope struct {
 	Service ScopeService `json:"service"`
 	// ID is the service's own identifier (the folder name, the GitLab project path, the Asana project gid, the Slite
-	// space id). It is the only part that matches.
+	// parent note ID). It is the only part that matches.
 	ID string `json:"id"`
 	// Name is what the user reads. It plays no part in matching.
 	Name string `json:"name,omitempty"`
@@ -98,6 +99,9 @@ type Action struct {
 	// fingerprint.
 	Branch string `json:"branch,omitempty"`
 	Base   string `json:"base,omitempty"`
+	// Title and Markdown are the exact contents approved and sent to Slite.
+	Title    string `json:"title,omitempty"`
+	Markdown string `json:"markdown,omitempty"`
 }
 
 // PlanStatus is where a plan stands.
@@ -135,20 +139,19 @@ const (
 
 // scopeIDs say what an identifier of each service looks like, checked before a place is ever shown. A project folder
 // is a plain folder name directly under the projects root, never hidden (the rule of projectPath); a GitLab project is
-// its numeric ID or its "group/project" path; an Asana project is its numeric gid; a Slite space is a plain ID; the
+// its numeric ID or its "group/project" path; an Asana project is its numeric gid; a Slite destination is a note ID; the
 // terminal is the conversation's own (ConversationTerminal).
 var scopeIDs = map[ScopeService]func(string) bool{
 	ScopeCode:     func(id string) bool { return projectID.MatchString(id) && !strings.HasPrefix(id, ".") },
 	ScopeGitLab:   gitlabProjectID.MatchString,
 	ScopeAsana:    asanaGID.MatchString,
-	ScopeSlite:    sliteID.MatchString,
+	ScopeSlite:    slite.ValidNoteID,
 	ScopeTerminal: func(id string) bool { return id == ConversationTerminal },
 }
 
 var (
 	gitlabProjectID = regexp.MustCompile(`^([0-9]+|[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)+)$`)
 	asanaGID        = regexp.MustCompile(`^[0-9]+$`)
-	sliteID         = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
 // Normalize checks a plan written by the AI before it is shown for approval, and trims its texts. A plan that does not
@@ -228,7 +231,16 @@ func (a Action) normalize() (Action, error) {
 	if err := checkBranches(a.Kind, branch, base); err != nil {
 		return Action{}, err
 	}
-	return Action{Kind: a.Kind, Scope: Scope{Service: service, ID: id, Name: name}, Summary: summary, Branch: branch, Base: base}, nil
+	if a.Kind == WriteNote {
+		if strings.TrimSpace(a.Title) == "" || !validPlanText(a.Title, maxActionSummary, false) ||
+			len(a.Markdown) > 64<<10 || !validPlanText(a.Markdown, 64<<10, true) {
+			return Action{}, i18n.Wrap(ErrOutcome, "A Slite page needs a valid title and Markdown")
+		}
+	} else if a.Title != "" || a.Markdown != "" {
+		return Action{}, i18n.Wrap(ErrOutcome, "Only Slite actions can contain a page title and Markdown")
+	}
+	a.Scope, a.Summary, a.Branch, a.Base = Scope{Service: service, ID: id, Name: name}, summary, branch, base
+	return a, nil
 }
 
 // checkBranches says whether the branches of an action fit its kind. A SyncBranch names a branch to update and the one to
@@ -273,13 +285,21 @@ func validBranchName(name string) bool {
 // approves the text as it reads.
 func planText(text string, max int, lineBreaks bool) (string, bool) {
 	text = strings.TrimSpace(text)
+	return text, validPlanText(text, max, lineBreaks)
+}
+
+func validPlanText(text string, max int, lineBreaks bool) bool {
 	hidden := strings.ContainsFunc(text, func(r rune) bool {
 		if lineBreaks && (r == '\n' || r == '\t') {
 			return false
 		}
 		return unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp)
 	})
-	return text, utf8.RuneCountInString(text) <= max && !hidden
+	return utf8.ValidString(text) && utf8.RuneCountInString(text) <= max && !hidden
+}
+
+func (p Plan) hasSlitePages() bool {
+	return slices.ContainsFunc(p.Actions, func(action Action) bool { return action.Kind == WriteNote })
 }
 
 // Select returns the plan with only the actions at these positions, in the plan's order. It reports false for no position,
@@ -345,6 +365,9 @@ func (g Grants) With(p Plan) (Grants, error) {
 		out[i] = Grant{Scope: grant.Scope, Kinds: slices.Clone(grant.Kinds), Actions: slices.Clone(grant.Actions)}
 	}
 	for _, action := range p.Actions {
+		if action.Kind == WriteNote {
+			continue // Publishing requires approval of each page, never a standing grant.
+		}
 		index := slices.IndexFunc(out, func(grant Grant) bool { return grant.Scope.same(action.Scope) })
 		if index < 0 {
 			out = append(out, Grant{Scope: action.Scope, Kinds: []ActionKind{}})
@@ -365,7 +388,7 @@ func (g Grants) With(p Plan) (Grants, error) {
 // Covers reports whether an action is already approved: its scope was granted, with its kind. An action whose kind does
 // not write in its scope's service is never covered.
 func (g Grants) Covers(action Action) bool {
-	if service, known := action.Kind.Service(); !known || service != action.Scope.Service {
+	if service, known := action.Kind.Service(); !known || service != action.Scope.Service || action.Kind == WriteNote {
 		return false
 	}
 	return slices.ContainsFunc(g, func(grant Grant) bool {

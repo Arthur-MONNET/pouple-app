@@ -241,9 +241,11 @@ struct BubbleCard: View {
                         Button(L10n.text(.bubbleSeePlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .quiet))
                     }
                 } else {
-                    Text(L10n.text(.planChoices, plan.actions.count)).font(.system(size: 11)).foregroundStyle(Theme.dim)
+                    if plan.actions.count > 1 {
+                        Text(L10n.text(.planChoices, plan.actions.count)).font(.system(size: 11)).foregroundStyle(Theme.dim)
+                    }
                     HStack {
-                        Button(L10n.text(.bubbleChoosePlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .primary))
+                        Button(L10n.text(plan.actions.count == 1 ? .bubbleSeePlan : .bubbleChoosePlan)) { store.openPouple(request) }.buttonStyle(PillButtonStyle(role: .primary))
                         Button(L10n.text(.bubbleNotNow)) { store.decidePlan(request, approve: false) }.buttonStyle(PillButtonStyle()).disabled(busy)
                         Spacer()
                     }

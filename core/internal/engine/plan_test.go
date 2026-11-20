@@ -155,6 +155,9 @@ func TestNormalizeAcceptsOnlyRealIdentifiersOfEachService(t *testing.T) {
 		if c.kind == EditCode {
 			action.Branch = "fix/it"
 		}
+		if c.kind == WriteNote {
+			action.Title = "Page title"
+		}
 		raw := Plan{Goal: "Goal", Actions: []Action{action}}
 		_, err := raw.Normalize()
 		if (err == nil) != c.ok {

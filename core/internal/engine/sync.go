@@ -72,7 +72,10 @@ func (s *Service) runBranchSync(ctx context.Context, id string, plan Plan, actio
 		s.discardWorktree(ctx, wt)
 		recap := s.text("**%s already has everything from %s.**", branch, base)
 		s.update(id, func(r *Stored) {
-			r.Status, r.Summary = StatusReady, ptr(recap)
+			if !plan.hasSlitePages() {
+				r.Status = StatusReady
+			}
+			r.Summary = ptr(recap)
 			r.Entries = append(r.Entries, s.entry("assistant", "text", recap), s.entry("system", "text", s.text("Nothing was changed.")))
 		})
 		s.alert(id, recap)

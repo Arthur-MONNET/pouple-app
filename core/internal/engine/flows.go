@@ -942,7 +942,11 @@ func (s *Service) Recover() {
 			s.update(request.ID, func(r *Stored) {
 				settleCommands(r.Entries)
 				r.Status = StatusReady
-				r.Entries = append(r.Entries, s.entry("system", "text", s.text("Pouple was closed while the change was being made. Check the project with git status, then ask again if needed.")))
+				message := "Pouple was closed while the change was being made. Check the project with git status, then ask again if needed."
+				if r.Plan != nil && r.Plan.hasSlitePages() {
+					message = "Publication was interrupted. Check Slite before requesting the pages again."
+				}
+				r.Entries = append(r.Entries, s.entry("system", "text", s.text(message)))
 			})
 		}
 	}

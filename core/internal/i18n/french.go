@@ -269,6 +269,19 @@ var fr = map[string]string{
 	"No workspace": "Aucun espace de travail",
 	"This account belongs to no Asana workspace, so there are no tasks to read.": "Ce compte n’appartient à aucun espace de travail Asana : il n’y a aucune tâche à lire.",
 
+	// Slite publication
+	"A Slite page needs a title.":                                                     "Une page Slite doit avoir un titre.",
+	"A Slite page needs a valid title and Markdown":                                   "Une page Slite doit avoir un titre et un Markdown valides",
+	"Only Slite actions can contain a page title and Markdown":                        "Seules les actions Slite peuvent contenir un titre de page et du Markdown",
+	"Slite pages can only be proposed at your request.":                               "La création de pages Slite doit venir de ta demande.",
+	"Slite page creation is unavailable.":                                             "La création de pages Slite est indisponible.",
+	"Slite page creation requires explicit approval":                                  "La création de pages Slite exige une validation explicite",
+	"Slite pages created: %d of %d":                                                   "Pages Slite créées : %d sur %d",
+	"Slite: created [%s](%s)":                                                         "Slite : page créée [%s](%s)",
+	"Slite: could not create “%s” (%s)":                                               "Slite : création de « %s » impossible (%s)",
+	"Slite: creation of “%s” is unconfirmed. Check Slite before requesting it again.": "Slite : création de « %s » incertaine. Vérifie dans Slite avant de relancer.",
+	"Slite: “%s” was skipped after publication stopped.":                              "Slite : « %s » a été ignorée après l’arrêt de la publication.",
+	"Publication was interrupted. Check Slite before requesting the pages again.":     "Publication interrompue. Vérifie dans Slite avant de redemander les pages.",
 	// Slite connector
 	"Your team's notes and docs": "Les notes et docs de ton équipe",
 	"API key":                    "Clé d’API",
@@ -277,7 +290,7 @@ var fr = map[string]string{
 	"In Slite, open your organization menu (top left), then Settings, then API. Slite explains the same steps on its developer page.": "Dans Slite, ouvre le menu de ton organisation (en haut à gauche), puis Settings, puis API. Slite décrit les mêmes étapes sur sa page développeur.",
 	"Slite API help":    "Aide de l’API Slite",
 	"Create an API key": "Créer une clé d’API",
-	"On the API page, click Create a new key and follow the instructions. Pouple only searches and reads notes: it never changes anything in Slite.": "Sur la page API, clique sur Create a new key et suis les instructions. Pouple cherche et lit seulement des notes : il ne modifie jamais rien dans Slite.",
+	"On the API page, click Create a new key and follow the instructions. Pouple creates pages only after you approve their content and destination.": "Sur la page API, clique sur Create a new key et suis les instructions. Pouple crée des pages après validation de leur contenu et de leur destination.",
 	"Paste the key": "Coller la clé",
 	"Copy it right away (Slite shows it only once) and paste it here. Pouple shows whose account it is before saving.": "Copie-la tout de suite (Slite ne l’affiche qu’une fois) et colle-la ici. Pouple montre à qui appartient le compte avant d’enregistrer.",
 	"Slite does not accept this key. Create a new API key in the API settings and paste it again.":                     "Slite n’accepte pas cette clé. Crée une nouvelle clé d’API dans les réglages API et colle-la à nouveau.",

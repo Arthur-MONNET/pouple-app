@@ -3,6 +3,7 @@ import { t } from '../i18n';
 
 /** What a plan's action is called where the user picks it: its kind, and the branches it names. */
 export function planActionLabel(action: PlanAction): string {
+  if (action.kind === 'slite.write') return `${action.title} · ${action.scope.id}`;
   const arrow = action.kind === 'gitlab.merge-request' ? '→' : '←';
   const where = action.branch ? (action.base ? `${action.branch} ${arrow} ${action.base}` : action.branch) : action.scope.id;
   return `${t(`chat.plan.kind.${action.kind}`)} · ${where}`;
@@ -44,12 +45,14 @@ export function planQuestions(request: AssistantRequest): AssistantQuestion[] {
   // A plan that updates a branch is carried out to the end (merge, conflicts, commit, push), which the answer says.
   const sync = plan.actions.some((action) => action.kind === 'code.sync');
   const mr = plan.actions.some((action) => action.kind === 'gitlab.merge-request');
+  const slite = plan.actions.some((action) => action.kind === 'slite.write');
+  const approval = slite ? 'planSliteYes' : mr ? 'planMRYes' : sync ? 'planSyncYes' : 'planYes';
   return [
     {
       id: 'plan',
       text: t('chat.planQuestion', { goal: plan.goal }),
       options: [
-        { id: 'approve', label: t(mr ? 'chat.planMRYes' : sync ? 'chat.planSyncYes' : 'chat.planYes'), description: t(mr ? 'chat.planMRYesHelp' : sync ? 'chat.planSyncYesHelp' : 'chat.planYesHelp') },
+        { id: 'approve', label: t(`chat.${approval}`), description: t(`chat.${approval}Help`) },
         { id: 'decline', label: t('chat.planNo'), description: null },
       ],
     },

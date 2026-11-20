@@ -118,6 +118,7 @@ public struct PlanAction: Codable, Equatable, Sendable {
     public var isBranchUpdate: Bool { kind == "code.sync" }
     /// Work in the conversation's terminal: approving it hands over the terminal, so its summary is read with the goal.
     public var isTerminalWork: Bool { kind == "terminal.run" }
+    public var isSlitePage: Bool { kind == "slite.write" }
 
     /// The place as the user reads it: the identifier always, which is what decides where code is written, and the name
     /// the assistant gave it next to it.
@@ -138,7 +139,7 @@ public struct AssistantPlan: Codable, Equatable, Sendable {
     /// Whether the bubble can approve the plan in one click from its goal alone. A plan with several actions lists
     /// courses the user ticks (do A, do B, or both): approving all of them blindly could run two that exclude each other,
     /// so that choice is made in the window.
-    public var canApproveAtOnce: Bool { isProposed && id != nil && actions.count == 1 }
+    public var canApproveAtOnce: Bool { isProposed && id != nil && actions.count == 1 && actions.first?.isSlitePage == false }
 }
 
 /// The alerts the assistant suggests, for the user to pick from. Nothing is set until they confirm.
