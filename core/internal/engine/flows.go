@@ -184,6 +184,9 @@ const maxLookupRounds = 12
 func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume string, images []string, canAct bool) error {
 	asks, writes := 0, 0
 	for round := 0; ; round++ {
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
 		// Two levels of trust. What others wrote is investigated read-only. Once the user approved a plan, what they type
 		// themselves is worked on directly, like in their own terminal.
 		direct := canAct && s.trusted(id)
@@ -201,10 +204,16 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		turn := Turn{Prompt: s.clockNote() + prompt, Dir: s.workDir(), Sandbox: ReadOnly, SchemaFile: s.deps.SchemaFile, ResumeThread: resume, Images: images, Web: web}
 		if direct {
 			turn.Sandbox = FullAccess
+			if s.deps.InteractiveTerminal {
+				turn.Prompt += "\nIf a local command needs the user's live terminal input, request a lookup with service terminal, action run, target containing one shell invocation (for example ssh-add ~/.ssh/id_ed25519), and empty text. Ask for at most one interactive command per round and use the summary field for results already established. The conversation terminal shows the prompt to the user. Only structured completion status comes back. Continue the investigation based on that status. Never ask for terminal secrets in chat."
+			}
 		}
 		result, provider, err := s.runProvider(ctx, id, turn, true)
 		if err != nil {
 			return err
+		}
+		if ctx.Err() != nil {
+			return ErrCancelled
 		}
 		if !canAct {
 			s.markForeign(id)
@@ -242,7 +251,41 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		if thread == "" {
 			return i18n.NewError("%s finished without an answer", provider.Name())
 		}
-		results, shots := s.runLookups(ctx, id, limitAsks(outcome.Lookups, &asks), canAct, &writes)
+		if summary := strings.TrimSpace(outcome.Summary); summary != "" {
+			s.quietUpdate(id, func(r *Stored) { r.InvestigationProgress = summary })
+		}
+		var terminalResults []string
+		var other []Lookup
+		for _, lookup := range limitAsks(outcome.Lookups, &asks) {
+			if lookup.Service != "terminal" {
+				other = append(other, lookup)
+				continue
+			}
+			if !direct || !s.deps.InteractiveTerminal || len(terminalResults) > 0 {
+				terminalResults = append(terminalResults, `{"status":"unavailable"}`)
+				continue
+			}
+			display := lookup.Target
+			s.quietUpdate(id, func(r *Stored) { r.TerminalProgress = s.text("Interactive command: %s", display) })
+			status := s.runInteractive(ctx, id, turn.Dir, display)
+			s.quietUpdate(id, func(r *Stored) {
+				r.TerminalProgress = s.text("Interactive command: %s", display) + " · " + status.String()
+			})
+			if ctx.Err() != nil {
+				return ErrCancelled
+			}
+			terminalResults = append(terminalResults, status.String())
+		}
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
+		results, shots := s.runLookups(ctx, id, other, canAct, &writes)
+		if len(terminalResults) > 0 {
+			results = strings.TrimSpace(results + "\nInteractive command results:\n" + strings.Join(terminalResults, "\n"))
+		}
+		if ctx.Err() != nil {
+			return ErrCancelled
+		}
 		// A command that is not one of the usual ways waits for the user: the analysis goes on with their answer.
 		if s.askToAllowCommand(id) {
 			return nil
@@ -561,11 +604,16 @@ func (s *Service) message(id, text string, attachmentIDs []string, allowConfirma
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error, r.Questions, r.Proposal = StatusAnalyzing, nil, []Question{}, nil
 		r.Entries = append(r.Entries, entry)
+		r.StopCheckpoint = ""
 	})
 	s.enqueue(id, Interactive, func(ctx context.Context) error {
 		// A follow-up often names what to look for (a folder, a title): the services are asked again for this message.
 		services := s.gatherServices(ctx, Stored{Request: Request{ID: id, Text: text}})
-		return s.continueWith(ctx, id, s.deps.Persona().FollowUpPrompt(text, files, "", services, s.trusted(id)), images, true)
+		prompt := s.deps.Persona().FollowUpPrompt(text, files, "", services, s.trusted(id))
+		if request.StopCheckpoint != "" {
+			prompt = "Resume the investigation from this checkpoint. The follow-up may supply the user's reason for stopping. Do not infer one if absent.\n" + block("checkpoint", request.StopCheckpoint) + "\n" + prompt
+		}
+		return s.continueWith(ctx, id, prompt, images, true)
 	})
 	return nil
 }
@@ -707,7 +755,7 @@ func (s *Service) Close(id, seen string) error {
 	return nil
 }
 
-// Retry starts the investigation over.
+// Retry resumes an explicitly stopped investigation or starts a finished one over.
 func (s *Service) Retry(id string) error {
 	request, err := s.require(id)
 	if err != nil {
@@ -722,9 +770,20 @@ func (s *Service) Retry(id string) error {
 	if err := s.requireActive(); err != nil {
 		return err
 	}
+	if request.StopCheckpoint != "" {
+		s.update(id, func(r *Stored) {
+			r.Status, r.StopCheckpoint = StatusQueued, ""
+		})
+		s.enqueue(id, Interactive, func(ctx context.Context) error {
+			prompt := "Resume the investigation from this checkpoint. No reason for pausing was supplied.\n" + block("checkpoint", request.StopCheckpoint)
+			return s.continueWith(ctx, id, prompt, nil, true)
+		})
+		return nil
+	}
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error, r.ThreadID, r.ThreadProvider, r.Questions, r.Proposal = StatusQueued, nil, "", "", []Question{}, nil
 		r.LimitedBy = ""
+		r.InvestigationProgress, r.TerminalProgress = "", ""
 	})
 	s.enqueue(id, Interactive, func(ctx context.Context) error { return s.analyze(ctx, id) })
 	return nil

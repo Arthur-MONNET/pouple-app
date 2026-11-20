@@ -33,7 +33,7 @@ const title = computed(() => requestTitle(props.request));
 const working = computed(() => isWorking(props.request));
 const ignored = computed(() => props.request.status === 'ignored');
 /** More detail goes back to Codex in the same conversation: only a finished analysis has one to continue. */
-const canElaborate = computed(() => (props.request.status === 'ready' || props.request.status === 'done') && props.request.continuable === true);
+const canElaborate = computed(() => (props.request.status === 'ready' || props.request.status === 'done') && !props.request.stopCheckpoint && props.request.continuable === true);
 const groups = computed(() => groupEntries(props.request.entries));
 /** A reminder is what the user asked to be reminded of: there is nothing to investigate again. */
 const isReminder = computed(() => props.request.source.origin === 'reminder');
@@ -297,6 +297,10 @@ watch(
         {{ $t('chat.continueWith', { name: providerName(request.switchTo) }) }}
       </AppButton>
     </div>
+    <div v-else-if="request.stopCheckpoint && !working" class="whitespace-pre-line text-xs text-ink-muted">
+      {{ request.stopCheckpoint }}
+      <p>{{ $t('terminal.resumeReason') }}</p>
+    </div>
     <p v-else-if="stoppedNote && !working" class="flex items-center gap-2 text-xs text-ink-muted" data-testid="stopped-note">
       <MascotStage pose="stop" size="sm" />
       {{ $t('chat.stopped') }}
@@ -306,7 +310,7 @@ watch(
     <div v-if="!working && request.status !== 'awaiting-user'" class="flex gap-1.5">
       <RouterLink v-if="isReminder && originId && store.byId(originId)" :to="{ name: 'conversation', params: { id: originId } }" class="inline-flex h-7 items-center rounded-md px-2.5 text-xs text-ink-muted transition hover:bg-raised hover:text-ink motion-reduce:transition-none">{{ $t('chat.openOrigin') }}</RouterLink>
       <AppButton v-if="canElaborate && !isReminder" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.send(request.id, $t('chat.moreDetailMessage')))">{{ $t('chat.moreDetail') }}</AppButton>
-      <AppButton v-if="!isReminder" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.retry(request.id))">{{ $t('chat.again') }}</AppButton>
+      <AppButton v-if="!isReminder" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.retry(request.id))">{{ $t(request.stopCheckpoint ? 'terminal.resume' : 'chat.again') }}</AppButton>
       <AppButton v-if="request.status === 'ready' || request.status === 'done'" variant="ghost" size="sm" :disabled="busy" @click="guard(() => store.ignore(request.id))">{{ $t('chat.dismiss') }}</AppButton>
       <AppButton variant="ghost" size="sm" :disabled="busy" @click="remove">{{ $t('chat.delete') }}</AppButton>
     </div>

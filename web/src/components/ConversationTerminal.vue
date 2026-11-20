@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -23,8 +23,12 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let queue = Promise.resolve();
 
 function receive(next: TerminalState): void {
-  // Track cursors and ownership independently of the output bytes.
+  // Track cursors and command state independently of the output bytes.
   const { output, commands: delta, ...metadata } = next;
+  if (next.revision !== state.value?.revision) {
+    terminal?.reset();
+    showCommands.value = false;
+  }
   state.value = { ...metadata, output: null, commands: '' };
   if (output) terminal?.write(Uint8Array.from(atob(output), (byte) => byte.charCodeAt(0)));
   if (delta) {
@@ -33,11 +37,10 @@ function receive(next: TerminalState): void {
     commands.value = (commands.value + delta).slice(-256 * 1024);
     if (follow) void nextTick(() => commandHost.value?.scrollTo({ top: commandHost.value.scrollHeight }));
   }
-  if (terminal) terminal.options.disableStdin = !next.user || next.shellExited;
+  if (terminal) terminal.options.disableStdin = !next.running;
 }
 
 function reset(): void {
-  clearTimeout(timer);
   observer?.disconnect();
   terminal?.dispose();
   terminal = undefined;
@@ -56,18 +59,9 @@ function send(action: string, extra: object = {}): Promise<void> {
       const next = await terminalRequest(props.requestId, {
         action, session, revision, offset: current.offset, commandOffset: current.commandOffset, ...extra,
       }, lifetime.signal);
-      if (lifetime.signal.aborted) return;
+      if (lifetime.signal.aborted || session !== state.value?.id) return;
       if (action !== 'read') error.value = '';
-      if (action === 'close') reset();
-      else receive(next);
-      if (action === 'release') {
-        showCommands.value = true;
-        void nextTick(() => commandHost.value?.scrollTo({ top: commandHost.value.scrollHeight }));
-      }
-      if (action === 'take') {
-        showCommands.value = false;
-        void nextTick(() => terminal?.focus());
-      }
+      receive(next);
     } catch (cause) {
       if (lifetime.signal.aborted) return;
       if (cause instanceof ApiError && cause.status === 404) reset();
@@ -78,19 +72,34 @@ function send(action: string, extra: object = {}): Promise<void> {
 }
 
 async function poll(): Promise<void> {
-  await send('read');
-  if (state.value && !lifetime.signal.aborted) timer = setTimeout(() => void poll(), 200);
+  if (state.value) {
+    await send('read');
+  } else if (!opening.value) {
+    try {
+      const first = await terminalRequest(props.requestId, { action: 'read' }, lifetime.signal);
+      if (first.command && !opening.value && !state.value && first.revision !== hiddenRevision) await open(first);
+    } catch (cause) {
+      if (!lifetime.signal.aborted) error.value = errorMessage(cause);
+    }
+  }
+  if (!lifetime.signal.aborted) timer = setTimeout(() => void poll(), 250);
 }
 
-async function open(): Promise<void> {
-  if (opening.value) return;
+let hiddenRevision: number | undefined;
+
+function hide(): void {
+  hiddenRevision = state.value?.revision;
+  reset();
+}
+
+async function open(existing?: TerminalState): Promise<void> {
+  if (opening.value || state.value) return;
   opening.value = true;
   error.value = '';
   try {
-    const first = await terminalRequest(props.requestId, { action: 'open' }, lifetime.signal);
+    const first = existing ?? await terminalRequest(props.requestId, { action: 'open' }, lifetime.signal);
     if (lifetime.signal.aborted) return;
     state.value = first;
-    showCommands.value = !first.user;
     await nextTick();
     if (!terminalHost.value || lifetime.signal.aborted) return;
     terminal = new Terminal({
@@ -104,7 +113,10 @@ async function open(): Promise<void> {
     terminal.loadAddon(fit);
     terminal.open(terminalHost.value);
     terminal.onData((data) => {
-      // Split large pastes on Unicode character boundaries.
+      if (data === '\x03') {
+        void send('interrupt');
+        return;
+      }
       const characters = Array.from(data);
       for (let offset = 0; offset < characters.length; offset += 4096) {
         void send('input', { data: characters.slice(offset, offset + 4096).join('') });
@@ -116,8 +128,6 @@ async function open(): Promise<void> {
     receive(first);
     fit.fit();
     void send('resize', { rows: terminal.rows, cols: terminal.cols });
-    if (first.user) terminal.focus();
-    void poll();
   } catch (cause) {
     if (!lifetime.signal.aborted) {
       reset();
@@ -128,14 +138,17 @@ async function open(): Promise<void> {
   }
 }
 
+onMounted(() => void poll());
+
 function switchView(): void {
   showCommands.value = !showCommands.value;
   if (showCommands.value) void nextTick(() => commandHost.value?.scrollTo({ top: commandHost.value.scrollHeight }));
-  else if (state.value?.user) void nextTick(() => terminal?.focus());
+  else if (state.value?.running) void nextTick(() => terminal?.focus());
 }
 
 onUnmounted(() => {
   lifetime.abort();
+  clearTimeout(timer);
   reset();
 });
 </script>
@@ -143,15 +156,15 @@ onUnmounted(() => {
 <template>
   <section class="shrink-0 border-t border-line-soft bg-surface px-3 py-1.5" :aria-label="$t('terminal.title')">
     <div class="flex flex-wrap items-center gap-2">
-      <AppButton v-if="!state" variant="outline" size="sm" :disabled="opening" @click="open">{{ $t('terminal.open') }}</AppButton>
+      <AppButton v-if="!state" variant="outline" size="sm" :disabled="opening" @click="open()">{{ $t('terminal.open') }}</AppButton>
       <template v-else>
-        <span class="text-xs text-ink-muted" role="status">{{ $t(state.waiting ? 'terminal.waiting' : state.busy ? 'terminal.busy' : state.shellExited ? 'terminal.exited' : state.user ? 'terminal.user' : 'terminal.assistant') }}</span>
-        <AppButton v-if="state.user" variant="outline" size="sm" @click="send('release')">{{ $t('terminal.release') }}</AppButton>
-        <AppButton v-else-if="!state.shellExited" variant="outline" size="sm" :disabled="state.busy" @click="send('take')">{{ $t('terminal.take') }}</AppButton>
-        <AppButton v-if="state.user && !state.shellExited" variant="outline" size="sm" @click="send('interrupt')">{{ $t('terminal.interrupt') }}</AppButton>
-        <AppButton v-if="state.busy || state.waiting" variant="outline" size="sm" @click="send('stop')">{{ $t('terminal.stop') }}</AppButton>
+        <span v-if="state.command" class="min-w-0 break-all font-mono text-xs">{{ state.command }}</span>
+        <span class="text-xs text-ink-muted" role="status">
+          {{ $t(state.running ? 'terminal.running' : state.result ? `terminal.${state.result.status}` : 'terminal.idle', { code: state.result?.exitCode, signal: state.result?.signal }) }}
+        </span>
+        <AppButton v-if="state.running" variant="outline" size="sm" @click="send('interrupt')">{{ $t('terminal.interrupt') }}</AppButton>
         <AppButton variant="outline" size="sm" @click="switchView">{{ $t(showCommands ? 'terminal.shell' : 'terminal.commands') }}</AppButton>
-        <AppButton variant="outline" size="sm" @click="send('close')">{{ $t('terminal.close') }}</AppButton>
+        <AppButton variant="outline" size="sm" @click="hide">{{ $t('terminal.close') }}</AppButton>
       </template>
     </div>
     <InlineError v-if="error">{{ error }}</InlineError>

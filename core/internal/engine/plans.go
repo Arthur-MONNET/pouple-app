@@ -182,7 +182,6 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 	if err != nil {
 		return err
 	}
-	defer access.release()
 	ctx = context.WithValue(ctx, terminalAccessKey{}, access)
 	var written []string
 	codePushes := map[string]bool{}

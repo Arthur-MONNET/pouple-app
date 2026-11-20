@@ -2,10 +2,9 @@ import { bearer, toApiError } from './client';
 
 export interface TerminalState {
   id: string;
-  user: boolean;
-  busy: boolean;
-  waiting: boolean;
-  shellExited: boolean;
+  command: string;
+  running: boolean;
+  result: { status: string; exitCode?: number; signal?: string } | null;
   revision: number;
   output: string | null;
   offset: number;

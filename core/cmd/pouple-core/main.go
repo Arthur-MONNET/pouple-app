@@ -143,7 +143,7 @@ func run() error {
 	}
 	hints := slackinbox.NewThreadHints()
 	resources := machine.NewMonitor(dir)
-	service, attachments, err := newAssistant(dir, port, registry, settings, hints, resources, log.Printf)
+	service, attachments, err := newAssistant(dir, port, tokenFromShell && runtime.GOOS == "darwin", registry, settings, hints, resources, log.Printf)
 	if err != nil {
 		return err
 	}

@@ -321,6 +321,7 @@ export interface BrowserState {
 }
 
 export interface AssistantRequest {
+  stopCheckpoint?: string;
   id: string;
   /** Set only while the browser is at work for this conversation. */
   browser?: BrowserState;

@@ -16,7 +16,7 @@ func MountTerminal(mux *http.ServeMux, service *engine.Service) {
 			Revision, Offset, CommandOffset uint64
 			Rows, Cols                      uint16
 		}
-		if err := decodeBody(r, &body); err != nil || len(body.Data) > 32<<10 {
+		if err := decodeBody(r, &body); err != nil || len(body.Data) > 32<<10 || (body.Action != "input" && body.Data != "") {
 			writeEngineError(w, i18n.FromContext(r.Context()), engine.ErrInput)
 			return
 		}
