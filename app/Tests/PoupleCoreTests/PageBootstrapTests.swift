@@ -4,7 +4,7 @@ import XCTest
 final class PageBootstrapTests: XCTestCase {
     func testTheScriptDefinesTheTokenOnlyForTheCoresOrigin() {
         let script = PageBootstrap.userScript(token: "abc123", port: 5123)
-        XCTAssertEqual(script, #"if (location.origin === "http://127.0.0.1:5123") { window.__POUPLE__ = { token: "abc123" }; }"#)
+        XCTAssertEqual(script, #"if (location.origin === "http://127.0.0.1:5123") { window.__POUPLE__ = { token: "abc123", terminal: true }; }"#)
     }
 
     func testQuotesBackslashesAndScriptEndsCannotBreakOutOfTheLiteral() {

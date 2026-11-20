@@ -12,6 +12,7 @@ if [ ! -f "$go_license" ]; then
   go_license="$goroot/../LICENSE"
 fi
 websocket_module="$(go list -m -f '{{.Dir}}' github.com/coder/websocket)"
+pty_module="$(go list -m -f '{{.Dir}}' github.com/creack/pty)"
 sys_module="$(go list -m -f '{{.Dir}}' golang.org/x/sys)"
 node_modules="$root/web/node_modules"
 
@@ -21,6 +22,9 @@ cp "$node_modules/@fontsource-variable/geist/LICENSE" "$licenses/Geist.txt"
 cp "$node_modules/@fontsource-variable/geist-mono/LICENSE" "$licenses/GeistMono.txt"
 cp "$node_modules/@fontsource/fredoka/LICENSE" "$licenses/Fredoka.txt"
 cp "$node_modules/tailwindcss/LICENSE" "$licenses/TailwindCSS.txt"
+cp "$node_modules/@xterm/xterm/LICENSE" "$licenses/Xterm.txt"
+cp "$node_modules/@xterm/addon-fit/LICENSE" "$licenses/XtermFit.txt"
+cp "$pty_module/LICENSE" "$licenses/CreackPTY.txt"
 cp "$go_license" "$licenses/Go.txt"
 cp "$goroot/PATENTS" "$licenses/GoPatents.txt"
 cp "$websocket_module/LICENSE.txt" "$licenses/CoderWebSocket.txt"

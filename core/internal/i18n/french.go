@@ -384,7 +384,8 @@ var fr = map[string]string{
 	"Pouple was closed while the change was being made. Check the project with git status, then ask again if needed.": "Pouple s’est fermé pendant la modification. Vérifie le projet avec git status, puis redemande si besoin.",
 
 	// Engine: errors shown to the user
-	"request not found":                                                    "demande introuvable",
+	"request not found": "demande introuvable",
+	"wait for the terminal command to finish or interrupt it":              "attendez la fin de la commande du terminal ou interrompez-la",
 	"nothing is running for this request":                                  "rien n’est en cours pour cette demande",
 	"no question is waiting for an answer":                                 "aucune question n’attend de réponse",
 	"answer to %s is not valid":                                            "la réponse à %s n’est pas valide",

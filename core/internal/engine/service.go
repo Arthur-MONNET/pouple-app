@@ -199,13 +199,15 @@ type Service struct {
 	threadScheduled map[string]bool
 	lastPollAt      *string
 	// A limit or a login problem belongs to the provider that reported it: the other one keeps working.
-	pausedUntil  map[providers.ID]time.Time
-	loginProblem map[providers.ID]bool
-	fileNotice   string
-	running      map[string]context.CancelFunc
-	stops        map[string]int
-	subscribers  map[chan struct{}]struct{}
-	closing      bool
+	pausedUntil                   map[providers.ID]time.Time
+	loginProblem                  map[providers.ID]bool
+	fileNotice                    string
+	running                       map[string]context.CancelFunc
+	stops                         map[string]int
+	subscribers                   map[chan struct{}]struct{}
+	closing                       bool
+	terminals                     map[string]*terminalSession
+	terminalRuns, terminalWaiting map[string]int
 	// organizing says a look at all the topics is queued or running; organizeTried is when one was last started.
 	organizing    bool
 	organizeTried time.Time
@@ -714,6 +716,9 @@ func (s *Service) Stop(id string) error {
 func (s *Service) Shutdown() {
 	s.mu.Lock()
 	s.closing = true
+	for id := range s.terminals {
+		s.closeTerminal(id)
+	}
 	for _, cancel := range s.running {
 		cancel()
 	}
@@ -889,6 +894,19 @@ func (s *Service) runProvider(ctx context.Context, id string, turn Turn, trackTh
 	}
 	turn.Model = selection.Model
 	turn.OnEvent = func(event Event) { s.onEvent(id, selection.Provider, event, trackThread) }
+	access, ok := ctx.Value(terminalAccessKey{}).(terminalAccess)
+	if !ok {
+		var err error
+		access, err = s.acquireTerminal(ctx, id, turn.Sandbox == FullAccess)
+		if err != nil {
+			return TurnResult{}, selection.Provider, err
+		}
+		defer access.release()
+	}
+	if turn.Sandbox == FullAccess {
+		turn.sshAgent = access.socket
+	}
+	turn.onCommand = access.report
 	result, err := provider.Run(i18n.WithLanguage(ctx, s.deps.Language()), turn)
 	if err != nil {
 		return result, selection.Provider, &providerFailure{selection.Provider, err}

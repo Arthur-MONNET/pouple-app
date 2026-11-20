@@ -28,7 +28,8 @@ const remoteTimeout = 3 * time.Minute
 // asking for a password, and returns what it printed. Nothing of the caller's GIT_* environment reaches it: a variable
 // such as GIT_DIR or GIT_EXTERNAL_DIFF would change what git runs.
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	if talksToRemote(args) {
+	remote := talksToRemote(args)
+	if remote {
 		// A remote that does not answer must not hold the conversation forever.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
@@ -54,15 +55,25 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 		environment = append(environment, "PATH="+strings.Join(path, string(os.PathListSeparator)))
 	}
 	// Remote commands and destination checks need the same machine-level Git configuration.
-	if !talksToRemote(args) && !slices.Contains(args, "get-url") && !slices.Contains(args, "--get-regexp") {
+	if !remote && !slices.Contains(args, "get-url") && !slices.Contains(args, "--get-regexp") {
 		environment = append(environment, "GIT_CONFIG_NOSYSTEM=1")
 	}
+	access, attached := ctx.Value(terminalAccessKey{}).(terminalAccess)
+	if remote && attached && access.socket != "" {
+		environment = append(environment, "SSH_AUTH_SOCK="+access.socket)
+	}
 	command.Env = environment
-	if talksToRemote(args) {
+	if remote {
 		// git's children (ssh, the credential helper) can outlive it and hold its output open: stop waiting for them.
 		command.WaitDelay = 5 * time.Second
 	}
+	if attached {
+		access.report("$ git " + strings.Join(args, " ") + "\n")
+	}
 	out, err := command.CombinedOutput()
+	if attached && len(out) > 0 {
+		access.report(strings.TrimSuffix(string(out), "\n") + "\n")
+	}
 	return strings.TrimSpace(string(out)), err
 }
 

@@ -15,7 +15,7 @@ interface ImportMetaEnv {
 
 interface Window {
   /** Injected by the core in index.html. */
-  __POUPLE__?: { token: string };
+  __POUPLE__?: { token: string; terminal?: boolean };
   /** Present only inside the macOS shell's web view. */
   webkit?: { messageHandlers?: { pouple?: { postMessage(message: unknown): void } } };
 }

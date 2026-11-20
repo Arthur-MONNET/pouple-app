@@ -6,6 +6,23 @@ import type { MessageTree } from './typography';
  * In a message, {'@'} is a literal at sign and {'|'} a literal bar.
  */
 export const fr: MessageTree = {
+  terminal: {
+    title: 'Terminal',
+    open: 'Ouvrir le terminal',
+    waiting: 'En attente du passage de relais',
+    busy: 'Assistant en cours',
+    exited: 'Shell terminé',
+    user: 'Vous avez la main',
+    assistant: 'L’assistant a la main',
+    release: 'Passer la main à l’assistant',
+    take: 'Prendre la main',
+    interrupt: 'Interrompre la commande du shell',
+    stop: 'Arrêter l’assistant',
+    shell: 'Shell',
+    commands: 'Commandes de l’assistant',
+    close: 'Fermer la session',
+    noCommands: 'Aucune sortie de commande dans cette session.',
+  },
   common: {
     close: 'Fermer',
     cancel: 'Annuler',

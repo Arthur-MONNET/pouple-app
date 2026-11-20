@@ -178,6 +178,12 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 	if plan.Status != PlanApproved {
 		return i18n.NewError("The plan has not been approved")
 	}
+	access, err := s.acquireTerminal(ctx, id, !plan.Automatic)
+	if err != nil {
+		return err
+	}
+	defer access.release()
+	ctx = context.WithValue(ctx, terminalAccessKey{}, access)
 	var written []string
 	codePushes := map[string]bool{}
 	for _, action := range plan.Actions {
@@ -189,6 +195,9 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 			line, err := run(ctx, id, plan, action)
 			if err != nil {
+				if ctx.Err() != nil {
+					return ErrCancelled
+				}
 				return err
 			}
 			codePushes[action.Branch] = s.hasOrigin(ctx, s.projectPath(action.Scope.ID)) && (line != "" || action.Kind == SyncBranch)

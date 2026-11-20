@@ -756,6 +756,9 @@ func (s *Service) Remove(id string) error {
 		return i18n.Wrap(ErrState, "the assistant is still working on this request")
 	}
 	s.deps.Store.Remove(id)
+	s.mu.Lock()
+	s.closeTerminal(id)
+	s.mu.Unlock()
 	return nil
 }
 
