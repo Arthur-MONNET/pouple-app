@@ -12,19 +12,28 @@ export function createAppRouter(store: ConnectorsStore): Router {
     history: createWebHistory(),
     routes: [
       { path: '/setup', name: 'setup', component: () => import('./pages/SetupPage.vue') },
-      { path: '/', name: 'home', component: () => import('./pages/HomePage.vue'), meta: { shell: true, needsSetup: true } },
-      { path: '/c/:id', name: 'conversation', component: () => import('./pages/HomePage.vue'), meta: { shell: true, needsSetup: true } },
-      { path: '/alerts', name: 'alerts', component: () => import('./pages/AlertsPage.vue'), meta: { shell: true, needsSetup: true } },
-      { path: '/memory', name: 'memory', component: () => import('./pages/MemoryPage.vue'), meta: { shell: true, needsSetup: true } },
-      { path: '/connectors', name: 'connectors', component: () => import('./pages/ConnectorsPage.vue'), meta: { shell: true, needsSetup: true } },
-      { path: '/settings', name: 'settings', component: () => import('./pages/SettingsPage.vue'), meta: { shell: true, needsSetup: true } },
+      {
+        // Every screen after setup shares one shell: the sidebar with the conversations stays in place between them.
+        path: '/',
+        component: () => import('./components/AppShell.vue'),
+        meta: { needsSetup: true },
+        children: [
+          { path: '', name: 'home', component: () => import('./pages/ConversationsPage.vue') },
+          { path: 'c/:id', name: 'conversation', component: () => import('./pages/ConversationsPage.vue') },
+          { path: 'alerts', name: 'alerts', component: () => import('./pages/AlertsPage.vue') },
+          { path: 'memory', name: 'memory', component: () => import('./pages/MemoryPage.vue') },
+          { path: 'connectors', name: 'connectors', component: () => import('./pages/ConnectorsPage.vue') },
+          { path: 'settings', name: 'settings', component: () => import('./pages/SettingsPage.vue') },
+        ],
+      },
       { path: '/:rest(.*)*', redirect: '/' },
     ],
   });
 
   router.beforeEach(async (to) => {
-    // Moving between conversations needs no new answer from the core.
-    if (to.name === 'conversation' && wizardActive === false && store.state.value?.setupComplete) return true;
+    // Once setup is known to be complete, moving between screens needs no new answer from the core: the screens refresh
+    // what they show themselves, and a disconnection is seen by the connectors store, which updates this state.
+    if (to.name !== 'setup' && wizardActive === false && store.state.value?.setupComplete) return true;
     let complete: boolean;
     try {
       complete = (await store.refreshState()).setupComplete;

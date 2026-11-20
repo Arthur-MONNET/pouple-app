@@ -57,31 +57,21 @@ onBeforeUnmount(() => {
   window.removeEventListener('dragend', springLoad.reset);
 });
 
-/** Arrow keys move through the filters, as in any tab strip. */
-function onFilterKey(event: KeyboardEvent): void {
-  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-  if (step === 0) return;
-  const next = FILTERS[(FILTERS.indexOf(filter.value) + step + FILTERS.length) % FILTERS.length];
-  if (next) filter.value = next;
-  event.preventDefault();
-}
-
 const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs-me': 'list.emptyNeedsMe', done: 'list.emptyDone' };
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="flex items-center gap-1.5 px-3 pb-2 pt-3">
-      <div role="tablist" :aria-label="$t('filters.label')" class="flex min-w-0 flex-1 rounded-lg bg-surface p-0.5" @keydown="onFilterKey">
+      <!-- A row of toggle buttons, not tabs: the list below stays one list whatever the filter. -->
+      <div role="group" :aria-label="$t('filters.label')" class="flex min-w-0 flex-1 rounded-lg bg-surface p-0.5">
         <button
           v-for="item in FILTERS"
           :key="item"
           type="button"
-          role="tab"
-          :aria-selected="filter === item"
-          :tabindex="filter === item ? 0 : -1"
+          :aria-pressed="filter === item"
           class="flex-1 whitespace-nowrap rounded-md px-2 py-1 text-xs transition motion-reduce:transition-none"
-          :class="filter === item ? 'bg-selected font-medium text-ink' : 'text-ink-muted hover:text-ink'"
+          :class="{ 'bg-selected font-medium text-ink': filter === item, 'text-ink-muted hover:text-ink': filter !== item }"
           @click="filter = item"
         >
           {{ filterLabel(item) }}

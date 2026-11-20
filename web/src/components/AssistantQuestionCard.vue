@@ -6,8 +6,8 @@ import AppButton from './AppButton.vue';
 
 const props = withDefaults(
   defineProps<{
-    /** Chip above the card, e.g. "Request from Morgan in #front". */
-    title: string;
+    /** Chip above the card, e.g. "Request from Morgan in #front"; none where the place already says it. */
+    title?: string;
     questions: AssistantQuestion[];
     busy?: boolean;
     submitLabel?: string;
@@ -18,7 +18,7 @@ const props = withDefaults(
     /** Offer to ignore the whole request in one click. */
     ignorable?: boolean;
   }>(),
-  { busy: false, submitLabel: undefined, allowOther: true, submitOnPick: true, ignorable: false },
+  { title: undefined, busy: false, submitLabel: undefined, allowOther: true, submitOnPick: true, ignorable: false },
 );
 const emit = defineEmits<{ submit: [answers: QuestionAnswer[]]; ignore: [] }>();
 
@@ -70,6 +70,27 @@ function focusOther(): void {
 
 const otherSelected = computed(() => (question.value.multiple ? draft.value.other.trim() !== '' : draft.value.choice === OTHER));
 
+/** A digit picks the option of that number, as the letters shown beside them count: 1 for A. Not while typing. */
+function onDigit(event: KeyboardEvent): void {
+  if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey || event.altKey) return;
+  const index = Number(event.key) - 1;
+  const option = question.value.options[index];
+  if (!Number.isInteger(index) || !option) return;
+  event.preventDefault();
+  pick(option.id);
+}
+
+/** Up and down move between the options of the card, as in a list of choices. */
+function onArrow(event: KeyboardEvent): void {
+  const list = (event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[data-option]');
+  const items = [...list];
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  if (index < 0) return;
+  event.preventDefault();
+  const next = event.key === 'ArrowDown' ? Math.min(items.length - 1, index + 1) : Math.max(0, index - 1);
+  items[next]?.focus();
+}
+
 /** Enter sends from the options and the typed answer; on a button (Back, Ignore), it presses that button instead. */
 function onEnter(event: KeyboardEvent): void {
   if (event.target instanceof HTMLElement && event.target.closest('button')) return;
@@ -91,8 +112,8 @@ function next(): void {
 </script>
 
 <template>
-  <section class="flex flex-col gap-2" data-testid="assistant-question" @keydown.enter.exact="onEnter">
-    <span class="w-fit max-w-full truncate rounded-lg bg-raised px-3 py-1.5 text-xs text-ink">{{ title }}</span>
+  <section class="flex flex-col gap-2" data-testid="assistant-question" @keydown.enter.exact="onEnter" @keydown="onDigit" @keydown.up.down="onArrow">
+    <span v-if="title" class="w-fit max-w-full truncate rounded-lg bg-raised px-3 py-1.5 text-xs text-ink">{{ title }}</span>
     <div class="rounded-xl border border-line bg-surface p-3">
       <p class="font-medium text-ink" :class="{ 'mb-1': question.multiple, 'mb-3': !question.multiple }">{{ question.text }}</p>
       <p v-if="question.multiple" class="mb-3 text-xs text-ink-muted">{{ $t('question.severalHint') }}</p>
@@ -100,6 +121,7 @@ function next(): void {
         <li v-for="(option, index) in question.options" :key="option.id">
           <button
             type="button"
+            data-option
             :role="question.multiple ? 'checkbox' : 'radio'"
             :aria-checked="isPicked(option.id)"
             class="flex w-full items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition motion-reduce:transition-none"
@@ -109,7 +131,7 @@ function next(): void {
             }"
             @click="pick(option.id)"
           >
-            <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded border border-line-strong font-mono text-2xs">{{ letter(index) }}</span>
+            <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded border border-line-strong font-mono text-2xs" :title="$t('question.shortcut', { n: index + 1 })">{{ letter(index) }}</span>
             <span class="min-w-0">
               <span class="block">{{ option.label }}</span>
               <span v-if="option.description" class="block text-xs text-ink-muted">{{ option.description }}</span>
@@ -123,6 +145,7 @@ function next(): void {
               :value="draft.other"
               type="text"
               maxlength="1000"
+              data-option
               :aria-label="$t('question.otherAria', { question: question.text })"
               :placeholder="$t('question.other')"
               class="min-w-0 flex-1 bg-transparent text-ink outline-none"

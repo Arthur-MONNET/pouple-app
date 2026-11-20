@@ -5,7 +5,7 @@ import { isUpcoming, toLocalInput } from '../lib/alerts';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 
-const props = withDefaults(defineProps<{ title: string; offer: ReminderOffer; busy?: boolean }>(), { busy: false });
+const props = withDefaults(defineProps<{ title?: string; offer: ReminderOffer; busy?: boolean }>(), { title: undefined, busy: false });
 const emit = defineEmits<{ confirm: [items: ReminderPick[]]; skip: [] }>();
 
 /** What the user did so far: the options they ticked, and the moment they want for each. */
@@ -48,7 +48,7 @@ const confirm = (): void => {
 
 <template>
   <section class="flex flex-col gap-2" data-testid="reminder-offer">
-    <span class="w-fit max-w-full truncate rounded-lg bg-raised px-3 py-1.5 text-xs text-ink">{{ title }}</span>
+    <span v-if="title" class="w-fit max-w-full truncate rounded-lg bg-raised px-3 py-1.5 text-xs text-ink">{{ title }}</span>
     <div class="rounded-xl border border-line bg-surface p-3">
       <p class="mb-1 flex items-center gap-1.5 font-medium text-ink">
         <AppIcon name="bell" />

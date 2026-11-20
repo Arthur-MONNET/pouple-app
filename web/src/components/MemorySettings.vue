@@ -2,6 +2,7 @@
 import { onMounted, ref, useId } from 'vue';
 import { errorMessage } from '../api/client';
 import { useApi } from '../composables/useApi';
+import { useSettings } from '../composables/useSettings';
 import { useAutoSave } from '../composables/useAutoSave';
 import { useMemory } from '../composables/useMemory';
 import MemoryCliList from './MemoryCliList.vue';
@@ -12,6 +13,8 @@ import SettingsSection from './SettingsSection.vue';
 import ToggleSwitch from './ToggleSwitch.vue';
 
 const api = useApi();
+/** Saved through the shared settings, so the sidebar shows or hides the Memory page at once. */
+const shared = useSettings();
 const folderId = useId();
 const cliTitleId = useId();
 const on = ref(false);
@@ -36,7 +39,7 @@ onMounted(async () => {
 async function onToggle(next: boolean): Promise<void> {
   const previous = on.value;
   on.value = next;
-  if (!(await autosave.run(async () => void (await api.updateSettings({ memory: next }))))) on.value = previous;
+  if (!(await autosave.run(async () => void (await shared.save({ memory: next }))))) on.value = previous;
   else await memory.load();
 }
 
@@ -45,7 +48,7 @@ async function saveFolder(): Promise<void> {
   const next = folder.value.trim();
   if (autosave.saving.value || next === accepted.value) return;
   const saved = await autosave.run(async () => {
-    const settings = await api.updateSettings({ memoryFolder: next });
+    const settings = await shared.save({ memoryFolder: next });
     folder.value = accepted.value = settings.memoryFolder ?? next;
   });
   // A refused folder stays in the field, next to the core's message, so it can be corrected.

@@ -21,7 +21,14 @@ export type IconName =
   | 'info'
   | 'inbox'
   | 'bell'
-  | 'pencil';
+  | 'pencil'
+  | 'settings'
+  | 'book'
+  | 'more'
+  | 'copy'
+  | 'chevron-up'
+  | 'x-circle'
+  | 'check-circle';
 
 const PATHS: Record<IconName, string[]> = {
   logo: ['M8 3h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5z', 'M8 15a4 4 0 0 1 8 0', 'M12 15l2.5-3'],
@@ -46,6 +53,13 @@ const PATHS: Record<IconName, string[]> = {
   inbox: ['M4 13l2-7h12l2 7', 'M4 13v5h16v-5h-5l-1 2h-4l-1-2z'],
   bell: ['M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z', 'M10 21h4'],
   pencil: ['M5 19l1-4L16.5 4.5a1.8 1.8 0 0 1 2.5 0l.5.5a1.8 1.8 0 0 1 0 2.5L9 18z', 'M14.5 6.5l3 3'],
+  settings: ['M4 7h10M18 7h2M4 17h2M10 17h10', 'M16 5v4M8 15v4'],
+  book: ['M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5z', 'M5 19.5A1.5 1.5 0 0 0 6.5 21H19', 'M9 8h6'],
+  more: ['M6 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z', 'M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z', 'M18 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z'],
+  copy: ['M9 9h10v11H9z', 'M15 9V5H5v11h4'],
+  'chevron-up': ['M6 15l6-6 6 6'],
+  'x-circle': ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M9.5 9.5l5 5M14.5 9.5l-5 5'],
+  'check-circle': ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M8.5 12.2l2.3 2.3 4.7-4.7'],
 };
 
 withDefaults(defineProps<{ name: IconName; size?: 'sm' | 'md' | 'lg' }>(), { size: 'md' });

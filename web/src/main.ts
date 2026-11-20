@@ -4,6 +4,7 @@ import { createApi } from './api';
 import { createConnectorsStore } from './composables/useConnectors';
 import { provideConnectors } from './composables/useConnectorsStore';
 import { provideApi } from './composables/useApi';
+import { createSettingsStore, provideSettings } from './composables/useSettings';
 import { createUpdateStore, provideUpdate } from './composables/useUpdate';
 import { i18n, languageEpoch } from './i18n';
 import { conversationIdOf, OPEN_CONVERSATION_EVENT } from './lib/openConversation';
@@ -32,6 +33,7 @@ app.use(i18n);
 provideApi(app, api);
 provideConnectors(app, connectors);
 provideUpdate(app, updates);
+provideSettings(app, createSettingsStore(api));
 const router = createAppRouter(connectors);
 app.use(router);
 // The bubble's "Open Pouple" button: the shell names the conversation, the router shows it.

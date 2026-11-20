@@ -77,3 +77,37 @@ export function machineGauges(machine: MachineState | undefined): MachineGauge[]
   if (memory) gauges.push({ key: 'memory', usedPercent: memory.usedPercent, level: memory.level });
   return gauges;
 }
+
+/** One figure of the compact usage line: an AI's fullest window, or a resource of the Mac that needs attention. */
+export interface UsageHeadline {
+  key: string;
+  name: string;
+  /** From 0 to 100 for an AI's window or the memory; absent for the disk, which shows its free space. */
+  usedPercent?: number;
+  /** The disk's free bytes. */
+  freeBytes?: number;
+  level: UsageLevel;
+}
+
+const LEVELS: UsageLevel[] = ['normal', 'high', 'critical'];
+const worst = (levels: UsageLevel[]): UsageLevel => LEVELS[Math.max(0, ...levels.map((level) => LEVELS.indexOf(level)))] ?? 'normal';
+
+/**
+ * What the sidebar shows in one line: each AI by its fullest window that still holds, then the disk, and the memory only
+ * when it runs short. The full detail stays one click away.
+ */
+export function usageHeadline(usage: Usage | null, now: Date = new Date()): UsageHeadline[] {
+  const out: UsageHeadline[] = usageRows(usage, now)
+    .filter((row) => row.windows.length > 0)
+    .map((row) => {
+      const fullest = row.windows.reduce((a, b) => (b.window.usedPercent > a.window.usedPercent ? b : a));
+      return { key: row.provider, name: row.name, usedPercent: fullest.window.usedPercent, level: usageLevel(fullest.window) };
+    });
+  const { disk, memory } = usage?.machine ?? {};
+  if (disk && disk.totalBytes > 0) out.push({ key: 'disk', name: 'disk', freeBytes: disk.freeBytes, level: disk.level });
+  if (memory && memory.level !== 'normal') out.push({ key: 'memory', name: 'memory', usedPercent: memory.usedPercent, level: memory.level });
+  return out;
+}
+
+/** The most pressing level of the line, so the folded line itself can warn. */
+export const headlineLevel = (items: UsageHeadline[]): UsageLevel => worst(items.map((item) => item.level));

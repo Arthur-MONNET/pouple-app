@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { MachineLevel, Tokens, Usage, UsageWindow } from '../api/types';
+import type { Tokens, Usage, UsageWindow } from '../api/types';
 import { compactCount, gigabytes, percent, untilTime } from '../lib/format';
 import { machineGauges, totalTokens, usageLevel, usageRows, type MachineGauge, type WindowKey } from '../lib/usage';
 import { t } from '../i18n';
@@ -19,18 +19,6 @@ function gaugeTitle(gauge: MachineGauge): string {
   return t('home.memoryTitle', { used: percent(gauge.usedPercent), total: memory ? gigabytes(memory.totalBytes) : '?' });
 }
 
-const barClass = (level: MachineLevel): Record<string, boolean> => ({
-  'bg-lavender': level === 'normal',
-  'bg-warn': level === 'high',
-  'bg-fail': level === 'critical',
-});
-
-const valueClass = (level: MachineLevel): Record<string, boolean> => ({
-  'text-ink-muted': level === 'normal',
-  'font-medium text-warn': level === 'high',
-  'font-semibold text-fail': level === 'critical',
-});
-
 function windowTitle(name: string, key: WindowKey, window: UsageWindow): string {
   const values = { name, used: percent(window.usedPercent), window: t(`home.${key}`) };
   return window.resetsAt
@@ -43,7 +31,7 @@ const tokensTitle = (tokens: Tokens): string =>
 </script>
 
 <template>
-  <section class="mx-3 mb-3 flex flex-col gap-3 rounded-xl border border-line bg-surface p-3" :aria-label="$t('home.usageHeading')" data-testid="usage-summary">
+  <section class="flex flex-col gap-3 rounded-lg border border-line bg-surface p-3" :aria-label="$t('home.usageHeading')" data-testid="usage-summary">
     <div class="flex items-baseline justify-between gap-2">
       <p class="text-2xs font-medium uppercase tracking-wider text-ink-dim">{{ $t('home.usageHeading') }}</p>
       <p class="text-xs tabular-nums text-ink-muted" :title="usage.limit === null ? $t('home.usageTitle') : $t('home.usageTitleLimit')">
@@ -70,13 +58,13 @@ const tokensTitle = (tokens: Tokens): string =>
           <span class="h-1.5 overflow-hidden rounded-full bg-raised" aria-hidden="true">
             <span
               class="block h-full rounded-full transition-[width] motion-reduce:transition-none"
-              :class="barClass(usageLevel(item.window))"
+              :class="{ 'bg-lavender': usageLevel(item.window) === 'normal', 'bg-warn': usageLevel(item.window) === 'high', 'bg-fail': usageLevel(item.window) === 'critical' }"
               :style="{ width: `${item.window.usedPercent}%` }"
             />
           </span>
           <span
             class="text-right tabular-nums"
-            :class="valueClass(usageLevel(item.window))"
+            :class="{ 'text-ink-muted': usageLevel(item.window) === 'normal', 'font-medium text-warn': usageLevel(item.window) === 'high', 'font-semibold text-fail': usageLevel(item.window) === 'critical' }"
             aria-hidden="true"
           >
             {{ percent(item.window.usedPercent) }}
@@ -88,7 +76,7 @@ const tokensTitle = (tokens: Tokens): string =>
     <div v-if="gauges.length > 0" class="flex flex-col gap-1.5" role="group" :aria-label="$t('home.machineLabel')" data-testid="usage-machine">
       <div class="flex items-baseline justify-between gap-2">
         <p class="text-sm font-medium text-ink">{{ $t('home.machineName') }}</p>
-        <p v-if="disk" class="text-xs tabular-nums" :class="valueClass(disk.level)">
+        <p v-if="disk" class="text-xs tabular-nums" :class="{ 'text-ink-muted': disk.level === 'normal', 'font-medium text-warn': disk.level === 'high', 'font-semibold text-fail': disk.level === 'critical' }">
           {{ $t('home.diskFree', { free: gigabytes(disk.freeBytes) }) }}
         </p>
       </div>
@@ -104,11 +92,11 @@ const tokensTitle = (tokens: Tokens): string =>
         <span class="h-1.5 overflow-hidden rounded-full bg-raised" aria-hidden="true">
           <span
             class="block h-full rounded-full transition-[width] motion-reduce:transition-none"
-            :class="barClass(gauge.level)"
+            :class="{ 'bg-lavender': gauge.level === 'normal', 'bg-warn': gauge.level === 'high', 'bg-fail': gauge.level === 'critical' }"
             :style="{ width: `${gauge.usedPercent}%` }"
           />
         </span>
-        <span class="text-right tabular-nums" :class="valueClass(gauge.level)" aria-hidden="true">{{ percent(gauge.usedPercent) }}</span>
+        <span class="text-right tabular-nums" :class="{ 'text-ink-muted': gauge.level === 'normal', 'font-medium text-warn': gauge.level === 'high', 'font-semibold text-fail': gauge.level === 'critical' }" aria-hidden="true">{{ percent(gauge.usedPercent) }}</span>
       </div>
     </div>
   </section>

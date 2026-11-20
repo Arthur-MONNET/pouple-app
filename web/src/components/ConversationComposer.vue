@@ -5,7 +5,7 @@ import type { AssistantRequest } from '../api/types';
 import { useAssistantStore } from '../composables/assistantStore';
 import { useComposerFiles } from '../composables/composerFiles';
 import { t } from '../i18n';
-import { isWorking, requestTitle } from '../lib/assistantRequests';
+import { isWorking } from '../lib/assistantRequests';
 import AppButton from './AppButton.vue';
 import IconButton from './IconButton.vue';
 import InlineError from './InlineError.vue';
@@ -70,7 +70,6 @@ async function onFilesChosen(event: Event): Promise<void> {
 <template>
   <!-- Files dropped here reach the conversation's drop zone, which hands them to addFiles: one handler, one upload. -->
   <form class="px-4 py-3" @submit.prevent="send">
-    <p class="mb-1.5 truncate text-2xs text-ink-dim">{{ $t('composer.about', { title: requestTitle(request) }) }}</p>
     <InlineError v-if="sendError || files.error.value" class="mb-1.5">{{ sendError ?? files.error.value }}</InlineError>
     <ul v-if="files.files.value.length > 0" class="mb-2 flex flex-wrap gap-2" :aria-label="$t('composer.filesLabel')">
       <li v-for="file in files.files.value" :key="file.ref.id" class="relative">

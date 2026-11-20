@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { errorMessage } from '../api/client';
 import type { AlertInput } from '../api/types';
@@ -7,13 +7,11 @@ import AlertForm from '../components/AlertForm.vue';
 import AlertRow from '../components/AlertRow.vue';
 import AppIcon from '../components/AppIcon.vue';
 import InlineError from '../components/InlineError.vue';
-import { provideAssistantStore } from '../composables/assistantStore';
-import { useApi } from '../composables/useApi';
-import { languageEpoch } from '../i18n';
+import { useAssistantStore } from '../composables/assistantStore';
 import { groupByDay } from '../lib/alerts';
 
 const router = useRouter();
-const store = provideAssistantStore(useApi());
+const store = useAssistantStore();
 const form = ref<InstanceType<typeof AlertForm> | null>(null);
 const busy = ref(false);
 const actionError = ref<string | null>(null);
@@ -22,8 +20,6 @@ const days = computed(() => groupByDay(store.alerts.value));
 /** An alert made from a conversation links back to it, as long as that conversation still exists. */
 const hasConversation = (requestId: string | undefined): boolean => requestId !== undefined && store.byId(requestId) !== null;
 
-// The days are named in the active language ("Aujourd'hui"), so they are read again after the core switches it.
-watch(languageEpoch, () => void store.refresh());
 
 async function guard(action: () => Promise<unknown>): Promise<boolean> {
   busy.value = true;

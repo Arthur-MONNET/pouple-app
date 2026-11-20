@@ -1,11 +1,12 @@
-import { ref } from 'vue';
-import { errorMessage } from '../api/client';
+import { inject, ref, type App, type InjectionKey } from 'vue';
+import { errorMessage, type PoupleApi } from '../api/client';
 import type { Settings, SettingsPatch } from '../api/types';
-import { useApi } from './useApi';
 
-/** Loads the settings and saves changes; the core's own message is kept when a value is refused. */
-export function useSettings() {
-  const api = useApi();
+/**
+ * The settings, shared by every screen: what one saves (the memory turned on, for example) is what the sidebar shows at
+ * once. The core's own message is kept when a value is refused.
+ */
+export function createSettingsStore(api: PoupleApi) {
   const settings = ref<Settings | null>(null);
   const loadError = ref<string | null>(null);
 
@@ -26,4 +27,17 @@ export function useSettings() {
   }
 
   return { settings, loadError, load, save };
+}
+
+export type SettingsStore = ReturnType<typeof createSettingsStore>;
+const KEY: InjectionKey<SettingsStore> = Symbol('settings');
+
+export function provideSettings(app: App, store: SettingsStore): void {
+  app.provide(KEY, store);
+}
+
+export function useSettings(): SettingsStore {
+  const store = inject(KEY);
+  if (!store) throw new Error('useSettings() called outside of an app providing the settings');
+  return store;
 }

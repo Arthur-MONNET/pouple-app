@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compactCount, gigabytes, percent, untilTime } from './format';
-import { machineGauges, totalTokens, usageLevel, usageRows } from './usage';
+import { headlineLevel, machineGauges, totalTokens, usageHeadline, usageLevel, usageRows } from './usage';
 
 const seenAt = '2026-11-13T12:00:00.000Z';
 
@@ -96,5 +96,28 @@ describe('the Mac', () => {
     expect(gigabytes(2.5 * GiB, 'en')).toBe('2.5 GB');
     expect(gigabytes(212 * GiB, 'en')).toBe('212 GB');
     expect(gigabytes(2 * GiB, 'fr')).toBe('2,0 Go');
+  });
+});
+
+describe('the compact usage line', () => {
+  it('keeps each AI by its fullest window, then the disk, and the memory only when it runs short', () => {
+    const usage = {
+      today: 7,
+      limit: 40,
+      limits: { claude: { fiveHour: { usedPercent: 92 }, week: { usedPercent: 64 }, seenAt }, codex: { fiveHour: { usedPercent: 9 }, week: { usedPercent: 78 }, seenAt } },
+      machine: { disk: { freeBytes: 1.7e9, totalBytes: 460e9, level: 'critical' as const }, memory: { usedPercent: 61, totalBytes: 24e9, level: 'normal' as const } },
+    };
+    const line = usageHeadline(usage, new Date(seenAt));
+    expect(line.map((item) => [item.key, item.usedPercent ?? item.freeBytes, item.level])).toEqual([
+      ['claude', 92, 'critical'],
+      ['codex', 78, 'high'],
+      ['disk', 1.7e9, 'critical'],
+    ]);
+    expect(headlineLevel(line)).toBe('critical');
+  });
+
+  it('is empty, and calm, when the core sends no usage', () => {
+    expect(usageHeadline(null)).toEqual([]);
+    expect(headlineLevel([])).toBe('normal');
   });
 });

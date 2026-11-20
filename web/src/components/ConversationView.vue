@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { AssistantRequest } from '../api/types';
 import AssistantRequestBlock from './AssistantRequestBlock.vue';
 import ConversationComposer from './ConversationComposer.vue';
+import ConversationHeader from './ConversationHeader.vue';
+import DecisionDock from './DecisionDock.vue';
 import { hasFiles } from '../lib/dropFiles';
+import { pendingDecision } from '../lib/requestDecisions';
 
 const ConversationTerminal = defineAsyncComponent(() => import('./ConversationTerminal.vue'));
 const terminalAvailable = window.__POUPLE__?.terminal === true;
@@ -16,6 +19,8 @@ const composer = ref<InstanceType<typeof ConversationComposer> | null>(null);
 /** A file is being dragged over the conversation. A counter, since entering a child fires dragenter before dragleave. */
 const dragDepth = ref(0);
 const interactiveTerminal = ref(false);
+/** A question, a plan or a change waiting for the user takes the message field's place. */
+const deciding = computed(() => props.request.status === 'awaiting-user' && pendingDecision(props.request) !== null);
 
 function onDragEnter(event: DragEvent): void {
   if (hasFiles(event)) dragDepth.value += 1;
@@ -97,14 +102,20 @@ onUnmounted(() => layoutObserver?.disconnect());
     >
       {{ $t('composer.dropHint') }}
     </div>
-    <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto px-4 py-3" @scroll.passive="onScroll">
-      <div class="mx-auto max-w-2xl">
-        <AssistantRequestBlock :key="request.id" :request="request" :interactive-terminal="interactiveTerminal" @removed="$emit('removed')" />
+    <ConversationHeader :request="request" @removed="$emit('removed')" />
+    <!-- A short thread sits at the bottom, against the dock: the last message stays next to what answers it. -->
+    <div ref="scroller" class="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4" @scroll.passive="onScroll">
+      <div class="mx-auto mt-auto w-full max-w-3xl">
+        <AssistantRequestBlock :key="request.id" :request="request" :interactive-terminal="interactiveTerminal" />
       </div>
     </div>
     <ConversationTerminal v-if="terminalAvailable" :key="request.id" :request-id="request.id" :available-height="terminalSpace" @interactive="interactiveTerminal = $event" />
     <div ref="composerBar" class="shrink-0 border-t border-line-soft">
-      <div class="mx-auto w-full max-w-2xl"><ConversationComposer ref="composer" :request="request" /></div>
+      <!-- Keyed by the conversation: a draft, a file or a slow send never moves to another one. -->
+      <div class="mx-auto w-full max-w-3xl">
+        <DecisionDock v-if="deciding" :key="`dock-${request.id}`" :request="request" />
+        <ConversationComposer v-else :key="request.id" ref="composer" :request="request" />
+      </div>
     </div>
   </div>
 </template>
