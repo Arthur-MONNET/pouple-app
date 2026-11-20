@@ -18,7 +18,7 @@ const WORD = /[\p{L}]{3,}/u;
 /** Words that are the same in every language: the product name and technical tokens. */
 const ALLOWED = new Set(['Pouple', 'Slack', 'Codex', 'Cmd']);
 
-/** Static text a reader would see: text nodes and plain (not bound) placeholder, title, aria-label, alt, label attributes. */
+/** Static text a reader would see: text nodes and plain (not bound) placeholder, title, alt, label and `*-label` attributes. */
 export function hardcodedText(template: string): string[] {
   const found: string[] = [];
   const withoutMustaches = template.replace(/\{\{[\s\S]*?\}\}/g, ' ').replace(/&[a-z]+;|&#\d+;/gi, ' ');
@@ -26,7 +26,7 @@ export function hardcodedText(template: string): string[] {
     const text = (match[1] ?? '').trim();
     if (WORD.test(text) && ![...text.split(/\s+/)].every((word) => ALLOWED.has(word) || !WORD.test(word))) found.push(text);
   }
-  for (const match of template.matchAll(/\s(placeholder|title|aria-label|alt|label)="([^"]+)"/g)) {
+  for (const match of template.matchAll(/\s(placeholder|title|alt|label|[a-z]+(?:-[a-z]+)*-label)="([^"]+)"/g)) {
     const value = match[2] ?? '';
     if (WORD.test(value) && !ALLOWED.has(value)) found.push(`${match[1] ?? ''}="${value}"`);
   }
@@ -44,5 +44,6 @@ describe('no hard-coded user-visible text in templates', () => {
   it('catches a sentence written straight in a template (the heuristic itself)', () => {
     expect(hardcodedText('<div><p>Bienvenue sur Pouple</p><input placeholder="Ton jeton" /></div>')).toEqual(['Bienvenue sur Pouple', 'placeholder="Ton jeton"']);
     expect(hardcodedText("<p>{{ $t('a.b') }}</p><button :aria-label=\"$t('x')\">{{ n }}</button>")).toEqual([]);
+    expect(hardcodedText('<Card submit-label="Confirm" />')).toEqual(['submit-label="Confirm"']);
   });
 });

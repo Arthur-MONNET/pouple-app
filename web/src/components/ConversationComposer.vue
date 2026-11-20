@@ -68,7 +68,8 @@ async function onFilesChosen(event: Event): Promise<void> {
 </script>
 
 <template>
-  <form class="px-4 py-3" @submit.prevent="send" @dragover.prevent @drop.prevent="files.onDrop">
+  <!-- Files dropped here reach the conversation's drop zone, which hands them to addFiles: one handler, one upload. -->
+  <form class="px-4 py-3" @submit.prevent="send">
     <p class="mb-1.5 truncate text-2xs text-ink-dim">{{ $t('composer.about', { title: requestTitle(request) }) }}</p>
     <InlineError v-if="sendError || files.error.value" class="mb-1.5">{{ sendError ?? files.error.value }}</InlineError>
     <ul v-if="files.files.value.length > 0" class="mb-2 flex flex-wrap gap-2" :aria-label="$t('composer.filesLabel')">

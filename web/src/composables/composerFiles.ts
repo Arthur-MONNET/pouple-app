@@ -71,8 +71,6 @@ export function useComposerFiles(requestId: Ref<string | null>) {
     }
   };
 
-  const onDrop = (event: DragEvent): void => void add([...(event.dataTransfer?.files ?? [])]);
-
   function remove(id: string): void {
     const gone = files.value.find((file) => file.ref.id === id);
     if (gone?.preview) URL.revokeObjectURL(gone.preview);
@@ -83,5 +81,5 @@ export function useComposerFiles(requestId: Ref<string | null>) {
   watch(requestId, forget);
   onBeforeUnmount(forget);
 
-  return { files, uploading, error, add, remove, forget, onPaste, onDrop };
+  return { files, uploading, error, add, remove, forget, onPaste };
 }

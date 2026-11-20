@@ -221,6 +221,19 @@ type line struct {
 
 const maxStepChars = 400
 
+// maxOutputChars bounds the output kept with a command: every change of a conversation copies and saves all of it,
+// and the end of an output (the error, the summary of a test run) is what tells what happened.
+const maxOutputChars = 16000
+
+// clipOutput keeps the end of a long command output, marked as cut.
+func clipOutput(output string) string {
+	runes := []rune(output)
+	if len(runes) <= maxOutputChars {
+		return output
+	}
+	return "…" + string(runes[len(runes)-maxOutputChars+1:])
+}
+
 var shellWrapper = regexp.MustCompile(`^(?:/bin/)?(?:ba|z)?sh -lc (['"])([\s\S]*)['"]$`)
 
 func readableCommand(command string) string {

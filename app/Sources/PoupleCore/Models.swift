@@ -217,8 +217,23 @@ public struct MemoryChange: Codable, Equatable, Identifiable, Sendable {
 }
 
 public struct ChatEntry: Codable, Equatable, Identifiable, Sendable {
-    public enum Role: String, Codable, Sendable { case system, assistant, user }
-    public enum Kind: String, Codable, Sendable { case text, step }
+    public enum Role: String, Codable, Sendable {
+        case system, assistant, user, unknown
+
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Role(rawValue: raw) ?? .unknown
+        }
+    }
+
+    public enum Kind: String, Codable, Sendable {
+        case text, step, unknown
+
+        public init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .unknown
+        }
+    }
 
     public let id: String
     public let role: Role
