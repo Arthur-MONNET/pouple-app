@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/memory"
 )
@@ -186,16 +187,7 @@ func TestAChangeCanBeUndoneAndAFactShared(t *testing.T) {
 	if err := h.svc.ShareMemoryFact(request.ID, change.ID, "m9", true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("an unknown fact: %v", err)
 	}
-	// The fact was shared after it was written: undoing its write meets that later change.
-	if err := h.svc.UndoMemoryChange(request.ID, change.ID); !errors.Is(err, ErrState) {
-		t.Fatalf("undoing a change the notes moved on from: %v", err)
-	}
-	if err := h.svc.ShareMemoryFact(request.ID, change.ID, "m1", false); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := RunGit(context.Background(), dir, "-c", "user.name=t", "-c", "user.email=t@t", "revert", "--no-edit", "HEAD", "HEAD~1"); err != nil {
-		t.Fatalf("git revert: %v %s", err, out)
-	}
+	// The fact was shared after it was written: undoing its write takes it out all the same.
 	if err := h.svc.UndoMemoryChange(request.ID, change.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +201,80 @@ func TestAChangeCanBeUndoneAndAFactShared(t *testing.T) {
 		t.Fatalf("undoing twice: %v", err)
 	}
 }
+
+func TestUndoIsRefusedOnlyForAFactChangedByHand(t *testing.T) {
+	requireGit(t)
+	h := newHarness(t, reply(remember(fact("", "Payments", "Refunds go through Stripe."))))
+	dir := withMemory(t, h, nil)
+	h.receive(noteToSelf("Note: refunds go through Stripe"))
+	request := only(t, h)
+	note, _ := os.ReadFile(filepath.Join(dir, "payments.md"))
+	edited := strings.Replace(string(note), "Refunds go through Stripe.", "Refunds go through Adyen.", 1)
+	if err := os.WriteFile(filepath.Join(dir, "payments.md"), []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := h.svc.UndoMemoryChange(request.ID, request.MemoryChanges[0].ID)
+	if !errors.Is(err, ErrState) || !strings.Contains(err.Error(), "“Refunds go through Stripe.” was changed by hand in payments.md") {
+		t.Fatalf("err = %v", err)
+	}
+	if only(t, h).MemoryChanges[0].Undone {
+		t.Fatal("a refused undo is marked done")
+	}
+}
+
+func TestAFactTheUserWroteInTheAppIsTheirsNotTheSenders(t *testing.T) {
+	requireGit(t)
+	h := newHarness(t,
+		reply(map[string]any{"outcome": Answered, "summary": "**The containers are unused**"}),
+		reply(remember(fact("", "Pouple app", "Arthur merges features into develop."))),
+	)
+	dir := withMemory(t, h, nil)
+	h.receive(message("Are these containers on lab still useful?", func(in *Incoming) {
+		in.Source.Origin, in.Source.ChannelID, in.Source.ChannelName, in.Source.SenderName = "direct-message", "D2", nil, "Joel"
+		in.Source.Permalink = ptr("https://team.slack.com/archives/D2/p1")
+	}))
+	request := only(t, h)
+	if err := h.svc.Message(request.ID, "Remember that I merge features into develop", nil); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Idle()
+	note, _ := os.ReadFile(filepath.Join(dir, "pouple-app.md"))
+	if !strings.Contains(string(note), "- Arthur merges features into develop. (Arthur, Pouple conversation, 2026-11-05)") || strings.Contains(string(note), "Joel") {
+		t.Fatalf("a fact the user wrote in the app is labelled with the person who wrote first:\n%s", note)
+	}
+	if out, _ := RunGit(context.Background(), dir, "log", "-1", "--format=%s"); out != "Remember from Arthur, Pouple conversation" {
+		t.Fatalf("commit %q", out)
+	}
+	if !strings.Contains(string(note), memory.UnconfirmedMark) {
+		t.Fatal("the conversation held Joel's text: whether the fact is unconfirmed is not this label's to change")
+	}
+}
+
+func TestOnlyATurnThatAnswersTheUserTakesTheirName(t *testing.T) {
+	entries := []Entry{
+		{Role: "assistant", Kind: "step", Text: "Slack: searched"},
+		{Role: "assistant", Kind: "text", Text: "first"},
+		{Role: "user", Kind: "text", Text: "Remember that I merge into develop"},
+		{Role: "assistant", Kind: "step", Text: "Memory: searched"},
+		{Role: "assistant", Kind: "text", Text: "second"},
+		{Role: "user", Kind: "text", Text: "Plan approved"},
+	}
+	if answersOwner(entries[:2], "first") {
+		t.Fatal("the first turn answers the message the conversation started from")
+	}
+	if !answersOwner(entries, "second") {
+		t.Fatal("a turn after a message of the user answers them, whatever follows its summary")
+	}
+	source := memorySource(Stored{Request: Request{Source: Source{Origin: "direct-message", SenderName: "Joel"}, Entries: entries[:2]}}, "Arthur", "first", memoryDay)
+	if source.Label != "Slack, Joel" {
+		t.Fatalf("label %q", source.Label)
+	}
+	if own := memorySource(Stored{Request: Request{Source: Source{Origin: OriginNoteToSelf}, Entries: entries}}, "Arthur", "second", memoryDay); own.Label != "Note to self" {
+		t.Fatalf("a note to self keeps its label: %q", own.Label)
+	}
+}
+
+var memoryDay = time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
 
 func TestTheReviewComesAsAnAlertAtMostOnceAWeek(t *testing.T) {
 	h := newHarness(t)
@@ -326,7 +392,8 @@ func TestTheMemoryPageListsOldFactsAndKeepsOrDropsThem(t *testing.T) {
 	if err := h.svc.ReviewMemory("deploys.md", line, false); err != nil {
 		t.Fatal(err)
 	}
-	if view, _ := h.svc.MemoryView(context.Background()); len(view.Review) != 0 || view.Notes[0].Facts != 0 {
+	// The note held only that fact: it goes with it, out of the index too.
+	if view, _ := h.svc.MemoryView(context.Background()); len(view.Review) != 0 || len(view.Notes) != 0 {
 		t.Fatalf("after dropping: %+v", view)
 	}
 	h.svc.deps.MemoryOn = func() bool { return false }

@@ -210,7 +210,7 @@ func (s *Service) applyMemories(id string, outcome Outcome) {
 	if len(facts) == 0 {
 		return
 	}
-	source := memorySource(request, s.deps.Now())
+	source := memorySource(request, s.deps.Persona().Name, outcome.Summary, s.deps.Now())
 	ctx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
 	defer cancel()
 	change, err := s.deps.Memory.Remember(ctx, facts, source, memory.RememberMessage(source.Label))
@@ -296,18 +296,24 @@ func changeSummary(items []MemoryChangeItem) string {
 	return "\n" + strings.Join(parts, "\n")
 }
 
-// UndoMemoryChange reverts a write of the memory listed in a conversation.
+// UndoMemoryChange takes back a write of the memory listed in a conversation, by what it changed: the facts kept, shared
+// or dropped since are no obstacle, only a fact the user changed by hand.
 func (s *Service) UndoMemoryChange(id, changeID string) error {
 	s.memoryMu.Lock()
 	defer s.memoryMu.Unlock()
-	if _, err := s.memoryChange(id, changeID); err != nil {
+	change, err := s.memoryChange(id, changeID)
+	if err != nil {
 		return err
+	}
+	written := make([]memory.Written, len(change.Items))
+	for i, item := range change.Items {
+		written[i] = memory.Written{Note: memory.Note{Path: item.Note, Title: item.NoteTitle}, Kind: item.Kind, Line: item.Line, Previous: item.Previous}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), memoryWriteTimeout)
 	defer cancel()
-	if err := s.deps.Memory.Undo(ctx, changeID); err != nil {
+	if err := s.deps.Memory.Undo(ctx, changeID, written); err != nil {
 		if errors.Is(err, memory.ErrChanged) {
-			return i18n.Wrap(ErrState, "these facts changed since: change them on the Memory page or in the notes")
+			return i18n.Wrap(ErrState, "%s", err)
 		}
 		return memoryError(err)
 	}
@@ -378,9 +384,19 @@ func (s *Service) memoryChange(id, changeID string) (MemoryChange, error) {
 	return request.MemoryChanges[index], nil
 }
 
-// memorySource says where the facts of a conversation were learned, as the notes show it.
-func memorySource(r Stored, now time.Time) memory.Source {
+// memorySource says where the facts of a turn were learned, as the notes show it. A turn that answers what the user wrote
+// in the app (a follow-up, an answer to a question, a plan they approved) learned from them, whatever the conversation
+// started from: its facts are the user's, not those of whoever wrote first, so neither that person's name nor the link to
+// their message goes with them. Whether such a fact is unconfirmed is decided apart, by what the conversation read.
+func memorySource(r Stored, owner, summary string, now time.Time) memory.Source {
 	source := memory.Source{Date: now}
+	if !r.Source.FromUser() && answersOwner(r.Entries, summary) {
+		source.Label = "Pouple conversation"
+		if owner = oneLine(owner, 40); owner != "" {
+			source.Label = owner + ", " + source.Label
+		}
+		return source
+	}
 	if r.Source.Permalink != nil {
 		source.Link = *r.Source.Permalink
 	}
@@ -409,6 +425,33 @@ func memorySource(r Stored, now time.Time) memory.Source {
 		source.Label = "Slack #" + oneLine(name, 40)
 	}
 	return source
+}
+
+// answersOwner says whether the turn that ended with summary answered a message of the user: between its summary and the
+// answer before it, the user wrote. What follows the summary (an approval made on its own) belongs to the next turn.
+func answersOwner(entries []Entry, summary string) bool {
+	end := -1
+	for at, entry := range slices.Backward(entries) {
+		if entry.Role == "assistant" && entry.Kind == "text" && entry.Text == summary {
+			end = at
+			break
+		}
+	}
+	if end < 0 {
+		return false
+	}
+	for _, entry := range slices.Backward(entries[:end]) {
+		if entry.Kind != "text" {
+			continue
+		}
+		switch entry.Role {
+		case "user":
+			return true
+		case "assistant":
+			return false
+		}
+	}
+	return false
 }
 
 // memoryError maps what the memory refuses to the errors the API understands.

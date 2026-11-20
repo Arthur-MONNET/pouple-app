@@ -241,11 +241,33 @@ func writeFact(root *os.Root, fact Fact, source Source) (Written, error) {
 		}
 	}
 	text := strings.Join(lines, "\n") + "\n"
-	if err := replaceFile(root, name, text); err != nil {
+	if err := saveNote(root, name, text); err != nil {
 		return Written{}, err
 	}
 	written.Note = Note{Path: name, Title: titleOf(name, text)}
 	return written, nil
+}
+
+// saveNote writes a note, or removes it when nothing but headings is left in it: an empty note would stay in the index,
+// which the user's Claude Code imports into every session. A note that holds anything else (prose, properties) is kept.
+func saveNote(root *os.Root, name, text string) error {
+	if !emptyNote(text) {
+		return replaceFile(root, name, text)
+	}
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return i18n.Wrap(err, "The note “%s” cannot be written", name)
+	}
+	return nil
+}
+
+// emptyNote says whether a note holds nothing but headings and blank lines.
+func emptyNote(text string) bool {
+	for line := range strings.SplitSeq(text, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" && headingLevel(trimmed) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // itemEnd is the end of the list item at index at: the lines indented under it belong to it.

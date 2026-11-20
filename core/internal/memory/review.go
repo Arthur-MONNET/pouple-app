@@ -26,7 +26,6 @@ var (
 	datePattern   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 	keptPattern   = regexp.MustCompile(` \(kept \d{4}-\d{2}-\d{2}\)`)
 	reviewPattern = regexp.MustCompile(` \(review (\d{4}-\d{2}-\d{2})\)`)
-	commitPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 	// minLife is the shortest a fact lives before it is reviewed again once kept.
 	minLife = 14 * 24 * time.Hour
 )
@@ -132,24 +131,24 @@ func FactText(line string) string {
 // Keep confirms a fact: it is no longer unconfirmed, and it is due again after as long as it lived since it was learned
 // (at least two weeks; StaleAfter when it had no review date). line must be the line as it was read: ErrChanged otherwise.
 func (s *Store) Keep(ctx context.Context, note, line string, now time.Time) error {
-	return s.reviewLine(ctx, note, line, "Kept a fact", func(lines []string, at int) []string {
+	return s.reviewLine(ctx, note, line, keptMessage, func(lines []string, at int) []string {
 		lines[at] = keptLine(lines[at], now)
 		return lines
 	})
 }
 
-// Drop takes a fact out of its note; see Keep.
+// Drop takes a fact out of its note; see Keep. A note left with no fact and no other text is removed.
 func (s *Store) Drop(ctx context.Context, note, line string) error {
-	return s.reviewLine(ctx, note, line, "Dropped a fact", func(lines []string, at int) []string {
+	return s.reviewLine(ctx, note, line, droppedMessage, func(lines []string, at int) []string {
 		return slices.Delete(lines, at, itemEnd(lines, at))
 	})
 }
 
 // SetShared lets a fact reach the requests of others, or keeps it from them; it returns the line as it is now.
 func (s *Store) SetShared(ctx context.Context, note, line string, shared bool) (string, error) {
-	message := "Made a fact private"
+	message := privateMessage
 	if shared {
-		message = "Shared a fact"
+		message = sharedMessage
 	}
 	var changed string
 	err := s.reviewLine(ctx, note, line, message, func(lines []string, at int) []string {
@@ -169,44 +168,6 @@ func withPrivate(line string, private bool) string {
 		return trimmed
 	}
 	return trimmed + " " + PrivateMark
-}
-
-// Undo reverts one change Pouple made, by its commit. A change the notes moved on from since (a later edit of the same
-// lines) cannot be undone: ErrChanged.
-func (s *Store) Undo(ctx context.Context, commit string) error {
-	if !commitPattern.MatchString(commit) {
-		return ErrNotFound
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	dir := s.dir()
-	if dir == "" {
-		return ErrNotFound
-	}
-	if err := s.commitOutside(ctx, dir); err != nil {
-		return err
-	}
-	subject, err := s.git(ctx, dir, "log", "-1", "--format=%s", commit)
-	if err != nil || !strings.HasPrefix(subject, rememberMessage) {
-		return ErrNotFound
-	}
-	args := append(append([]string{}, gitIdentity...), "revert", "--no-edit", commit)
-	if out, err := s.git(ctx, dir, args...); err != nil {
-		_, _ = s.git(ctx, dir, "revert", "--abort")
-		if strings.Contains(out, "conflict") || strings.Contains(out, "CONFLICT") {
-			return ErrChanged
-		}
-		return i18n.Wrap(ErrNotCommitted, "git could not commit the memory: %s", out)
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return i18n.Wrap(err, "The memory folder cannot be read")
-	}
-	defer root.Close()
-	if err := s.writeIndex(root); err != nil {
-		return err
-	}
-	return s.commit(ctx, dir, "Index written again")
 }
 
 func (s *Store) reviewLine(ctx context.Context, raw, line, message string, change func([]string, int) []string) error {
@@ -240,7 +201,7 @@ func (s *Store) reviewLine(ctx context.Context, raw, line, message string, chang
 	if at < 0 {
 		return ErrChanged
 	}
-	if err := replaceFile(root, name, strings.Join(change(lines, at), "\n")+"\n"); err != nil {
+	if err := saveNote(root, name, strings.Join(change(lines, at), "\n")+"\n"); err != nil {
 		return err
 	}
 	if err := s.writeIndex(root); err != nil {
