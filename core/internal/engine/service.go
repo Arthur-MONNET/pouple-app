@@ -28,6 +28,9 @@ var (
 	ErrState    = i18n.NewError("not possible in the current state")
 	ErrInput    = i18n.NewError("invalid input")
 	ErrInactive = i18n.NewError("the assistant is not running")
+	// ErrSourceOff is what a source returns when its service is not connected: there is nothing to read, and nothing
+	// is wrong. Slack is optional, so its inbox says this until it is connected.
+	ErrSourceOff = i18n.NewError("this service is not connected")
 )
 
 // Inbox finds the Slack messages that would notify the user.
@@ -445,7 +448,7 @@ func (s *Service) standingNoticesLocked(lang i18n.Lang) []string {
 		out = append(out, i18n.T(lang, "%s is not signed in any more: open Connectors and sign in again.", active.Name()))
 	}
 	if until := s.pausedUntil[active]; s.deps.Now().Before(until) {
-		out = append(out, i18n.T(lang, "%s's usage limit is reached: new Slack requests wait until %s. What you ask yourself still goes through.", active.Name(), i18n.Time(until.Local())))
+		out = append(out, i18n.T(lang, "%s's usage limit is reached: new requests from others wait until %s. What you ask yourself still goes through.", active.Name(), i18n.Time(until.Local())))
 	}
 	return out
 }
@@ -497,6 +500,19 @@ func (s *Service) pollSlack(ctx context.Context) {
 		return
 	}
 	result, err := s.deps.Inbox.Poll(ctx, s.deps.Store.Cursor())
+	if errors.Is(err, ErrSourceOff) {
+		// Slack is not connected: nothing to read and nothing to report. Its place is forgotten, so connecting it again
+		// later starts with a first look instead of replaying everything since it was last read.
+		s.mu.Lock()
+		cleared := len(s.notices) > 0
+		s.notices = nil
+		s.mu.Unlock()
+		s.deps.Store.clearCursor()
+		if cleared {
+			s.broadcast()
+		}
+		return
+	}
 	if err != nil {
 		s.mu.Lock()
 		s.notices = []i18n.Message{i18n.NewMessage("Slack could not be read: %s", err)}
@@ -512,6 +528,18 @@ func (s *Service) pollSlack(ctx context.Context) {
 	for _, incoming := range result.Incoming {
 		s.receive(incoming)
 	}
+}
+
+// clearCursor forgets the place of the Slack inbox, so that its next poll is a first look. Kept as it is when there is
+// none, so that a source that stays off never writes.
+func (s *Store) clearCursor() {
+	s.mu.Lock()
+	if s.state.Cursor == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.state.Cursor = nil
+	s.changed()
 }
 
 // pollPipelines turns the pipelines that finished since the last look into requests. The first look only records
@@ -567,6 +595,12 @@ func (s *Service) pollEvents(ctx context.Context) {
 }
 
 func (s *Service) receive(in Incoming) {
+	// Only StartConversation creates a conversation of the app, with the user's rights. A source that reports one is
+	// wrong or forged: what it says is dropped, never stored as the user's own text.
+	if in.Source.Origin == OriginInApp {
+		s.deps.OnError(errors.New("a source reported a conversation of the app: dropped"))
+		return
+	}
 	// A message in the thread of an open conversation is read quietly there.
 	if s.followThread(in) {
 		return
@@ -584,7 +618,7 @@ func (s *Service) receiveNew(in Incoming) {
 		ID: newID(), Source: in.Source, Text: in.Text, Context: in.Context, ReceivedAt: received, UpdatedAt: received,
 		Status: StatusQueued, Questions: []Question{}, Entries: []Entry{},
 	}, PendingFiles: in.Files}
-	ownNote := in.Source.Origin == "note-to-self"
+	ownNote := in.Source.FromUser()
 	skip := func(reason string) {
 		request.Status = StatusIgnored
 		request.Entries = []Entry{s.entry("system", "text", s.text(reason))}
@@ -625,7 +659,7 @@ func (s *Service) receiveNew(in Incoming) {
 // mergeIntoWaiting joins a message to the request of the same person, in the same place, that still waits.
 func (s *Service) mergeIntoWaiting(in Incoming) bool {
 	// An event is a thing of its own: two of them are never one request.
-	if in.Source.Origin == "note-to-self" || IsEvent(in.Source.Origin) {
+	if in.Source.FromUser() || IsEvent(in.Source.Origin) {
 		return false
 	}
 	now := s.deps.Now()
@@ -773,7 +807,7 @@ func (s *Service) fail(id string, cause error) {
 		}
 		s.mu.Unlock()
 		if first {
-			s.notify(i18n.T(lang, "%s limit reached", name), i18n.T(lang, "New Slack requests wait 30 minutes; what you ask yourself still goes through."))
+			s.notify(i18n.T(lang, "%s limit reached", name), i18n.T(lang, "New requests from others wait 30 minutes; what you ask yourself still goes through."))
 		}
 		message = i18n.T(lang, "%s's usage limit is reached. Try again later with “Investigate again”.", name)
 	}
@@ -871,8 +905,14 @@ func (s *Service) alert(id, message string) {
 	if request.Source.ChannelName != nil {
 		title = i18n.T(lang, "Request from %s in #%s", request.Source.SenderName, *request.Source.ChannelName)
 	}
-	if request.Source.Origin == "note-to-self" {
+	switch request.Source.Origin {
+	case OriginNoteToSelf:
 		title = i18n.T(lang, "Note to self")
+	case OriginInApp:
+		title = i18n.T(lang, "Pouple conversation")
+		if request.Source.Label != nil && *request.Source.Label != "" {
+			title = *request.Source.Label
+		}
 	}
 	if IsEvent(request.Source.Origin) {
 		// The first line of an event is its headline: the outcome, the project and the branch, or the task or merge request.

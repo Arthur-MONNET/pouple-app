@@ -70,8 +70,12 @@ const (
 func shortSource(r Stored) string {
 	source := r.Source
 	switch source.Origin {
-	case "note-to-self":
+	case OriginNoteToSelf:
 		return "note to self"
+	case OriginInApp:
+		return "Pouple conversation"
+	case OriginPullRequest:
+		return "GitHub pull request"
 	case OriginPipeline:
 		return "pipeline"
 	case OriginAsana:

@@ -13,6 +13,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
+	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
 	"github.com/Arthur-MONNET/pouple/core/internal/secrets"
 )
@@ -76,6 +77,15 @@ func (f *fakeAssistant) BrowserFrame(id string) ([]byte, bool) {
 }
 func (f *fakeAssistant) ContinueWith(id string, provider providers.ID) error {
 	return f.record("continue-with", id+" "+string(provider))
+}
+func (f *fakeAssistant) StartConversation(text string, ids []string, project string) (string, error) {
+	if err := f.record("start", text, ids, project); err != nil {
+		return "", err
+	}
+	return "new1", nil
+}
+func (f *fakeAssistant) Projects() []engine.ProjectInfo {
+	return []engine.ProjectInfo{{ID: "api", Name: "api"}, {ID: "web", Name: "web"}}
 }
 
 func assistantServer(t *testing.T) (*Server, *fakeAssistant) {
@@ -170,6 +180,97 @@ func TestLocalAssistantOnlyExposesConversationRoutesAndRequiresProposalID(t *tes
 	}
 	if len(fake.calls) != 2 || fake.calls[0] != "decide r1 true p1" || fake.calls[1] != "local message r1 yes 0" {
 		t.Fatalf("unexpected engine calls: %v", fake.calls)
+	}
+}
+
+func TestAConversationIsStartedFromTheApp(t *testing.T) {
+	s, fake := assistantServer(t)
+	created := call(s, "POST", "/api/assistant/requests", `{"text":"fix the login","attachmentIds":["a1"],"projectId":"web"}`, nil)
+	if created.Code != 201 || strings.TrimSpace(created.Body.String()) != `{"id":"new1"}` {
+		t.Fatalf("create: %d %s", created.Code, created.Body)
+	}
+	if len(fake.calls) != 1 || fake.calls[0] != "start fix the login [a1] web" {
+		t.Fatalf("engine calls %v", fake.calls)
+	}
+	if got := call(s, "POST", "/api/assistant/requests", `{`, nil).Code; got != 400 {
+		t.Fatalf("invalid JSON: %d", got)
+	}
+	// The engine's refusals keep their status, and their message is in the interface's language (French here).
+	for err, want := range map[error]int{
+		i18n.Wrap(engine.ErrInput, "write something or add a file"):                               400,
+		i18n.Wrap(engine.ErrInput, "unknown attachment"):                                          400,
+		i18n.Wrap(engine.ErrInactive, "%s: %s", engine.ErrInactive, "no AI"):                      409,
+		i18n.Wrap(engine.ErrState, "too many requests are waiting: try again when some are done"): 409,
+	} {
+		fake.err = err
+		response := call(s, "POST", "/api/assistant/requests", `{"text":""}`, nil)
+		if response.Code != want {
+			t.Errorf("%v: status %d, want %d", err, response.Code, want)
+		}
+		if want := i18n.ErrorText(i18n.FR, err); !strings.Contains(response.Body.String(), want) {
+			t.Errorf("%v: body %s, want %q", err, response.Body, want)
+		}
+	}
+	fake.err = i18n.Wrap(engine.ErrInput, "%s is not a project of your projects folder", "nope")
+	if body := call(s, "POST", "/api/assistant/requests", `{"text":"hi","projectId":"nope"}`, nil).Body.String(); !strings.Contains(body, "nope n’est pas un projet") {
+		t.Errorf("the refusal is not in French: %s", body)
+	}
+	fake.err = nil
+
+	projects := call(s, "GET", "/api/assistant/projects", "", nil)
+	if projects.Code != 200 || strings.TrimSpace(projects.Body.String()) != `{"projects":[{"id":"api","name":"api"},{"id":"web","name":"web"}]}` {
+		t.Fatalf("projects: %d %s", projects.Code, projects.Body)
+	}
+}
+
+// A conversation of the app has the user's own rights: only a caller that holds the token, from the app itself, starts one.
+func TestStartingAConversationNeedsTheTokenAndTheApp(t *testing.T) {
+	s, fake := assistantServer(t)
+	for _, path := range []string{"/api/assistant/requests", "/api/assistant/attachments?name=a.txt"} {
+		if got := call(s, "POST", path, `{"text":"hi"}`, map[string]string{"Authorization": ""}).Code; got != 401 {
+			t.Errorf("%s without a token: %d", path, got)
+		}
+		if got := call(s, "POST", path, `{"text":"hi"}`, map[string]string{"Sec-Fetch-Site": "cross-site"}).Code; got != 403 {
+			t.Errorf("%s cross-site: %d", path, got)
+		}
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("the engine was called: %v", fake.calls)
+	}
+}
+
+func TestDraftAttachmentsAreKeptWithTheUsualLimits(t *testing.T) {
+	s, _ := assistantServer(t)
+	upload := call(s, "POST", "/api/assistant/attachments?name=notes.txt", "some notes", nil)
+	if upload.Code != 201 || !strings.Contains(upload.Body.String(), `"name":"notes.txt"`) || !strings.Contains(upload.Body.String(), `"kind":"text"`) {
+		t.Fatalf("upload %d %s", upload.Code, upload.Body)
+	}
+	if got := call(s, "POST", "/api/assistant/attachments?name=big.bin", strings.Repeat("x", engine.MaxAttachmentBytes+1), nil).Code; got != 400 {
+		t.Fatalf("a file over the limit: %d", got)
+	}
+	if got := call(s, "POST", "/api/assistant/attachments", "", nil).Code; got != 400 {
+		t.Fatalf("an empty file: %d", got)
+	}
+}
+
+// The local socket keeps its narrower contract: it cannot start a conversation with the user's rights.
+func TestLocalAssistantCannotStartAConversation(t *testing.T) {
+	fake := &fakeAssistant{}
+	handler := LocalAssistant(fake, engine.NewAttachments(t.TempDir()), func() string { return "en" })
+	for _, tc := range []struct{ method, path string }{
+		{"POST", "/api/assistant/requests"},
+		{"POST", "/api/assistant/attachments?name=a.txt"},
+		{"GET", "/api/assistant/projects"},
+	} {
+		req := httptest.NewRequest(tc.method, "http://localhost"+tc.path, strings.NewReader(`{"text":"hi"}`))
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusNotFound && res.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s: got %d, want 404 or 405", tc.method, tc.path, res.Code)
+		}
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("the engine was called: %v", fake.calls)
 	}
 }
 

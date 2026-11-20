@@ -45,15 +45,72 @@ type Assistant interface {
 	ForgetStyle() error
 }
 
+// ConversationStarter starts conversations typed in the app. A conversation started this way is the user's own request,
+// with the rights of a note to themselves: it is offered only by the token-protected HTTP API, never by the local
+// socket.
+type ConversationStarter interface {
+	// StartConversation creates the conversation and starts its analysis; it returns its id.
+	StartConversation(text string, attachmentIDs []string, projectID string) (string, error)
+	// Projects lists the project folders the user can choose for it.
+	Projects() []engine.ProjectInfo
+}
+
+// HTTPAssistant is what the token-protected HTTP API needs from the engine.
+type HTTPAssistant interface {
+	Assistant
+	ConversationStarter
+}
+
 const (
 	heartbeat     = 15 * time.Second
 	coalesce      = 80 * time.Millisecond
 	maxUploadSize = engine.MaxAttachmentBytes
 )
 
-// MountAssistant adds the conversation routes (the contract Cockpit's chat already used).
-func MountAssistant(assistant Assistant, attachments *engine.Attachments) func(mux *http.ServeMux) {
-	return mountAssistant(assistant, attachments, assistant.Message, false)
+// MountAssistant adds the conversation routes (the contract Cockpit's chat already used), and the routes that start a
+// conversation in the app.
+func MountAssistant(assistant HTTPAssistant, attachments *engine.Attachments) func(mux *http.ServeMux) {
+	conversations := mountAssistant(assistant, attachments, assistant.Message, false)
+	starts := mountConversationStart(assistant, attachments)
+	return func(mux *http.ServeMux) {
+		conversations(mux)
+		starts(mux)
+	}
+}
+
+// mountConversationStart adds the routes that start a conversation: a file added to the draft, the list of projects to
+// choose from, and the creation itself. Mounted only on the HTTP API, behind its token and its same-origin check.
+func mountConversationStart(starter ConversationStarter, attachments *engine.Attachments) func(mux *http.ServeMux) {
+	return func(mux *http.ServeMux) {
+		handle := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
+			handleEngine(mux, pattern, fn)
+		}
+		handle("POST /api/assistant/requests", func(w http.ResponseWriter, r *http.Request) error {
+			var body struct {
+				Text          string   `json:"text"`
+				AttachmentIDs []string `json:"attachmentIds"`
+				ProjectID     string   `json:"projectId"`
+			}
+			if err := decodeBody(r, &body); err != nil {
+				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
+			}
+			id, err := starter.StartConversation(body.Text, body.AttachmentIDs, body.ProjectID)
+			if err != nil {
+				return err
+			}
+			writeJSON(w, http.StatusCreated, map[string]string{"id": id})
+			return nil
+		})
+		// A file added to a conversation not started yet: raw bytes in the body, its name in the query. Its id goes with
+		// the creation.
+		handle("POST /api/assistant/attachments", func(w http.ResponseWriter, r *http.Request) error {
+			return saveAttachment(w, r, attachments)
+		})
+		handle("GET /api/assistant/projects", func(w http.ResponseWriter, r *http.Request) error {
+			writeJSON(w, http.StatusOK, map[string][]engine.ProjectInfo{"projects": starter.Projects()})
+			return nil
+		})
+	}
 }
 
 type localAssistantEngine interface {
@@ -83,11 +140,7 @@ func LocalAssistant(assistant localAssistantEngine, attachments *engine.Attachme
 func mountAssistant(assistant Assistant, attachments *engine.Attachments, message func(string, string, []string) error, requireProposalID bool) func(mux *http.ServeMux) {
 	return func(mux *http.ServeMux) {
 		handle := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
-			mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-				if err := fn(w, r); err != nil {
-					writeEngineError(w, i18n.FromContext(r.Context()), err)
-				}
-			})
+			handleEngine(mux, pattern, fn)
 		}
 		mux.HandleFunc("GET /api/assistant", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSON(w, http.StatusOK, assistant.Snapshot())
@@ -220,20 +273,7 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 			if !requestExists(assistant, r.PathValue("id")) {
 				return engine.ErrNotFound
 			}
-			data, err := io.ReadAll(io.LimitReader(r.Body, maxUploadSize+1))
-			if err != nil {
-				return err
-			}
-			name := r.URL.Query().Get("name")
-			if name == "" {
-				name = "file"
-			}
-			ref, err := attachments.Save(name, data)
-			if err != nil {
-				return i18n.Wrap(engine.ErrInput, "%s", err)
-			}
-			writeJSON(w, http.StatusCreated, ref)
-			return nil
+			return saveAttachment(w, r, attachments)
 		})
 		handle("GET /api/assistant/style", func(w http.ResponseWriter, r *http.Request) error {
 			writeJSON(w, http.StatusOK, assistant.StyleInfo())
@@ -280,6 +320,33 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 			return nil
 		})
 	}
+}
+
+// handleEngine routes pattern to fn, and answers what fn returns as an engine error.
+func handleEngine(mux *http.ServeMux, pattern string, fn func(w http.ResponseWriter, r *http.Request) error) {
+	mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		if err := fn(w, r); err != nil {
+			writeEngineError(w, i18n.FromContext(r.Context()), err)
+		}
+	})
+}
+
+// saveAttachment keeps the file of the body (raw bytes, its name in the query) and answers its reference.
+func saveAttachment(w http.ResponseWriter, r *http.Request, attachments *engine.Attachments) error {
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxUploadSize+1))
+	if err != nil {
+		return err
+	}
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		name = "file"
+	}
+	ref, err := attachments.Save(name, data)
+	if err != nil {
+		return i18n.Wrap(engine.ErrInput, "%s", err)
+	}
+	writeJSON(w, http.StatusCreated, ref)
+	return nil
 }
 
 func requestExists(assistant Assistant, id string) bool {

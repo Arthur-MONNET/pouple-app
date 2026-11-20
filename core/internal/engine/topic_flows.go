@@ -128,11 +128,15 @@ func (s *Service) place(id string, choice TopicChoice, topics []Topic) {
 }
 
 // sharedReader says whether what the AI writes for a request may reach someone else than the user: then it reads nothing
-// private (another channel's conversations of its topic, a private fact of the memory). Only a note to oneself, a finished pipeline and a reminder have no one to answer; an Asana comment and a
-// review of a merge request get a reply drafted for their author.
+// private (another channel's conversations of its topic, a private fact of the memory). Only the user's own text (a note
+// to oneself, a conversation of the app), a finished pipeline and a reminder have no one to answer; an Asana comment and
+// a review of a merge request or a pull request get a reply drafted for their author.
 func sharedReader(r Stored) bool {
+	if r.Source.FromUser() {
+		return false
+	}
 	switch r.Source.Origin {
-	case "note-to-self", OriginPipeline, OriginReminder:
+	case OriginPipeline, OriginReminder:
 		return false
 	}
 	return true
@@ -173,15 +177,17 @@ func (s *Service) relatedConversationsOf(request Stored) (related []Stored, fore
 // maxOwnDepth bounds how far a reminder is followed back to the conversation it came from.
 const maxOwnDepth = 3
 
-// ownText says whether a conversation holds only what the user wrote or approved: a note to themselves that no service or
-// web page shaped, or a reminder set from such a note. Anything else carries text written by other people.
+// ownText says whether a conversation holds only what the user wrote or approved: their own text (a note to themselves, a
+// conversation of the app) that no service or web page shaped, or a reminder set from such a conversation. Anything else
+// carries text written by other people.
 func (s *Service) ownText(r Stored, depth int) bool {
 	if r.ServicesUsed || r.WebUsed || r.ForeignSinceGrant {
 		return false
 	}
-	switch r.Source.Origin {
-	case "note-to-self":
+	if r.Source.FromUser() {
 		return true
+	}
+	switch r.Source.Origin {
 	case OriginReminder:
 		// A reminder's title and note were written by the AI from the conversation it was suggested in.
 		origin, ok := s.deps.Store.Get(r.Source.RelatedRequestID)

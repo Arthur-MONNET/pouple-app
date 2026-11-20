@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/alerts"
@@ -234,15 +235,8 @@ func newAssistant(dir string, ownPort int, interactiveTerminal bool, registry *c
 		SchemaFile: schemaFile, Topics: &engine.TopicConfig{SortSchemaFile: topicSchemaFile, OrganizeSchemaFile: organizeSchemaFile, Dir: topicDir},
 		Redact: func() engine.Redactor {
 			secrets := append(codexSecrets(filepath.Join(codexHome, "auth.json")), claudeSecrets(filepath.Join(claudeHome, ".credentials.json"))...)
-			if values, err := registry.Values("slack"); err == nil {
-				secrets = append(secrets, values["token"], values["appToken"])
-			}
-			// Tokens of the optional services never reach the model, and cannot come back out of it either.
-			for _, id := range []string{"gitlab", "asana", "slite"} {
-				if values, err := registry.Values(id); err == nil {
-					secrets = append(secrets, values["token"], values["additionalToken"])
-				}
-			}
+			// Tokens of the connected services never reach the model, and cannot come back out of it either.
+			secrets = append(secrets, connectorSecrets(registry)...)
 			return engine.NewRedactor(secrets...)
 		},
 		Usage: func() engine.Usage {
@@ -274,7 +268,8 @@ func newAssistant(dir string, ownPort int, interactiveTerminal bool, registry *c
 	return service, attachments, nil
 }
 
-// inactiveReason says why the assistant cannot work yet: Slack and at least one AI (Codex or Claude) must be set up.
+// inactiveReason says why the assistant cannot work yet: at least one AI (Codex or Claude) must be set up. Slack is
+// optional; the setup gaps say what else, if anything, a descriptor requires.
 func inactiveReason(registry *connector.Registry, lang i18n.Lang) string {
 	statuses, err := registry.List()
 	if err != nil {
@@ -291,18 +286,72 @@ func inactiveReason(registry *connector.Registry, lang i18n.Lang) string {
 	return i18n.T(lang, "%s is not connected yet", names[0])
 }
 
-// personaOf calls the user by the first name of their Slack profile, in the language they chose or the system's.
+// personaOf calls the user by their first name, in the language they chose or the system's.
 func personaOf(registry *connector.Registry, settings config.Settings) engine.Persona {
-	persona := engine.Persona{Language: settings.Language, Web: !settings.WebDisabled}
-	if status, err := registry.Status("slack"); err == nil && status.Profile != nil {
-		if fields := strings.Fields(status.Profile.Name); len(fields) > 0 {
-			persona.Name = fields[0]
-		}
-	}
+	persona := engine.Persona{Language: settings.Language, Web: !settings.WebDisabled, Name: firstNameOf(registry, systemFullName)}
 	if persona.Language == "" {
 		persona.Language = systemLanguage()
 	}
 	return persona
+}
+
+// nameSources are the connectors whose profile names the user, the most reliable first.
+var nameSources = []string{"slack", "gitlab", "github"}
+
+// firstNameOf finds the user's first name: from the profile of a connected service (Slack, then GitLab, then GitHub),
+// else from the Mac's account (fullName); "" when none is known, which the prompts read as "the user".
+func firstNameOf(registry *connector.Registry, fullName func() string) string {
+	for _, id := range nameSources {
+		// An unknown id (a connector this build does not have) is skipped like a service that is not connected.
+		if status, err := registry.Status(id); err == nil && status.Connected && status.Profile != nil {
+			if fields := strings.Fields(status.Profile.Name); len(fields) > 0 {
+				return fields[0]
+			}
+		}
+	}
+	if fields := strings.Fields(fullName()); len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
+}
+
+// systemFullName is the full name of the Mac's user account, read once: it does not change while Pouple runs.
+var systemFullName = sync.OnceValue(func() string {
+	out, err := exec.Command("/usr/bin/id", "-F").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+})
+
+// connectorSecrets are the values of every secret field of every connected connector: what Redact removes from what the
+// AI writes. Generic, so that a connector added later is covered without a change here.
+func connectorSecrets(registry *connector.Registry) []string {
+	statuses, err := registry.List()
+	if err != nil {
+		return nil
+	}
+	var secrets []string
+	for _, status := range statuses {
+		if !status.Connected {
+			continue
+		}
+		// The descriptor of a status hides the managed fields: the connector's own lists them all.
+		c, err := registry.Get(status.Descriptor.ID)
+		if err != nil {
+			continue
+		}
+		values, err := registry.Values(status.Descriptor.ID)
+		if err != nil {
+			continue
+		}
+		for _, field := range c.Descriptor().Fields {
+			if field.Secret && values[field.ID] != "" {
+				secrets = append(secrets, values[field.ID])
+			}
+		}
+	}
+	return secrets
 }
 
 var languageNames = map[string]string{"fr": "French", "en": "English", "es": "Spanish", "de": "German", "it": "Italian", "pt": "Portuguese", "nl": "Dutch"}
