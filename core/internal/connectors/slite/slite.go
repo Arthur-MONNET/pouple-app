@@ -1,5 +1,5 @@
 // Package slite connects Pouple to Slite with an API key. The connector shows whose account it is; the client lets
-// the assistant search the notes as data. It never writes.
+// the assistant search notes and create approved pages.
 package slite
 
 import (
@@ -25,7 +25,7 @@ const (
 	DocsURL = "https://developers.slite.com/docs/getting-started"
 )
 
-// Client reads Slite. The key is sent in headers, to Slite only.
+// Client reads and publishes Slite notes. The key is sent in headers, to Slite only.
 type Client struct {
 	key  string
 	base string
@@ -51,9 +51,12 @@ func (c *Client) getWith(ctx context.Context, client *http.Client, path string, 
 		address += "?" + query.Encode()
 	}
 	// Slite documents x-slite-api-key and describes the same key as a bearer token: both name the same credential.
-	header := http.Header{"X-Slite-Api-Key": {c.key}, "Authorization": {"Bearer " + c.key}}
-	_, err := svchttp.GetJSON(ctx, client, service, address, header, out)
+	_, err := svchttp.GetJSON(ctx, client, service, address, c.headers(), out)
 	return err
+}
+
+func (c *Client) headers() http.Header {
+	return http.Header{"X-Slite-Api-Key": {c.key}, "Authorization": {"Bearer " + c.key}}
 }
 
 // Me is the account a key belongs to.
@@ -153,7 +156,7 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Open the Slite settings", Body: "In Slite, open your organization menu (top left), then Settings, then API. Slite explains the same steps on its developer page.", Link: &connector.Link{Label: "Open my Slite settings", URL: "https://slite.com/settings", HostField: "url"}},
-			{Title: "Create an API key", Body: "On the API page, click Create a new key and follow the instructions. Pouple only searches and reads notes: it never changes anything in Slite."},
+			{Title: "Create an API key", Body: "On the API page, click Create a new key and follow the instructions. Pouple creates pages only after you approve their content and destination."},
 			{Title: "Paste the key", Body: "Copy it right away (Slite shows it only once) and paste it here. Pouple shows whose account it is before saving."},
 		},
 	}

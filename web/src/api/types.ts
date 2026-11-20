@@ -195,6 +195,8 @@ export interface PlanAction {
   /** For a branch update ("code.sync"): the branch that is updated and the one brought into it. */
   branch?: string;
   base?: string;
+  title?: string;
+  markdown?: string;
 }
 
 /** What the assistant wants to write, for the user to approve before anything is written. */

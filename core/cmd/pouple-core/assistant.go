@@ -15,6 +15,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/devserver"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
@@ -147,8 +148,15 @@ func newAssistant(dir string, ownPort int, registry *connector.Registry, setting
 		Providers: aiProviders, Selection: func() providers.Selection { return load().Selection() },
 		Attachments: attachments, Fetch: slack.Fetch,
 		// Connected optional services are read at each request: nothing is cached, so no restart is needed.
-		Services:  gatherer.Gather,
-		Lookups:   gatherer.Lookup,
+		Services: gatherer.Gather,
+		Lookups:  gatherer.Lookup,
+		CreateSlitePage: func(ctx context.Context, parentID, title, markdown string) (string, error) {
+			values, err := registry.Values(slite.ID)
+			if err != nil {
+				return "", err
+			}
+			return slite.NewClient(values["token"]).CreateNote(ctx, parentID, title, markdown)
+		},
 		WebAccess: func() bool { return !load().WebDisabled },
 		Persona: func() engine.Persona {
 			persona := personaOf(registry, load())

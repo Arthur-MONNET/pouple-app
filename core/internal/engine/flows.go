@@ -227,7 +227,7 @@ func (s *Service) runInvestigation(ctx context.Context, id, prompt, resume strin
 		}
 		if outcome.Outcome != LookupOutcome {
 			s.noteServiceSources(id, outcome)
-			s.applyOutcome(id, outcome)
+			s.applyOutcome(id, outcome, canAct)
 			return nil
 		}
 		if round == maxLookupRounds {
@@ -332,12 +332,12 @@ func limitAsks(lookups []Lookup, asked *int) []Lookup {
 func (s *Service) webAllowed() bool { return s.deps.WebAccess != nil && s.deps.WebAccess() }
 
 // applyOutcome shows what the AI answered, and the reminders it suggested with it.
-func (s *Service) applyOutcome(id string, outcome Outcome) {
-	s.showOutcome(id, outcome)
+func (s *Service) applyOutcome(id string, outcome Outcome, canAct bool) {
+	s.showOutcome(id, outcome, canAct)
 	s.attachReminders(id, outcome)
 }
 
-func (s *Service) showOutcome(id string, outcome Outcome) {
+func (s *Service) showOutcome(id string, outcome Outcome, canAct bool) {
 	summary := s.entry("assistant", "text", outcome.Summary)
 	switch outcome.Outcome {
 	case NotARequest:
@@ -370,7 +370,7 @@ func (s *Service) showOutcome(id string, outcome Outcome) {
 		})
 		s.alert(id, s.text("Needs your decision"))
 	case ProposesPlan:
-		s.proposePlan(id, outcome, summary)
+		s.proposePlan(id, outcome, summary, canAct)
 	case ProposesChange:
 		if outcome.Proposal == nil || s.projectPath(outcome.Proposal.ProjectID) == "" {
 			// A change aimed at a project that does not exist cannot be approved: show the analysis only.
@@ -768,7 +768,11 @@ func (s *Service) Recover() {
 			// A write that was cut short is not repeated on its own: the user decides.
 			s.update(request.ID, func(r *Stored) {
 				r.Status = StatusReady
-				r.Entries = append(r.Entries, s.entry("system", "text", s.text("Pouple was closed while the change was being made. Check the project with git status, then ask again if needed.")))
+				message := "Pouple was closed while the change was being made. Check the project with git status, then ask again if needed."
+				if r.Plan != nil && r.Plan.hasSlitePages() {
+					message = "Publication was interrupted. Check Slite before requesting the pages again."
+				}
+				r.Entries = append(r.Entries, s.entry("system", "text", s.text(message)))
 			})
 		}
 	}

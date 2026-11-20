@@ -95,6 +95,8 @@ type Deps struct {
 	// Lookups runs what the AI asks of a connected service after reading its first context (another search, a folder,
 	// a note). Like Services it has its own time limits and never fails; nil when there is no such source.
 	Lookups func(ctx context.Context, lookups []Lookup) ServiceContext
+	// CreateSlitePage publishes the exact contents approved in a plan.
+	CreateSlitePage func(ctx context.Context, parentID, title, markdown string) (string, error)
 	// WebAccess says whether the AI may search the web and read public pages; read at each turn.
 	WebAccess func() bool
 	// Persona says who the assistant works for; read at each prompt, so a change applies at once.
@@ -780,7 +782,9 @@ func (s *Service) settleStopped(id string) {
 		return
 	}
 	text := "Stopped."
-	if request.Status == StatusApplying {
+	if request.Status == StatusApplying && request.Plan != nil && request.Plan.hasSlitePages() {
+		text = "Publication was interrupted. Check Slite before requesting the pages again."
+	} else if request.Status == StatusApplying {
 		text = "Stopped. Some files may be half changed: check the project with git status."
 	}
 	// The user stopped it themselves: there is nothing new to show them in a bubble.

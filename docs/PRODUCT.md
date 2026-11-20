@@ -267,7 +267,7 @@ Everything that notifies you is sent to the AI you chose, direct messages includ
 | Topic | Today | Target |
 |---|---|---|
 | Writing code | One proposal, approved, then an isolated writing turn that never sees the Slack text. It writes in your project folder. | A frozen plan approved by you, a scope per project, free work inside it, a worktree by default, then branch, push and merge request. |
-| Writing in services | Read-only. A comment is possible only on a request you made yourself. | Writes in Asana, Slite and GitLab inside the approved scope. |
+| Writing in services | On your request, Pouple can post an Asana comment or propose Slite pages. Slite requires approval of each page’s title, Markdown and parent. | Writes in Asana, Slite and GitLab inside the approved scope. |
 | Sources | Slack, finished GitLab pipelines, feedback on your merge requests (one request per merge request and per poll, holding its new comments), and Asana (a task assigned to you, a comment that mentions you on one of your tasks). | Done. |
 | Reading | Up to 12 lookup rounds per question (a bound so that an AI that never settles ends); no other limit, the usage is shown. | No limit. |
 | Replies | Written in your learned style: a short description of how you write, learned from about 80 of your own Slack messages (every two weeks; Settings can switch it off and make Pouple forget it). | Done. |
@@ -281,8 +281,8 @@ These are not decided or not verified. None of them changes the decisions above,
   reports them during a turn, so they are as fresh as the last turn.
 - **Asana limits.** Only the first 100 open tasks are read, and a mention is found only on a task assigned to you (finding
   it elsewhere takes the search of a paid Asana plan).
-- **Credentials for writing.** The GitLab token needs a write scope, and pushing needs git credentials on your computer. Asana
-  and Slite tokens need write rights. Today they are read-only tokens.
+- **Credentials for writing.** The GitLab token needs a write scope, and pushing needs git credentials on your computer. Slite
+  page creation uses the connected key and requires write access to the chosen parent.
 - **What a plan covers.** The plan fixes scopes and kinds of action, and the writing AI chooses the steps. The exact boundary
   (for example, whether a new file, a dependency change or a CI change needs its own line in the plan) is to be defined.
 - **Sensitive changes.** The list of changes that always ask you, even inside an approved scope, is to be defined (for

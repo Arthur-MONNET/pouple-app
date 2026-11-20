@@ -78,16 +78,18 @@ const OutcomeSchema = `{
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "scope", "summary", "branch", "base"],
+            "required": ["kind", "scope", "summary", "branch", "base", "title", "markdown"],
             "properties": {
-              "kind": {"type": "string", "enum": ["code.edit", "code.sync"]},
+              "kind": {"type": "string", "enum": ["code.edit", "code.sync", "slite.write"]},
               "branch": {"type": "string"},
               "base": {"type": "string"},
+              "title": {"type": "string"},
+              "markdown": {"type": "string"},
               "scope": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["service", "id", "name"],
-                "properties": {"service": {"type": "string", "enum": ["code"]}, "id": {"type": "string"}, "name": {"type": "string"}}
+                "properties": {"service": {"type": "string", "enum": ["code", "slite"]}, "id": {"type": "string"}, "name": {"type": "string"}}
               },
               "summary": {"type": "string"}
             }
@@ -295,6 +297,7 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 		plan.Actions = make([]Action, len(o.Plan.Actions))
 		for i, action := range o.Plan.Actions {
 			action.Summary = redact(action.Summary)
+			action.Title, action.Markdown = redact(action.Title), redact(action.Markdown)
 			plan.Actions[i] = action
 		}
 		out.Plan = &plan

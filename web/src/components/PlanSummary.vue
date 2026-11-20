@@ -16,6 +16,11 @@ defineProps<{ plan: AssistantPlan }>();
         <span class="font-medium text-ink">{{ $t(`chat.plan.kind.${action.kind}`) }} · {{ action.scope.name ? `${action.scope.name} (${action.scope.id})` : action.scope.id }}</span>
         <span v-if="action.branch" class="font-mono text-ink">{{ action.branch }}<template v-if="action.base"> ← {{ action.base }}</template></span>
         <span class="text-ink-muted">{{ action.summary }}</span>
+        <template v-if="action.kind === 'slite.write'">
+          <p class="whitespace-pre-wrap break-words font-semibold text-ink">{{ action.title }}</p>
+          <pre v-if="action.markdown" class="min-w-0 whitespace-pre-wrap break-words rounded-sm bg-canvas p-2 text-ink">{{ action.markdown }}</pre>
+          <p v-else class="text-ink-muted">{{ $t('chat.plan.emptyPage') }}</p>
+        </template>
       </li>
     </ul>
     <div>
