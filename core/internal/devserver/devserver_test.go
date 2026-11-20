@@ -56,7 +56,13 @@ func manager(root string, port int, started *[]string) *Manager {
 		},
 		// Slower than the real thing would be: the wait must not depend on the server being quick.
 		Ready: func(ctx context.Context, p int) bool {
-			response, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/")
+			// Bounded like the real check: a server that accepted the connection but has not answered yet must not hold
+			// the wait forever (it did on the CI runner, until go test's timeout).
+			request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(p)+"/", nil)
+			if err != nil {
+				return false
+			}
+			response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
 			if err != nil {
 				return false
 			}
