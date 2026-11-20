@@ -124,14 +124,14 @@ interface ErrorBody {
   field?: string;
 }
 
-async function toApiError(response: Response): Promise<ApiError> {
+export async function toApiError(response: Response): Promise<ApiError> {
   const body = (await response.json().catch(() => null)) as ErrorBody | null;
   const message = body?.message ?? body?.error ?? (response.statusText || t('errors.requestFailed', { status: response.status }));
   return new ApiError(response.status, message, body?.field || undefined);
 }
 
 /** The bearer token the core injected in the page. It is read on each call and never kept anywhere else. */
-function bearer(): Record<string, string> {
+export function bearer(): Record<string, string> {
   const token = typeof window === 'undefined' ? undefined : window.__POUPLE__?.token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

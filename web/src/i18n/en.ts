@@ -2,6 +2,23 @@ import type { MessageTree } from './typography';
 
 /** The English catalog: same keys as fr.ts. */
 export const en: MessageTree = {
+  terminal: {
+    title: 'Terminal',
+    open: 'Open terminal',
+    waiting: 'Waiting for handoff',
+    busy: 'Assistant running',
+    exited: 'Shell exited',
+    user: 'You have control',
+    assistant: 'Assistant has control',
+    release: 'Give control to assistant',
+    take: 'Take control',
+    interrupt: 'Interrupt shell command',
+    stop: 'Stop assistant',
+    shell: 'Shell',
+    commands: 'Assistant commands',
+    close: 'Close session',
+    noCommands: 'No command output in this session yet.',
+  },
   common: {
     close: 'Close',
     cancel: 'Cancel',
