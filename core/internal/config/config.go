@@ -70,6 +70,19 @@ type Settings struct {
 	// UpdateChannel is which builds the in-app update follows: "beta" (the develop branch) or anything else, the stable
 	// one (main). Empty is stable, so a copy follows the beta only when the user asked for it.
 	UpdateChannel string `json:"updateChannel"`
+	// Remote is the access from the paired phones. It is off unless the user turns it on.
+	Remote RemoteSettings `json:"remote"`
+}
+
+// RemoteSettings say whether the phones paired with this Mac can reach it, and where. The zero value is off: no
+// listener but the loopback one, and the unix socket.
+type RemoteSettings struct {
+	Enabled bool `json:"enabled"`
+	// Interfaces are the network interfaces (such as "en0") whose addresses the remote listener binds; never every
+	// address at once.
+	Interfaces []string `json:"interfaces"`
+	// Port is the fixed TCP port of the remote listener, so a paired phone finds it again; 0 is the default port.
+	Port int `json:"port"`
 }
 
 // DefaultMemoryFolder is where the memory lives, in the home folder, unless the user chose another folder.

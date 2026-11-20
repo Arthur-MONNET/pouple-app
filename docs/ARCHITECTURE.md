@@ -32,6 +32,12 @@ The core listens on `127.0.0.1` only, on a port it chooses and writes to `state/
 per-launch bearer token (passed to the shell on start, injected into the web UI page): another local process or a
 web page cannot drive the assistant.
 
+The paired phone companion has its own listener (`core/internal/remote`). It is off unless the user turns it on. It
+uses TLS with a pinned self-signed certificate whose key is in the Keychain, and binds only the network interfaces the
+user chose. It serves an explicit allowlist of the assistant routes, and approving needs a fingerprint-bound
+signature. Its administration is on the loopback API only. The contract is [REMOTE-API.md](REMOTE-API.md). Its
+files are `remote/devices.json` (0600, token hashes only) and `remote/cert.pem`.
+
 ## Where things live
 
 `~/Library/Application Support/Pouple/`
