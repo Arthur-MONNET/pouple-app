@@ -89,14 +89,14 @@ const OutcomeSchema = `{
             "additionalProperties": false,
             "required": ["kind", "scope", "summary", "branch", "base"],
             "properties": {
-              "kind": {"type": "string", "enum": ["code.edit", "code.sync", "gitlab.merge-request"]},
+              "kind": {"type": "string", "enum": ["code.edit", "code.sync", "gitlab.merge-request", "terminal.run"]},
               "branch": {"type": "string"},
               "base": {"type": "string"},
               "scope": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["service", "id", "name"],
-                "properties": {"service": {"type": "string", "enum": ["code", "gitlab"]}, "id": {"type": "string"}, "name": {"type": "string"}}
+                "properties": {"service": {"type": "string", "enum": ["code", "gitlab", "terminal"]}, "id": {"type": "string"}, "name": {"type": "string"}}
               },
               "summary": {"type": "string"}
             }

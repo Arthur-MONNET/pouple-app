@@ -94,6 +94,13 @@ func TestNormalizeRefusesAPlanThatDoesNotHoldTogether(t *testing.T) {
 		"bidi override in a name": func(p *Plan) { p.Actions[0].Scope.Name = "docs‮snoitcudorp" },
 		"zero width in a goal":    func(p *Plan) { p.Goal = "Fix​it" },
 		"line separator in brief": func(p *Plan) { p.Brief = "one two" },
+		// Terminal work is approved on its own, and uses no branch.
+		"terminal with code": func(p *Plan) {
+			p.Actions = append(p.Actions, Action{Kind: RunTerminal, Scope: Scope{Service: ScopeTerminal, ID: "."}, Summary: "Start ngrok"})
+		},
+		"terminal with a branch": func(p *Plan) {
+			p.Actions = []Action{{Kind: RunTerminal, Scope: Scope{Service: ScopeTerminal, ID: "."}, Summary: "Start ngrok", Branch: "fix/it"}}
+		},
 	}
 	for name, spoil := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -133,6 +140,12 @@ func TestNormalizeAcceptsOnlyRealIdentifiersOfEachService(t *testing.T) {
 		{asanaScope("my-project"), CreateTask, false},
 		{Scope{Service: ScopeSlite, ID: "Xk2_a-9"}, WriteNote, true},
 		{Scope{Service: ScopeSlite, ID: "space/../x"}, WriteNote, false},
+		// The terminal is the conversation's own: never a session, a host or a path named by the AI.
+		{Scope{Service: ScopeTerminal, ID: ".", Name: "ssh lab"}, RunTerminal, true},
+		{Scope{Service: ScopeTerminal, ID: "lab"}, RunTerminal, false},
+		{Scope{Service: ScopeTerminal, ID: "../x"}, RunTerminal, false},
+		{Scope{Service: ScopeTerminal, ID: ""}, RunTerminal, false},
+		{codeScope("login-app"), RunTerminal, false},
 	}
 	for _, c := range cases {
 		action := Action{Kind: c.kind, Scope: c.scope, Summary: "Do it"}

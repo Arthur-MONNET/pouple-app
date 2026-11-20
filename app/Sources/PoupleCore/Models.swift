@@ -113,6 +113,8 @@ public struct PlanAction: Codable, Equatable, Sendable {
     public let base: String?
 
     public var isBranchUpdate: Bool { kind == "code.sync" }
+    /// Work in the conversation's terminal: approving it hands over the terminal, so its summary is read with the goal.
+    public var isTerminalWork: Bool { kind == "terminal.run" }
 
     /// The place as the user reads it: the identifier always, which is what decides where code is written, and the name
     /// the assistant gave it next to it.

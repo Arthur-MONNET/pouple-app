@@ -180,9 +180,9 @@ export interface AssistantProposal {
   projectId: string;
 }
 
-/** A place a write approval covers: a project folder, a GitLab project, an Asana project or a Slite space. */
+/** A place a write approval covers: a project folder, a GitLab project, an Asana project, a Slite space or the conversation's terminal. */
 export interface PlanScope {
-  service: 'code' | 'gitlab' | 'asana' | 'slite';
+  service: 'code' | 'gitlab' | 'asana' | 'slite' | 'terminal';
   id: string;
   name?: string;
 }
