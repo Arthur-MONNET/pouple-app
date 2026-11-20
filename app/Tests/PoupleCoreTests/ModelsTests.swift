@@ -145,6 +145,13 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(snapshot.requests.last?.status, .unknown)
     }
 
+    func testAnEntryOfANewKindDoesNotBreakTheSnapshot() throws {
+        let entry = #"{"id": "e1", "at": "2026-11-05T10:00:00Z", "role": "tool", "kind": "diff", "text": "x"}"#
+        let decoded = try SnapshotDecoder.make().decode(ChatEntry.self, from: Data(entry.utf8))
+        XCTAssertEqual(decoded.role, .unknown)
+        XCTAssertEqual(decoded.kind, .unknown)
+    }
+
     func testTitlesNameTheSenderAndWhereTheMessageCameFrom() throws {
         let snapshot = try SnapshotDecoder.make().decode(AssistantSnapshot.self, from: Data(Self.snapshotJSON.utf8))
         XCTAssertEqual(snapshot.requests.first?.title(language: .en), "Morgan · thread in #front")

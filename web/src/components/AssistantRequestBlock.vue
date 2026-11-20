@@ -243,7 +243,7 @@ watch(
       :allow-other="false"
       :submit-on-pick="false"
       :ignorable="planIsPicked"
-      submit-label="Confirm"
+      :submit-label="$t('question.confirm')"
       @submit="submitPlan"
       @ignore="declinePlan"
     />
@@ -254,7 +254,7 @@ watch(
       :busy="busy"
       :allow-other="false"
       :submit-on-pick="false"
-      submit-label="Confirm"
+      :submit-label="$t('question.confirm')"
       @submit="submitProposal"
     />
 

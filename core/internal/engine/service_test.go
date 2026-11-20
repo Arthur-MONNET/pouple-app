@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/providers"
@@ -824,5 +825,55 @@ func TestCommandJournalKeepsStartOrderAndRedactsBeforePersisting(t *testing.T) {
 		if got := request.Entries[i+2].Command; got == nil || *got != expected {
 			t.Errorf("command %d = %+v, want %+v", i, got, expected)
 		}
+	}
+}
+
+// The resume button carries no text of the user: a stopped request that came from someone else resumes read-only, as a
+// fresh investigation of it would, even when an earlier plan approval made the conversation trusted.
+func TestResumeButtonKeepsTheRightsOfTheOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		origin string
+		want   Sandbox
+	}{
+		{"mention", ReadOnly},
+		{"note-to-self", FullAccess},
+	} {
+		t.Run(tc.origin, func(t *testing.T) {
+			h := newHarness(t, reply(nil))
+			h.svc.deps.Store.Add(Stored{
+				Request: Request{
+					ID: "stopped", Status: StatusReady, Grants: Grants{{}},
+					Source:         Source{Origin: tc.origin, SenderID: "U9", SenderName: "Morgan", TS: "1.1"},
+					StopCheckpoint: "Investigation stopped by the user.",
+				},
+				ThreadID: "thread-1", ThreadProvider: providers.Codex,
+			})
+			if err := h.svc.Retry("stopped"); err != nil {
+				t.Fatal(err)
+			}
+			h.svc.Idle()
+			if h.codex.count() != 1 {
+				t.Fatalf("expected one resumed turn, got %d", h.codex.count())
+			}
+			if got := h.codex.turns[0].Sandbox; got != tc.want {
+				t.Fatalf("sandbox %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A command that prints a lot keeps only the end of its output: every change of the conversation copies and saves it.
+func TestCommandOutputKeepsItsEnd(t *testing.T) {
+	h := newHarness(t)
+	h.svc.deps.Store.Add(Stored{Request: Request{ID: "long", Status: StatusAnalyzing}})
+	output := strings.Repeat("noise\n", maxOutputChars) + "FAIL: the last line"
+	h.svc.onEvent("long", providers.Codex, Event{Type: "step", Command: &CommandDetail{Command: "cat big.log", Output: output, Status: "completed"}}, false, map[string]string{}, terminalAccess{report: func(string) {}})
+	request, _ := h.svc.require("long")
+	kept := request.Entries[len(request.Entries)-1].Command.Output
+	if got := utf8.RuneCountInString(kept); got != maxOutputChars {
+		t.Fatalf("kept %d characters, want %d", got, maxOutputChars)
+	}
+	if !strings.HasPrefix(kept, "…") || !strings.HasSuffix(kept, "FAIL: the last line") {
+		t.Fatalf("the end of the output was not kept: %q…%q", kept[:20], kept[len(kept)-20:])
 	}
 }

@@ -997,7 +997,8 @@ func (s *Service) onEvent(id string, provider providers.ID, event Event, trackTh
 		if event.Command != nil {
 			detail := *event.Command
 			detail.Command = redact(detail.Command)
-			detail.Output = redact(detail.Output)
+			// Redacted before it is clipped, so a secret is never cut in half and left readable.
+			detail.Output = clipOutput(redact(detail.Output))
 			entry.Command = &detail
 			// Redact the full command before shortening the checkpoint text.
 			entry.Text = shortLine(readableCommand(detail.Command))

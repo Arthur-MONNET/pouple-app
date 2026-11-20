@@ -861,9 +861,12 @@ func (s *Service) Retry(id string) error {
 		s.update(id, func(r *Stored) {
 			r.Status, r.StopCheckpoint = StatusQueued, ""
 		})
+		// The button carries no text from the user, so the resumed turn gets the rights of a fresh investigation: only a
+		// note to self may write. A resume typed as a message goes through Send, which may act.
+		canAct := request.Source.Origin == "note-to-self"
 		s.enqueue(id, Interactive, func(ctx context.Context) error {
 			prompt := "Resume the investigation from this checkpoint. No reason for pausing was supplied.\n" + block("checkpoint", request.StopCheckpoint)
-			return s.continueWith(ctx, id, prompt, nil, true)
+			return s.continueWith(ctx, id, prompt, nil, canAct)
 		})
 		return nil
 	}
