@@ -20,6 +20,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/devserver"
 	"github.com/Arthur-MONNET/pouple/core/internal/engine"
+	"github.com/Arthur-MONNET/pouple/core/internal/githubwatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 	"github.com/Arthur-MONNET/pouple/core/internal/machine"
 	"github.com/Arthur-MONNET/pouple/core/internal/memory"
@@ -136,7 +137,7 @@ func newAssistant(dir string, ownPort int, interactiveTerminal bool, registry *c
 	service := engine.NewService(engine.Deps{
 		InteractiveTerminal: interactiveTerminal,
 		Store:               store, Alerts: upcoming, Inbox: slack, Pipelines: pipelinewatch.New(registry, func() pipelinewatch.Mode { return pipelinewatch.Mode(load().GitLabPipelines) }),
-		Events: []engine.EventSource{asanawatch.New(registry), mrwatch.New(registry)},
+		Events: []engine.EventSource{asanawatch.New(registry), mrwatch.New(registry), githubwatch.New(registry)},
 		// The AI cannot run a browser from its sandbox: it names a page, and Pouple opens it on localhost or on a site
 		// the user listed, with an empty profile, and takes the picture.
 		DevServers: devServerStarter{devServers},

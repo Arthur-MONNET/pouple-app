@@ -168,19 +168,21 @@ type rig struct {
 	gitlab   *fakeGitLab
 	slite    *fakeSlite
 	slack    *fakeSlack
+	github   *fakeGitHub
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	settings := config.Open(t.TempDir() + "/config.json")
-	registry := connector.NewRegistry(secrets.NewMemory(), config.Connectors{File: settings}, stub{"asana", "Asana"}, stub{"gitlab", "GitLab"}, stub{"slite", "Slite"}, stub{"slack", "Slack"})
-	r := &rig{registry: registry, asana: &fakeAsana{}, gitlab: &fakeGitLab{}, slite: &fakeSlite{}, slack: &fakeSlack{}}
+	registry := connector.NewRegistry(secrets.NewMemory(), config.Connectors{File: settings}, stub{"asana", "Asana"}, stub{"gitlab", "GitLab"}, stub{"slite", "Slite"}, stub{"slack", "Slack"}, stub{"github", "GitHub"})
+	r := &rig{registry: registry, asana: &fakeAsana{}, gitlab: &fakeGitLab{}, slite: &fakeSlite{}, slack: &fakeSlack{}, github: &fakeGitHub{}}
 	r.gatherer = &Gatherer{
 		Connections: registry, Budget: 500 * time.Millisecond, Now: func() time.Time { return time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC) },
 		NewAsana:  func(token string) Asana { r.asana.token = token; return r.asana },
 		NewGitLab: func(address, token string) (GitLab, error) { return r.gitlab, nil },
 		NewSlite:  func(string) Slite { return r.slite },
 		NewSlack:  func(token string) Slack { r.slack.token = token; return r.slack },
+		NewGitHub: func(_, token string) (GitHub, error) { r.github.token = token; return r.github, nil },
 	}
 	return r
 }

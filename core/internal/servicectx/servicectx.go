@@ -1,4 +1,4 @@
-// Package servicectx asks the optional services the user connected (Asana, GitLab, Slite) for what may help with
+// Package servicectx asks the optional services the user connected (Asana, GitLab, GitHub, Slite) for what may help with
 // a Slack request, and turns the answers into a block of text for the assistant.
 //
 // What it returns is data written by other people (task titles, branch names, notes). The caller hands it to
@@ -20,6 +20,7 @@ import (
 
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/github"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/svchttp"
@@ -69,6 +70,16 @@ type GitLab interface {
 	Diffs(ctx context.Context, ref gitlab.MRRef, limit int) (gitlab.Diffs, error)
 }
 
+// GitHub is the part of the GitHub client the gatherer uses. It only reads.
+type GitHub interface {
+	Overview(ctx context.Context) (github.Overview, error)
+	// ParsePullRequest reads a pull request of this GitHub from an address or "owner/repo#123".
+	ParsePullRequest(text string) (github.PRRef, bool)
+	PullRequest(ctx context.Context, ref github.PRRef) (github.PullRequestDetails, error)
+	Discussion(ctx context.Context, ref github.PRRef, since time.Time, limit int) ([]github.Comment, error)
+	Files(ctx context.Context, ref github.PRRef, limit int) (github.Files, error)
+}
+
 // Slite is the part of the Slite client the gatherer uses.
 type Slite interface {
 	Search(ctx context.Context, query string, limit int) ([]slite.Hit, error)
@@ -92,6 +103,7 @@ type Gatherer struct {
 
 	NewAsana  func(token string) Asana
 	NewGitLab func(address, token string) (GitLab, error)
+	NewGitHub func(address, token string) (GitHub, error)
 	NewSlite  func(token string) Slite
 	NewSlack  func(token string) Slack
 }
@@ -103,6 +115,10 @@ func New(connections Connections) *Gatherer {
 		NewAsana: func(token string) Asana { return asana.NewClient(token) },
 		NewGitLab: func(address, token string) (GitLab, error) {
 			client, err := gitlab.NewClient(address, token)
+			return client, err
+		},
+		NewGitHub: func(address, token string) (GitHub, error) {
+			client, err := github.NewClient(address, token)
 			return client, err
 		},
 		NewSlite: func(token string) Slite { return slite.NewClient(token) },
@@ -195,7 +211,7 @@ func failure(source, name string, reason i18n.Message) section {
 func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 	words := SearchTerms(query.Text)
 	var jobs []job
-	for _, source := range []string{asana.ID, gitlab.ID, slite.ID} {
+	for _, source := range []string{asana.ID, gitlab.ID, github.ID, slite.ID} {
 		status, err := g.Connections.Status(source)
 		if err != nil || !status.Connected {
 			continue
@@ -203,6 +219,9 @@ func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 		name := status.Descriptor.Name
 		values, err := g.Connections.Values(source)
 		if err != nil {
+			if source == github.ID && !githubWord.MatchString(query.Text) {
+				continue // GitHub is read only for a message about it
+			}
 			jobs = append(jobs, job{source, name, func(context.Context) section {
 				return failure(source, name, i18n.NewMessage("the saved connection could not be used"))
 			}})
@@ -221,6 +240,10 @@ func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 				}
 				return g.gitlab(ctx, client, query.Text)
 			}})
+		case github.ID:
+			if job, ok := g.githubJob(name, values, query.Text); ok {
+				jobs = append(jobs, job)
+			}
 		case slite.ID:
 			if len(words) == 0 {
 				continue // nothing to search for: small talk
@@ -231,6 +254,24 @@ func (g *Gatherer) jobs(query engine.ServiceQuery) []job {
 		}
 	}
 	return jobs
+}
+
+// githubJob reads GitHub only for a message about it (see githubRelevant).
+func (g *Gatherer) githubJob(name string, values connector.Values, text string) (job, bool) {
+	client, err := g.NewGitHub(values["url"], values["token"])
+	if err != nil {
+		if !githubWord.MatchString(text) {
+			return job{}, false
+		}
+		return job{github.ID, name, func(context.Context) section {
+			return failure(github.ID, name, i18n.NewMessage("the saved connection could not be used"))
+		}}, true
+	}
+	refs := pullRequestRefs(client, text)
+	if !githubRelevant(text, refs) {
+		return job{}, false
+	}
+	return job{github.ID, name, func(ctx context.Context) section { return g.github(ctx, client, refs) }}, true
 }
 
 func (g *Gatherer) asana(ctx context.Context, client Asana, words []string) section {
