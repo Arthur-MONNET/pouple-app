@@ -65,7 +65,10 @@ func (s *Service) freshPrompt(ctx context.Context, request Stored) (string, []st
 	if ok {
 		request = current
 	}
-	files, images := s.describeFiles(request.Attachments)
+	files, images, fileText := s.describeFiles(request.Attachments)
+	if fileText {
+		s.markFileText(request.ID)
+	}
 	persona := s.deps.Persona()
 	history := persona.ConversationHistory(s.previousInConversation(request))
 	related := persona.ConversationHistory(s.relatedInTopic(request))
@@ -151,9 +154,10 @@ func (s *Service) downloadFile(ctx context.Context, file PendingFile) (Attachmen
 	return s.deps.Attachments.Save(file.Name, data)
 }
 
-// describeFiles lists the files for the prompt, with the text of text files, and returns the image paths.
-func (s *Service) describeFiles(refs []AttachmentRef) (string, []string) {
-	var lines, images []string
+// describeFiles lists the files for the prompt, with the text of text files, and returns the image paths. fileText says
+// whether the text of a file was given: see markFileText.
+func (s *Service) describeFiles(refs []AttachmentRef) (_ string, images []string, fileText bool) {
+	var lines []string
 	for _, ref := range refs {
 		switch ref.Kind {
 		case "image":
@@ -167,11 +171,20 @@ func (s *Service) describeFiles(refs []AttachmentRef) (string, []string) {
 				continue
 			}
 			lines = append(lines, fmt.Sprintf("- %s (text):\n%s", oneLine(ref.Name, 80), block("file-content", text)))
+			fileText = true
 		default:
 			lines = append(lines, fmt.Sprintf("- %s (%s, %d bytes: not readable)", oneLine(ref.Name, 80), ref.Mime, ref.Size))
 		}
 	}
-	return strings.Join(lines, "\n"), images
+	return strings.Join(lines, "\n"), images, fileText
+}
+
+// markFileText records that the text of a file reached the conversation. Even attached by the user, a file is often
+// written by someone else (an email, a log, a document received): like what a connected service returns, it is data that
+// may shape the answer, so it takes the direct mode away until the next approval, keeps a proposal from being approved on
+// its own, and keeps the conversation from reading as the user's own text to the others of its topic.
+func (s *Service) markFileText(id string) {
+	s.quietUpdate(id, func(r *Stored) { r.ServicesUsed, r.ForeignSinceGrant = true, true })
 }
 
 // maxLookupRounds is how many times the AI may ask a connected service for more before it must answer. Reading costs the
@@ -695,13 +708,17 @@ func (s *Service) message(id, text string, attachmentIDs []string, allowConfirma
 		}
 		refs = append(refs, ref)
 	}
-	files, images := s.describeFiles(refs)
+	files, images, fileText := s.describeFiles(refs)
 	entry := s.entry("user", "text", text)
 	entry.Attachments = refs
 	s.update(id, func(r *Stored) {
 		r.Status, r.Error, r.Questions, r.Proposal = StatusAnalyzing, nil, []Question{}, nil
 		r.Entries = append(r.Entries, entry)
 		r.StopCheckpoint = ""
+		// Set before the turn is queued, so that the turn reading the file never runs in the direct mode (see markFileText).
+		if fileText {
+			r.ServicesUsed, r.ForeignSinceGrant = true, true
+		}
 	})
 	s.enqueue(id, Interactive, func(ctx context.Context) error {
 		// A follow-up often names what to look for (a folder, a title): the services are asked again for this message.

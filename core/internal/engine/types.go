@@ -196,8 +196,8 @@ type Stored struct {
 	PendingCommand *PendingCommand `json:"pendingCommand,omitempty"`
 	// ApprovedCommands are the commands the user allowed in this conversation, as project and what was asked.
 	ApprovedCommands []string `json:"approvedCommands,omitempty"`
-	// ServicesUsed is set when text from Asana, GitLab or Slite was given to the analysis: written by other people, it
-	// may have shaped the proposal, so an automatic approval must not apply it.
+	// ServicesUsed is set when text from Asana, GitLab or Slite, or the text of an attached file, was given to the
+	// analysis: written by other people, it may have shaped the proposal, so an automatic approval must not apply it.
 	ServicesUsed bool `json:"servicesUsed,omitempty"`
 	// WebUsed is set when a turn ran with the web allowed: what the web returns is written by strangers, so, like
 	// ServicesUsed, it means an automatic approval must not apply a proposal.
