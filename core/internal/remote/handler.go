@@ -51,6 +51,9 @@ type HandlerOptions struct {
 	// Endpoint is the current external address as "host:port" (the pairing payload's ext), or "" when there is none or
 	// it is not known: GET /remote/v1/endpoint.
 	Endpoint func() string
+	// Tunnel is the ngrok domain of the tunnel (the pairing payload's tun), or "" when there is none: also in
+	// GET /remote/v1/endpoint.
+	Tunnel func() string
 	// Local says whether a source address is on a local network; nil is IsLocalAddress. It picks the limits of the
 	// throttle and decides which sources are logged as external.
 	Local func(netip.Addr) bool
@@ -201,22 +204,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.serveAllowed(w, r, device, source)
 }
 
-// endpoint is the external address as the Mac knows it now: GET /remote/v1/endpoint. The phone asks after each
-// connection and keeps what it learns, so an address that changed needs no new pairing.
+// endpoint is the external address and the ngrok domain as the Mac knows them now: GET /remote/v1/endpoint. The phone
+// asks after each connection and keeps what it learns, so an address that changed needs no new pairing.
 func (h *Handler) endpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		refuse(w, http.StatusMethodNotAllowed, "method-not-allowed")
 		return
 	}
-	var ext *string
+	var ext, tun *string
 	if h.opts.Endpoint != nil {
 		if current := h.opts.Endpoint(); current != "" {
 			ext = &current
 		}
 	}
+	if h.opts.Tunnel != nil {
+		if current := h.opts.Tunnel(); current != "" {
+			tun = &current
+		}
+	}
 	writeJSON(w, http.StatusOK, struct {
 		Ext *string `json:"ext"`
-	}{ext})
+		Tun *string `json:"tun"`
+	}{ext, tun})
 }
 
 func (h *Handler) authenticate(r *http.Request) (Device, error) {

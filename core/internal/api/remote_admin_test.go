@@ -203,7 +203,17 @@ func (f *fakeRemoteAdmin) RevokeDevice(id string) error {
 	return nil
 }
 func (f *fakeRemoteAdmin) Settings() (remote.SettingsView, error) {
-	return remote.SettingsView{Enabled: f.enabled, Port: remote.DefaultPort}, nil
+	view := remote.SettingsView{Enabled: f.enabled, Port: remote.DefaultPort, TunnelStatus: remote.TunnelStatusOff}
+	if f.update.TunnelEnabled != nil {
+		view.TunnelEnabled = *f.update.TunnelEnabled
+	}
+	if f.update.TunnelDomain != nil {
+		view.TunnelDomain = *f.update.TunnelDomain
+	}
+	if f.update.TunnelAuthtoken != nil {
+		view.TunnelAuthtokenSet = *f.update.TunnelAuthtoken != ""
+	}
+	return view, nil
 }
 func (f *fakeRemoteAdmin) UpdateSettings(update remote.SettingsUpdate) (remote.SettingsView, error) {
 	if update.Port != nil && *update.Port < 1024 {
@@ -258,5 +268,35 @@ func TestRemoteAdminIsOnTheLoopbackAPIBehindItsToken(t *testing.T) {
 	}
 	if response := call(server, "DELETE", "/api/remote/pairing", "", nil); response.Code != http.StatusNoContent {
 		t.Fatalf("cancel pairing: %d", response.Code)
+	}
+}
+
+func TestRemoteAdminCarriesTheTunnelSettingsAndNeverTheToken(t *testing.T) {
+	admin := &fakeRemoteAdmin{}
+	registryServer, _, _ := newServer(t, false)
+	server := New(Options{Registry: registryServer.opts.Registry, Token: "secret-token", UI: registryServer.opts.UI, Mount: MountRemoteAdmin(admin)}, port)
+	const secret = "ngrok_secret_0123456789abcdef"
+	body := `{"tunnelEnabled":true,"tunnelDomain":"my-mac.ngrok-free.app","tunnelAuthtoken":"` + secret + `"}`
+	response := call(server, "PUT", "/api/remote/settings", body, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("%d %s", response.Code, response.Body)
+	}
+	if admin.update.TunnelEnabled == nil || !*admin.update.TunnelEnabled || *admin.update.TunnelDomain != "my-mac.ngrok-free.app" || *admin.update.TunnelAuthtoken != secret {
+		t.Fatalf("the update did not reach the service: %+v", admin.update)
+	}
+	for _, field := range []string{`"tunnelEnabled":true`, `"tunnelDomain":"my-mac.ngrok-free.app"`, `"tunnelAuthtokenSet":true`, `"tunnelStatus":"off"`, `"tunnelProblem":""`} {
+		if !strings.Contains(response.Body.String(), field) {
+			t.Errorf("%s missing from %s", field, response.Body)
+		}
+	}
+	for _, answer := range []*httptest.ResponseRecorder{response, call(server, "GET", "/api/remote/settings", "", nil)} {
+		if strings.Contains(answer.Body.String(), secret) || strings.Contains(strings.ToLower(answer.Body.String()), `"tunnelauthtoken"`) {
+			t.Fatalf("the authtoken must never be returned: %s", answer.Body)
+		}
+	}
+	// A body that is not JSON does not echo what was sent (it may hold the token).
+	bad := call(server, "PUT", "/api/remote/settings", `{"tunnelAuthtoken":"`+secret+`"`, nil)
+	if bad.Code != http.StatusBadRequest || strings.Contains(bad.Body.String(), secret) {
+		t.Fatalf("%d %s", bad.Code, bad.Body)
 	}
 }

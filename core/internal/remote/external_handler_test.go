@@ -67,9 +67,9 @@ func TestEndpointRouteIsAuthenticatedAndReportsTheCurrentAddress(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct{ endpoint, body string }{
-		{"", `{"ext":null}`},
-		{"home.example.net:47821", `{"ext":"home.example.net:47821"}`},
-		{"[2001:db8::1]:8443", `{"ext":"[2001:db8::1]:8443"}`},
+		{"", `{"ext":null,"tun":null}`},
+		{"home.example.net:47821", `{"ext":"home.example.net:47821","tun":null}`},
+		{"[2001:db8::1]:8443", `{"ext":"[2001:db8::1]:8443","tun":null}`},
 	} {
 		f.endpoint = tc.endpoint
 		response := f.authed("GET", "/remote/v1/endpoint", "", nil)

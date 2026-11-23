@@ -239,9 +239,7 @@ func TestTheListenerFollowsAddressChangesButNotABusyPort(t *testing.T) {
 
 func TestRemoteSettingsAreChecked(t *testing.T) {
 	service := newTestService(t, t.TempDir(), secrets.NewMemory(), &memorySettings{})
-	enabled := true
 	bad := []SettingsUpdate{
-		{Enabled: &enabled},
 		{Interfaces: &[]string{"en0; rm -rf"}},
 		{Port: new(80)},
 		{Port: new(70000)},

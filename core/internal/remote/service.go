@@ -34,6 +34,10 @@ const externalRefresh = 5 * time.Minute
 // detectTimeout bounds one detection: the two servers share it.
 const detectTimeout = 6 * time.Second
 
+// tunnelTokenSecret names the ngrok authtoken in the secrets store (the Keychain on macOS). It is never in the
+// configuration, a response or a log.
+const tunnelTokenSecret = "ngrok-authtoken"
+
 // addressCheck is how often the chosen interfaces' addresses are compared with the bound ones (a new DHCP lease).
 const addressCheck = 30 * time.Second
 
@@ -75,6 +79,12 @@ type Options struct {
 	// (an IPv4 address, an IPv6 /64); 0 is the default (256 and 16). Connections over a cap are dropped.
 	MaxConnections          int
 	MaxConnectionsPerSource int
+	// Tunnel brings the public endpoint of the ngrok tunnel online; nil is ngrok's SDK (NgrokTunnel). Tests give a
+	// local server in its place.
+	Tunnel TunnelProvider
+	// TunnelRetry is the wait before the tunnel is brought up again after a failure; 0 is 30 seconds, or 5 minutes for
+	// a fault only the user can fix.
+	TunnelRetry time.Duration
 }
 
 // Interface is a network interface that can be chosen, with its usable addresses.
@@ -98,6 +108,15 @@ type Service struct {
 	onLinkFn   func(chosen []string) ([]netip.Prefix, error)
 	onLink     atomic.Pointer[[]netip.Prefix]
 	publicAddr PublicAddress
+	// limiter holds the caps on the connections of the LAN listeners and of the tunnel together: the caps are the Mac's.
+	limiter *connLimiter
+	// tunnel keeps the ngrok tunnel as the settings say, apart from the LAN listeners: an address change of the Mac must
+	// not drop the tunnel's session.
+	tunnel *tunnelRuntime
+	// tunnelTiming lets a test shorten the pings and the idle limit of the tunnel's connections.
+	tunnelTiming func(*tunnelGate)
+	// tokenSet caches whether the ngrok authtoken is in the secrets store: 0 not read yet, 1 set, 2 not set.
+	tokenSet atomic.Int32
 
 	// life ends the detections in the background when the service shuts down; bg waits for them.
 	life       context.Context
@@ -154,7 +173,15 @@ func NewService(opts Options) (*Service, error) {
 	handlerOptions := opts.Handler
 	handlerOptions.Devices, handlerOptions.Pairing, handlerOptions.Nonces = devices, s.pairing, s.nonces
 	handlerOptions.Local, handlerOptions.Endpoint, handlerOptions.Now = s.local, s.currentEndpoint, opts.Now
+	handlerOptions.Tunnel = s.currentTunnel
 	s.handler = NewHandler(handlerOptions)
+	s.limiter = newConnLimiter(opts.MaxConnections, opts.MaxConnectionsPerSource, s.handler.throttle.Flooding)
+	provider := opts.Tunnel
+	if provider == nil {
+		provider = NgrokTunnel()
+	}
+	s.tunnel = newTunnelRuntime(s, provider, opts.TunnelRetry)
+	s.bg.Go(func() { s.tunnel.loop(s.life) })
 	return s, nil
 }
 
@@ -192,25 +219,38 @@ func SystemInterfaces() ([]Interface, error) {
 	return out, nil
 }
 
-// addressesOf are the addresses to bind for the chosen interfaces, sorted; never an unspecified address.
-func (s *Service) addressesOf(chosen []string) ([]string, error) {
+// resolve is the interfaces the access listens on and their addresses to bind, sorted; never an unspecified address.
+// Chosen interfaces are taken as they are, loopback included. With none chosen the choice is automatic: every interface
+// that is up and has a private address (RFC 1918, or unique local for IPv6), never a loopback one.
+func (s *Service) resolve(chosen []string) (names, addresses []string, err error) {
 	available, err := s.interfaces()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := []string{}
+	automatic := len(chosen) == 0
 	for _, iface := range available {
-		if !slices.Contains(chosen, iface.Name) {
+		if automatic {
+			if iface.Loopback || !slices.ContainsFunc(iface.Addresses, isPrivateAddress) {
+				continue
+			}
+		} else if !slices.Contains(chosen, iface.Name) {
 			continue
 		}
+		names = append(names, iface.Name)
 		for _, address := range iface.Addresses {
 			if ip := net.ParseIP(address); ip != nil && !ip.IsUnspecified() {
-				out = append(out, address)
+				addresses = append(addresses, address)
 			}
 		}
 	}
-	slices.Sort(out)
-	return slices.Compact(out), nil
+	slices.Sort(addresses)
+	return names, slices.Compact(addresses), nil
+}
+
+// isPrivateAddress says whether an address is a private one: RFC 1918 or IPv6 unique local.
+func isPrivateAddress(address string) bool {
+	addr, err := netip.ParseAddr(address)
+	return err == nil && addr.Unmap().IsPrivate()
 }
 
 func portOf(settings config.RemoteSettings) int {
@@ -230,6 +270,9 @@ func (s *Service) Apply() error {
 // applyLocked is Apply with cfgMu held: the settings are read here, so they are the latest saved ones.
 func (s *Service) applyLocked() error {
 	settings, loadErr := s.opts.Load()
+	// The tunnel follows the settings on its own, apart from the listeners below, and is only told here (never waited
+	// for): settings that cannot be read close it like the rest.
+	s.syncTunnel(settings, loadErr)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopped {
@@ -250,31 +293,30 @@ func (s *Service) applyLocked() error {
 		s.pairing.Cancel()
 		return nil
 	}
-	s.refreshOnLink(settings.Interfaces)
-	addresses, err := s.addressesOf(settings.Interfaces)
+	names, addresses, err := s.resolve(settings.Interfaces)
 	if err != nil {
 		s.problem = err.Error()
 		return err
 	}
+	s.refreshOnLink(names)
 	s.resolved = addresses
 	if len(addresses) == 0 {
 		s.problem = "none of the chosen networks has an address"
+		if len(settings.Interfaces) == 0 {
+			s.problem = "no network with a private address was found"
+		}
 		return nil
 	}
-	if s.cert == nil {
-		cert, err := LoadOrCreateCertificate(s.opts.Secrets, filepath.Join(s.opts.Dir, "cert.pem"))
-		if err != nil {
-			s.problem = "the certificate could not be loaded: " + err.Error()
-			return err
-		}
-		s.cert = &cert
+	if err := s.loadCertLocked(); err != nil {
+		s.problem = "the certificate could not be loaded: " + err.Error()
+		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{s.cert.TLS}, MinVersion: tls.VersionTLS13}
+	tlsConfig := s.tlsConfig(*s.cert)
 	port := strconv.Itoa(portOf(settings))
-	// One limiter for all the listeners of this Apply: the caps hold for the Mac, not per address.
-	limiter := newConnLimiter(s.opts.MaxConnections, s.opts.MaxConnectionsPerSource, s.handler.throttle.Flooding)
+	// One limiter for all the listeners, and the tunnel: the caps hold for the Mac, not per address.
+	limiter := s.limiter
 	var problems []string
 	for _, address := range addresses {
 		listener, err := net.Listen("tcp", net.JoinHostPort(address, port))
@@ -282,12 +324,7 @@ func (s *Service) applyLocked() error {
 			problems = append(problems, err.Error())
 			continue
 		}
-		server := &http.Server{
-			Handler: s.handler, TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second,
-			ReadTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
-			BaseContext: func(net.Listener) context.Context { return ctx },
-			ErrorLog:    log.New(withoutHandshakeNoise{}, "", log.LstdFlags),
-		}
+		server := s.newServer(ctx, tlsConfig)
 		s.servers = append(s.servers, server)
 		s.listening = append(s.listening, listener.Addr().String())
 		// Without the external access the listener only talks to local networks: any other source is dropped before the
@@ -315,6 +352,46 @@ func (s *Service) applyLocked() error {
 	}
 	return nil
 }
+
+// loadCertLocked loads the certificate, or makes it the first time.
+func (s *Service) loadCertLocked() error {
+	if s.cert != nil {
+		return nil
+	}
+	cert, err := LoadOrCreateCertificate(s.opts.Secrets, filepath.Join(s.opts.Dir, "cert.pem"))
+	if err != nil {
+		return err
+	}
+	s.cert = &cert
+	return nil
+}
+
+// certificate is the certificate of the access, loaded when it is first needed.
+func (s *Service) certificate() (Certificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadCertLocked(); err != nil {
+		return Certificate{}, err
+	}
+	return *s.cert, nil
+}
+
+// tlsConfig is the TLS 1.3 server configuration of the LAN listeners and of the tunnel: the same certificate.
+func (s *Service) tlsConfig(cert Certificate) *tls.Config {
+	return &tls.Config{Certificates: []tls.Certificate{cert.TLS}, MinVersion: tls.VersionTLS13}
+}
+
+// newServer is the HTTP server of the LAN listeners and of the tunnel: the same handler and the same timeouts.
+func (s *Service) newServer(ctx context.Context, tlsConfig *tls.Config) *http.Server {
+	return &http.Server{
+		Handler: s.handler, TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
+		BaseContext: func(net.Listener) context.Context { return ctx },
+		ErrorLog:    quietLog(),
+	}
+}
+
+func quietLog() *log.Logger { return log.New(withoutHandshakeNoise{}, "", log.LstdFlags) }
 
 // withoutHandshakeNoise drops the failed TLS handshakes (scanners on the network, a phone with a stale pin), which say
 // nothing the user can act on, and keeps the server's other lines (a panic in a handler).
@@ -383,7 +460,7 @@ func (s *Service) addressesChanged() bool {
 	if err != nil || !settings.Enabled {
 		return false
 	}
-	addresses, err := s.addressesOf(settings.Interfaces)
+	_, addresses, err := s.resolve(settings.Interfaces)
 	if err != nil {
 		return false
 	}
@@ -429,6 +506,15 @@ type SettingsView struct {
 	// listener is bound to a network address. It never tests the router or the internet: the Mac does not call any
 	// outside service to check a port forward.
 	ExternalReady bool `json:"externalReady"`
+	// TunnelEnabled and TunnelDomain are the access through the user's ngrok static domain, as stored. The authtoken is
+	// write-only: TunnelAuthtokenSet says that one is stored, and nothing returns it.
+	TunnelEnabled      bool   `json:"tunnelEnabled"`
+	TunnelDomain       string `json:"tunnelDomain"`
+	TunnelAuthtokenSet bool   `json:"tunnelAuthtokenSet"`
+	// TunnelStatus is "off", "starting", "running" or "error" (the connection to ngrok is lost, or refused), and
+	// TunnelProblem says why in the interface language; empty when there is none.
+	TunnelStatus  string `json:"tunnelStatus"`
+	TunnelProblem string `json:"tunnelProblem"`
 }
 
 // SettingsUpdate changes the fields that are present.
@@ -440,6 +526,11 @@ type SettingsUpdate struct {
 	ExternalEnabled *bool   `json:"externalEnabled"`
 	ExternalHost    *string `json:"externalHost"`
 	ExternalPort    *int    `json:"externalPort"`
+	// TunnelEnabled and TunnelDomain change the access through ngrok. TunnelAuthtoken is the ngrok authtoken: it goes
+	// to the Keychain, "" removes it, and it is never echoed, returned or logged.
+	TunnelEnabled   *bool   `json:"tunnelEnabled"`
+	TunnelDomain    *string `json:"tunnelDomain"`
+	TunnelAuthtoken *string `json:"tunnelAuthtoken"`
 }
 
 // Settings returns the stored settings and the listener's state.
@@ -452,6 +543,8 @@ func (s *Service) Settings() (SettingsView, error) {
 	if err != nil {
 		available = []Interface{}
 	}
+	status, problem := s.tunnel.view(s.language())
+	tokenSet := s.tokenIsSet()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	view := SettingsView{
@@ -459,6 +552,8 @@ func (s *Service) Settings() (SettingsView, error) {
 		Listening: nonNil(slices.Clone(s.listening)), Problem: s.problem,
 		ExternalEnabled: settings.ExternalEnabled, ExternalHost: settings.ExternalHost, ExternalPort: settings.ExternalPort,
 		ExternalDetected: s.detected,
+		TunnelEnabled:    settings.TunnelEnabled, TunnelDomain: settings.TunnelDomain, TunnelAuthtokenSet: tokenSet,
+		TunnelStatus: status, TunnelProblem: problem,
 	}
 	if s.cert != nil {
 		view.Fingerprint = s.cert.Fingerprint
@@ -532,11 +627,39 @@ func (s *Service) updateSettings(update SettingsUpdate) error {
 		}
 		settings.ExternalPort = *update.ExternalPort
 	}
-	if settings.Enabled && len(settings.Interfaces) == 0 {
-		return i18n.Wrap(ErrInvalidSettings, "Choose the network the phone uses: Pouple never listens on every network at once.")
+	if update.TunnelEnabled != nil {
+		settings.TunnelEnabled = *update.TunnelEnabled
+	}
+	if update.TunnelDomain != nil {
+		domain, err := ValidateTunnelDomain(*update.TunnelDomain)
+		if err != nil {
+			return i18n.Wrap(ErrInvalidSettings, "“%s” is not a valid ngrok domain: use the name of your static domain, such as my-mac.ngrok-free.app, with no https://, port, path or space.", shown(*update.TunnelDomain))
+		}
+		settings.TunnelDomain = domain
+	}
+	// The authtoken is checked without ever being echoed: an error says what is wrong, never the value.
+	var token *string
+	if update.TunnelAuthtoken != nil {
+		trimmed := strings.TrimSpace(*update.TunnelAuthtoken)
+		if trimmed != "" && !validTunnelAuthtoken(trimmed) {
+			return i18n.Wrap(ErrInvalidSettings, "That does not look like an ngrok authtoken: copy it again from your ngrok dashboard, without spaces.")
+		}
+		token = &trimmed
 	}
 	if settings.ExternalEnabled && settings.ExternalHost == "" {
 		return i18n.Wrap(ErrInvalidSettings, "Enter the public name or address of your home network to reach the Mac from outside.")
+	}
+	haveToken := s.tokenIsSet()
+	if token != nil {
+		haveToken = *token != ""
+	}
+	if settings.TunnelEnabled && (settings.TunnelDomain == "" || !haveToken) {
+		return i18n.Wrap(ErrInvalidSettings, "Enter your ngrok domain and authtoken to turn the tunnel on.")
+	}
+	if token != nil {
+		if err := s.storeTunnelToken(*token); err != nil {
+			return err
+		}
 	}
 	if err := s.opts.Save(settings); err != nil {
 		return err
@@ -554,8 +677,9 @@ type PairingOffer struct {
 }
 
 // OpenPairing opens a pairing window and returns the QR payload:
-// pouple-pair:v1?hosts=<ip>,<name>.local&port=<port>&fp=<sha256 hex>&code=<code>&name=<mac name>[&ext=<host>:<port>].
-// ext comes last, only while the access from outside is on and its address is known (an IPv6 literal is bracketed).
+// pouple-pair:v1?hosts=<ip>,<name>.local&port=<port>&fp=<sha256 hex>&code=<code>&name=<mac name>[&ext=<host>:<port>][&tun=<domain>].
+// ext comes after name, only while the access from outside is on and its address is known (an IPv6 literal is
+// bracketed); tun comes last, only while the tunnel is on and configured.
 func (s *Service) OpenPairing() (PairingOffer, error) {
 	settings, err := s.opts.Load()
 	if err != nil {
@@ -600,6 +724,10 @@ func (s *Service) OpenPairing() (PairingOffer, error) {
 		query.Set("ext", ext)
 		keys = append(keys, "ext")
 	}
+	if tun := s.tunnelDomainOf(settings); tun != "" {
+		query.Set("tun", tun)
+		keys = append(keys, "tun")
+	}
 	return PairingOffer{Payload: "pouple-pair:v1?" + encodeOrdered(query, keys...), ExpiresAt: expires.UTC()}, nil
 }
 
@@ -608,7 +736,7 @@ type AddressOffer struct {
 	Payload string `json:"payload"`
 }
 
-// AddressOffer returns pouple-address:v1?ext=<host>:<port>&fp=<sha256 hex>. It holds no secret and needs no pairing
+// AddressOffer returns pouple-address:v1?ext=<host>:<port>&fp=<sha256 hex>[&tun=<domain>]. It holds no secret and needs no pairing
 // window: the phone only accepts the address if the certificate there has this fingerprint, so a wrong address can
 // never connect it to anything else than this Mac.
 func (s *Service) AddressOffer() (AddressOffer, error) {
@@ -626,7 +754,7 @@ func (s *Service) AddressOffer() (AddressOffer, error) {
 	if ext == "" {
 		return AddressOffer{}, ErrNoExternalAddress
 	}
-	return AddressOffer{Payload: addressPayload(ext, cert.Fingerprint)}, nil
+	return AddressOffer{Payload: addressPayload(ext, cert.Fingerprint, s.tunnelDomainOf(settings))}, nil
 }
 
 // externalEndpoint is the "host:port" the phone uses from outside, or "" when the access is off or no address is known
@@ -665,6 +793,102 @@ func (s *Service) currentEndpoint() string {
 		return ""
 	}
 	return s.endpointOf(settings)
+}
+
+// tunnelDomainOf is the ngrok domain the phone uses, or "" while the tunnel is off or not configured (no valid domain or
+// no authtoken stored).
+func (s *Service) tunnelDomainOf(settings config.RemoteSettings) string {
+	if !settings.Enabled || !settings.TunnelEnabled {
+		return ""
+	}
+	if domain, err := ValidateTunnelDomain(settings.TunnelDomain); err != nil || domain == "" || domain != settings.TunnelDomain || !s.tokenIsSet() {
+		return ""
+	}
+	return settings.TunnelDomain
+}
+
+// currentTunnel is the tunnel's domain as the Mac knows it now, for GET /remote/v1/endpoint.
+func (s *Service) currentTunnel() string {
+	settings, err := s.opts.Load()
+	if err != nil {
+		return ""
+	}
+	return s.tunnelDomainOf(settings)
+}
+
+// tokenIsSet says whether an ngrok authtoken is stored. The answer is kept: the Keychain is asked once, and after each
+// change made here.
+func (s *Service) tokenIsSet() bool {
+	switch s.tokenSet.Load() {
+	case 1:
+		return true
+	case 2:
+		return false
+	}
+	if s.opts.Secrets == nil {
+		return false
+	}
+	token, err := s.opts.Secrets.Get(tunnelTokenSecret)
+	switch {
+	case err == nil && token != "":
+		s.tokenSet.Store(1)
+		return true
+	case err == nil || errors.Is(err, secrets.ErrNotFound):
+		s.tokenSet.Store(2)
+	}
+	return false
+}
+
+// storeTunnelToken writes the authtoken to the Keychain, or removes it when it is empty.
+func (s *Service) storeTunnelToken(token string) error {
+	if s.opts.Secrets == nil {
+		return errors.New("no secrets store")
+	}
+	if token == "" {
+		if err := s.opts.Secrets.Delete(tunnelTokenSecret); err != nil {
+			return errors.New("the ngrok authtoken could not be removed from the Keychain")
+		}
+		s.tokenSet.Store(2)
+		return nil
+	}
+	if err := s.opts.Secrets.Set(tunnelTokenSecret, token); err != nil {
+		return errors.New("the ngrok authtoken could not be saved in the Keychain")
+	}
+	s.tokenSet.Store(1)
+	return nil
+}
+
+// syncTunnel tells the tunnel what to run: it runs while the access and the tunnel are on, and a domain and its
+// authtoken are stored. It reads the Keychain, never the network.
+func (s *Service) syncTunnel(settings config.RemoteSettings, loadErr error) {
+	var cfg tunnelConfig
+	if domain, err := ValidateTunnelDomain(settings.TunnelDomain); loadErr == nil && settings.Enabled && settings.TunnelEnabled && err == nil && domain != "" && s.opts.Secrets != nil {
+		token, err := s.opts.Secrets.Get(tunnelTokenSecret)
+		switch {
+		case err == nil && token != "":
+			cfg = tunnelConfig{On: true, Domain: domain, Authtoken: token}
+		case err != nil && !errors.Is(err, secrets.ErrNotFound):
+			cfg.Unreadable = true
+		}
+	}
+	s.tunnel.set(cfg)
+}
+
+// logTunnel writes why the tunnel stopped, without the authtoken.
+func (s *Service) logTunnel(cfg tunnelConfig, err error) {
+	text := err.Error()
+	if cfg.Authtoken != "" {
+		text = strings.ReplaceAll(text, cfg.Authtoken, "[authtoken]")
+	}
+	log.Printf("remote access: the tunnel on %s stopped: %s", cfg.Domain, text)
+}
+
+// language is the interface language of the messages the settings show.
+func (s *Service) language() i18n.Lang {
+	if s.opts.Handler.Language != nil {
+		return i18n.Parse(s.opts.Handler.Language())
+	}
+	return i18n.FR
 }
 
 // shown cuts a value the user typed before it is echoed in a message.

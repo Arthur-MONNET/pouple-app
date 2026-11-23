@@ -192,7 +192,7 @@ func TestConnectionSlotsAreReleasedOnEveryClosePath(t *testing.T) {
 
 func TestTheServiceDropsConnectionsOverThePerSourceCap(t *testing.T) {
 	f := newExternalFixture(t, nil)
-	f.service.opts.MaxConnectionsPerSource = 2
+	f.service.limiter = newConnLimiter(0, 2, f.service.handler.throttle.Flooding)
 	if err := f.service.Apply(); err != nil {
 		t.Fatal(err)
 	}

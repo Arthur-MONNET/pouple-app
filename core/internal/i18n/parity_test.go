@@ -91,6 +91,7 @@ func TestEveryProviderTextHasAFrenchTranslation(t *testing.T) {
 		"../api/settings.go",
 		"../api/remote_admin.go",
 		"../remote/service.go",
+		"../remote/tunnel.go",
 		"../providers/providers.go",
 		"../../cmd/pouple-core/assistant.go",
 	}

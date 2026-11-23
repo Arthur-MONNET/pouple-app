@@ -110,10 +110,10 @@ func TestEndpointFormat(t *testing.T) {
 		}
 	}
 	fp := strings.Repeat("ab", 32)
-	if got, want := addressPayload("[2001:db8::1]:47821", fp), "pouple-address:v1?ext=%5B2001%3Adb8%3A%3A1%5D%3A47821&fp="+fp; got != want {
+	if got, want := addressPayload("[2001:db8::1]:47821", fp, ""), "pouple-address:v1?ext=%5B2001%3Adb8%3A%3A1%5D%3A47821&fp="+fp; got != want {
 		t.Errorf("address payload:\n got %s\nwant %s", got, want)
 	}
-	if got, want := addressPayload("home.example.net:8443", fp), "pouple-address:v1?ext=home.example.net%3A8443&fp="+fp; got != want {
+	if got, want := addressPayload("home.example.net:8443", fp, ""), "pouple-address:v1?ext=home.example.net%3A8443&fp="+fp; got != want {
 		t.Errorf("address payload:\n got %s\nwant %s", got, want)
 	}
 }
