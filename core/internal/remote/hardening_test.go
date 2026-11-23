@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -197,36 +198,49 @@ func TestTheServiceDropsConnectionsOverThePerSourceCap(t *testing.T) {
 	}
 	view, _ := f.service.Settings()
 	address := view.Listening[0]
+	// dial returns nil when the server reset the connection before the dial even returned: that is a drop too (on a
+	// busy runner the reset can win the race with the handshake of the dial).
 	dial := func() net.Conn {
 		conn, err := net.Dial("tcp", address)
+		if errors.Is(err, syscall.ECONNRESET) {
+			return nil
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		return conn
 	}
+	closeConn := func(conn net.Conn) {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
 	// dropped says whether the server has closed the connection: an accepted one waits for a handshake, so a read
 	// times out; a dropped one is reset or at its end at once.
 	dropped := func(conn net.Conn) bool {
+		if conn == nil {
+			return true
+		}
 		_ = conn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
 		_, err := conn.Read(make([]byte, 1))
 		var timeout net.Error
 		return !(errors.As(err, &timeout) && timeout.Timeout())
 	}
 	first, second := dial(), dial()
-	defer first.Close()
+	defer closeConn(first)
 	third := dial()
-	defer third.Close()
+	defer closeConn(third)
 	if !dropped(third) {
 		t.Fatal("the third connection of a source with a cap of 2 was accepted")
 	}
 	if dropped(second) {
 		t.Fatal("the second connection was dropped")
 	}
-	_ = second.Close()
+	closeConn(second)
 	// The slot comes back when the server has seen the close.
 	waitFor(t, "a slot to be free again", func() bool {
 		conn := dial()
-		defer conn.Close()
+		defer closeConn(conn)
 		return !dropped(conn)
 	})
 }
