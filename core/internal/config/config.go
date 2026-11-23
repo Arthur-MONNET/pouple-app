@@ -78,8 +78,8 @@ type Settings struct {
 // listener but the loopback one, and the unix socket.
 type RemoteSettings struct {
 	Enabled bool `json:"enabled"`
-	// Interfaces are the network interfaces (such as "en0") whose addresses the remote listener binds; never every
-	// address at once.
+	// Interfaces are the network interfaces (such as "en0") whose addresses the remote listener binds. Empty means
+	// automatic: every interface that is up and has a private (RFC 1918 or unique local) address, never a loopback one.
 	Interfaces []string `json:"interfaces"`
 	// Port is the fixed TCP port of the remote listener, so a paired phone finds it again; 0 is the default port.
 	Port int `json:"port"`
@@ -92,6 +92,11 @@ type RemoteSettings struct {
 	ExternalHost string `json:"externalHost"`
 	// ExternalPort is the TCP port the router exposes, which may differ from Port; 0 is the same as Port.
 	ExternalPort int `json:"externalPort"`
+	// TunnelEnabled reaches the Mac from outside through the user's ngrok static domain (TLS inside a WebSocket, see
+	// docs/REMOTE-E2E.md). TunnelDomain is that domain. The ngrok authtoken is never here: it is in the Keychain.
+	// Configurations written before these fields existed read as off.
+	TunnelEnabled bool   `json:"tunnelEnabled"`
+	TunnelDomain  string `json:"tunnelDomain"`
 }
 
 // DefaultMemoryFolder is where the memory lives, in the home folder, unless the user chose another folder.

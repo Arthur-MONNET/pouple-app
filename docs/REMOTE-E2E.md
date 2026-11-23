@@ -1,7 +1,9 @@
 # Pouple phone access through an ngrok tunnel — TLS inside a WebSocket
 
-Status: specification (v2). Read with `docs/REMOTE-API.md`. No custom cryptography: this reuses the TLS 1.3 listener,
-the pinned self-signed certificate, the device tokens and the step-up signatures that the LAN access already has.
+Status: the Mac side is implemented (`core/internal/remote/tunnel*.go`); the phone side is specified below. Read with
+`docs/REMOTE-API.md`, which holds the settings, the payloads and the limits. No custom cryptography: this reuses the
+TLS 1.3 listener, the pinned self-signed certificate, the device tokens and the step-up signatures that the LAN access
+already has.
 
 ## Why
 
@@ -13,20 +15,32 @@ cannot read, forge or replay anything, it can only drop or delay.
 
 ## Mac side
 
-- ngrok runs **in-process** through ngrok's official Go SDK (an HTTPS endpoint on the user's static domain, auth token
-  from the Keychain); no `ngrok` binary is needed. The SDK is reconnecting by nature; Pouple reports its state. If the
-  SDK cannot be used for a reason found during implementation, the fallback is to supervise the `ngrok` binary
-  (token in `NGROK_AUTHTOKEN`, never on the command line) forwarding to a loopback listener.
+- ngrok runs **in-process** through ngrok's official Go SDK, `golang.ngrok.com/ngrok/v2` (pinned at v2.6.0; the older
+  `golang.ngrok.com/ngrok` v1 is the previous major): `agent.Listen(ctx, ngrok.WithURL("https://<domain>"))`, with the
+  authtoken from the Keychain (`secrets.Store`, name `ngrok-authtoken`). No `ngrok` binary is needed, and nothing
+  stopped the SDK from serving a free account, so the supervised-binary fallback was not needed. The SDK reconnects and
+  binds the endpoint again by itself; Pouple reports its losses and recoveries in `tunnelStatus`/`tunnelProblem`. An error
+  that only the user can fix (authtoken, domain, account) stops the SDK's attempts, which would otherwise repeat forever.
+  The SDK sits behind a small interface (`TunnelProvider`), so tests stand a local listener in for ngrok.
 - The tunnel's HTTP handler serves exactly one path, `GET /tunnel/v1`, a WebSocket upgrade (binary messages only).
   Anything else answers 404 with no body. `Origin` headers are refused (no browser).
 - Each accepted WebSocket becomes a `net.Conn` (a maintained library provides it, `github.com/coder/websocket`'s
   `NetConn`, ISC) and is handed, as an accepted connection, to the **same** `tls.Server` / `http.Server` as the LAN
   listener (a channel-backed `net.Listener`). So TLS 1.3, the certificate, the handler, the allowlist, the throttle,
   the connection caps and every timeout are shared, not duplicated.
-- The connection's `RemoteAddr` is the first `X-Forwarded-For` value that ngrok set on the upgrade request, so the
-  source filter, the per-source throttle and the logs see the real external source. Upgrades are counted against the
-  throttle per source before the upgrade (30 per 10 minutes, then 429).
-- WebSocket read limit 1 MiB per message, ping every 20 s, idle close after 2 minutes without traffic.
+- The connection's `RemoteAddr` is the **last** `X-Forwarded-For` value on the upgrade request (a deviation from the
+  first draft, which said the first): ngrok appends the address it saw to whatever the client sent, and says to read the
+  last value for what it set, so the first can be forged by any client to choose the source the throttle sees. A value
+  that is not a public address, or no value, falls back to the address of the connection. The throttle, the caps and the
+  logs then see the real external source. Upgrades are counted per source before the upgrade (30 per 10 minutes, then
+  429).
+- WebSocket read limit 1 MiB per message, ping every 20 s, idle close after 2 minutes without data.
+- `websocket.NetConn` closes the whole connection when a read deadline expires during a read, which `net/http` does
+  after every response (it interrupts its background read with a deadline in the past, then clears it): each request
+  would end the tunnel. A small adapter (`deadlineConn`) reads the WebSocket in one goroutine and gives `Read` ordinary
+  deadlines, so one WebSocket carries a keep-alive connection and the event stream.
+- The connection is dropped without the WebSocket closing handshake once TLS has said goodbye: the library would wait up
+  to 5 seconds for a peer that may be gone.
 
 ## Phone side
 
@@ -41,20 +55,26 @@ cannot read, forge or replay anything, it can only drop or delay.
 
 ## Pairing and address payloads
 
-The QR gains one optional parameter, appended after `ext`: `tun=<domain>` (DNS name, no scheme, port or path; the phone
-uses `wss://<domain>:443`). Everything else is unchanged. The address-update payload (`pouple-address:v1`) also accepts
-an optional `tun`. `GET /remote/v1/endpoint` returns `{"ext":…,"tun":"<domain>"|null}`.
+The QR gains one optional parameter, appended after `ext`: `tun=<domain>` (DNS name, no scheme, port or path; the
+phone uses `wss://<domain>:443`), present while the tunnel is on and configured. Everything else is unchanged. The
+address-update payload (`pouple-address:v1?ext=…&fp=…`) also accepts an optional `tun`, last; `ext` stays required there.
+`GET /remote/v1/endpoint` returns `{"ext":"<host>:<port>"|null,"tun":"<domain>"|null}` (both keys always present).
 
 ## Settings (loopback admin API, `/api/remote/settings`)
 
 New fields: `tunnelEnabled` (bool, default false), `tunnelDomain` (the user's ngrok static domain, strict DNS-name
 validation), `tunnelAuthtoken` (write-only; stored in the Keychain through `secrets.Store`; never returned, never
 logged), read-only `tunnelAuthtokenSet` (bool), `tunnelStatus` (`off|starting|running|error`) and `tunnelProblem`
-(a human sentence, empty when fine: bad token, domain not owned by the account, limit reached, no network...).
-The tunnel starts with Pouple when enabled and stops when Pouple stops or the setting is turned off.
+(a human sentence in the interface language, empty when fine: bad token, domain not owned by the account, limit
+reached, no network...). The exact semantics, with examples, are in `REMOTE-API.md` ("Access through a tunnel").
+The tunnel runs while the access (`enabled`) and `tunnelEnabled` are both on: it starts with Pouple, restarts when its
+domain or token changes, and stops when Pouple stops or either setting is turned off. It runs apart from the LAN
+listeners, so a change of the Mac's addresses never drops its ngrok session, and its connection to ngrok never blocks
+the settings.
 
 `enabled` with an empty `interfaces` list now means "automatic": every interface that is up and has a private
 (RFC 1918 / ULA) address, never loopback unless chosen explicitly. This is what the simplified settings screen sends.
+The choice is read again at every address check, like an explicit one.
 
 ## Not covered
 

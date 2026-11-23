@@ -91,12 +91,17 @@ func endpoint(host string, port int) string {
 }
 
 // addressPayload is the lightweight payload that updates the address of a phone that is already paired:
-// pouple-address:v1?ext=<host>:<port>&fp=<certificate sha256 hex>. It holds no secret.
-func addressPayload(ext, fingerprint string) string {
+// pouple-address:v1?ext=<host>:<port>&fp=<certificate sha256 hex>[&tun=<ngrok domain>]. It holds no secret.
+func addressPayload(ext, fingerprint, tunnel string) string {
 	query := url.Values{}
 	query.Set("ext", ext)
 	query.Set("fp", fingerprint)
-	return "pouple-address:v1?" + encodeOrdered(query, "ext", "fp")
+	keys := []string{"ext", "fp"}
+	if tunnel != "" {
+		query.Set("tun", tunnel)
+		keys = append(keys, "tun")
+	}
+	return "pouple-address:v1?" + encodeOrdered(query, keys...)
 }
 
 // IsLocalAddress says whether a source address is on a local network: loopback, private (RFC 1918 and the IPv6 unique

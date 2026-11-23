@@ -5,7 +5,9 @@ it on in the settings. The loopback API and the local assistant socket are not c
 
 Version 1 works on the local network (or over USB with `adb reverse tcp:<port> tcp:<port>` during development), and,
 when the user turns it on, from outside the home network through a TCP port the user forwards on the router to the
-Mac (see [Access from outside](#access-from-outside)). There is no cloud relay, no tunnel service and no push service.
+Mac (see [Access from outside](#access-from-outside)), or through the user's own ngrok static domain, which only
+carries the same TLS session inside a WebSocket (see [Access through a tunnel](#access-through-a-tunnel) and
+[REMOTE-E2E.md](REMOTE-E2E.md)). There is no cloud relay of ours and no push service.
 
 ## Transport
 
@@ -15,8 +17,10 @@ Mac (see [Access from outside](#access-from-outside)). There is no cloud relay, 
   any other certificate. The certificate stays the same across restarts. If the key is lost, a new certificate is
   made and every phone must pair again.
 - The listener binds the addresses of the network interfaces the user chose (for example `en0`), never `0.0.0.0` or
-  `::`. It restarts when the settings change or when those addresses change. It closes when the access is turned off
-  or the core stops.
+  `::`. When the user chose none, the choice is **automatic**: every interface that is up and has a private address
+  (RFC 1918, or an IPv6 unique local address), never a loopback interface unless it is chosen explicitly. It restarts
+  when the settings change or when those addresses change (the automatic choice is checked again every 30 seconds).
+  It closes when the access is turned off or the core stops.
 - While the access from outside is **off** (the default), the listener drops, before the TLS handshake, every
   connection whose source address is not local: loopback, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`),
   link-local (`169.254/16`, `fe80::/10`), or a global IPv6 address inside a network the Mac is attached to through a chosen interface (up, not point-to-point, prefix of 48 bits or longer; normally a `/64`). While it is
@@ -52,18 +56,23 @@ Errors from the remote layer are JSON: `{"error":"<code>"}`. Errors from the ass
    query string:
 
    ```text
-   pouple-pair:v1?hosts=<host>,<host>…&port=<port>&fp=<sha256 hex>&code=<32 hex>&name=<mac name>[&ext=<host>:<port>]
+   pouple-pair:v1?hosts=<host>,<host>…&port=<port>&fp=<sha256 hex>&code=<32 hex>&name=<mac name>[&ext=<host>:<port>][&tun=<domain>]
    ```
 
    - `hosts`: the bound IP addresses, then `<mac name>.local` when the listener is on a network (not loopback only).
      Try them in order. An IPv6 address goes in brackets in a URL.
    - `fp`: SHA-256 of the certificate DER, 64 lowercase hex characters. Pin it.
    - `name`: the Mac's name, for display.
-   - `ext` (optional, always last): where to reach the Mac from outside the home network, `<host>:<port>`, present only
+   - `ext` (optional, after `name`): where to reach the Mac from outside the home network, `<host>:<port>`, present only
      while the access from outside is on and an address is known. `host` is a DNS name, an IPv4 address, or an IPv6
      address in brackets (`[2001:db8::1]:47821`). `port` is the port the router exposes, which may differ from `port`.
      Try it after `hosts`. Older readers ignore unknown parameters. Example, as written in the payload (the value is
      percent-encoded like the others): `…&name=Studio&ext=home.example.net%3A47821`.
+   - `tun` (optional, always last, after `ext` when there is one): the user's ngrok static domain, a DNS name with no
+     scheme, port or path, present only while the tunnel is on and configured (a domain and an authtoken are stored).
+     The phone reaches it with a WebSocket on `wss://<domain>:443/tunnel/v1` that carries a TLS 1.3 session with the
+     Mac, checked against `fp` like any other route (see [REMOTE-E2E.md](REMOTE-E2E.md)). Try it after `ext`. Example:
+     `…&ext=home.example.net%3A47821&tun=my-mac.ngrok-free.app`.
 3. The phone creates a P-256 key in the Android Keystore that requires user authentication, with
    `setUserAuthenticationRequired(true)` and biometric authentication. It then sends:
 
@@ -88,14 +97,16 @@ The user can revoke a device on the Mac at any time. Revoking it closes its open
 | GET | `/remote/v1/device` | `{"id":"…","name":"…"}`, to check that the pairing still works. |
 | DELETE | `/remote/v1/device` | 204. Unpairs this device: its token stops working. |
 | POST | `/remote/v1/challenge` | `{"nonce":"<64 hex>","expiresAt":"<RFC 3339>"}`, for a step-up. |
-| GET | `/remote/v1/endpoint` | `{"ext":"<host>:<port>"}`, or `{"ext":null}` when there is no external address. See below. |
+| GET | `/remote/v1/endpoint` | `{"ext":"<host>:<port>"\|null,"tun":"<domain>"\|null}`. See below. |
 
 ### Current address
 
-`GET /remote/v1/endpoint` (any paired device, read only) returns the external address as the Mac knows it now, in the
-same format as the payload's `ext`: `{"ext":"203.0.113.7:47821"}`, `{"ext":"[2001:db8::1]:8443"}` or `{"ext":null}`
-(the access from outside is off, or the address is not known yet). The phone calls it after each successful connection
-and keeps the answer, so an address that changed (a dynamic public IP) is learned without pairing again. Like every route
+`GET /remote/v1/endpoint` (any paired device, read only) returns the external address and the tunnel domain as the Mac
+knows them now, in the same format as the payload's `ext` and `tun`: `{"ext":"203.0.113.7:47821","tun":null}`,
+`{"ext":"[2001:db8::1]:8443","tun":"my-mac.ngrok-free.app"}` or `{"ext":null,"tun":null}` (`ext` is null while the access
+from outside is off or the address is not known yet, `tun` while the tunnel is off or not configured). The phone calls
+it after each successful connection and keeps the answer, so an address that changed (a dynamic public IP), or a tunnel
+turned on after pairing, is learned without pairing again. Like every route
 of this table it answers 401 without a valid token, 403 `forbidden-origin` to a browser request, and 405 to a method
 other than GET.
 
@@ -105,10 +116,13 @@ When a phone can no longer reach the Mac because the address changed and it coul
 settings show a second QR code, with no secret and no pairing window:
 
 ```text
-pouple-address:v1?ext=<host>:<port>&fp=<sha256 hex>
+pouple-address:v1?ext=<host>:<port>&fp=<sha256 hex>[&tun=<domain>]
 ```
 
 `ext` has the format above and `fp` is the certificate's SHA-256 (64 lowercase hex characters), both percent-encoded.
+`tun` (optional, last) is the ngrok domain of the pairing payload, present while the tunnel is on and configured; the
+phone stores it like `ext`, after the same certificate check. `ext` is still required: the payload is only available
+while an external address is known.
 The phone connects to `ext`, checks that the certificate there has that fingerprint **and** the one it pinned when it
 paired, and only then replaces the address it knows. A wrong address can therefore never connect it to anything else
 than its own Mac. The payload is read from the loopback API (`GET /api/remote/address`).
@@ -223,8 +237,8 @@ serves them.
 
 | Method | Path | Body / answer |
 |---|---|---|
-| GET | `/api/remote/settings` | `{enabled, interfaces[], port, available[{name, addresses[], loopback}], listening[], problem, fingerprint, externalEnabled, externalHost, externalPort, externalDetected, externalDetectedAt, externalReady}` |
-| PUT | `/api/remote/settings` | `{enabled?, interfaces?, port?, externalEnabled?, externalHost?, externalPort?}`. Turning the access on requires at least one interface. The port must be in 1024–65535. Turning the access from outside on requires a valid `externalHost`. Invalid settings return 422. The listener restarts. |
+| GET | `/api/remote/settings` | `{enabled, interfaces[], port, available[{name, addresses[], loopback}], listening[], problem, fingerprint, externalEnabled, externalHost, externalPort, externalDetected, externalDetectedAt, externalReady, tunnelEnabled, tunnelDomain, tunnelAuthtokenSet, tunnelStatus, tunnelProblem}` |
+| PUT | `/api/remote/settings` | `{enabled?, interfaces?, port?, externalEnabled?, externalHost?, externalPort?, tunnelEnabled?, tunnelDomain?, tunnelAuthtoken?}`. Turning the access on needs no interface: an empty `interfaces` is the automatic choice. The port must be in 1024–65535. Turning the access from outside on requires a valid `externalHost`; turning the tunnel on requires a valid `tunnelDomain` and a stored authtoken. Invalid settings return 422 `{"message":…}`. The listener restarts; the tunnel restarts only when its own settings change. |
 | GET | `/api/remote/address` | `{payload}`: the address update payload. Returns 409 when the access is off or no external address is known. |
 | POST | `/api/remote/pairing` | 201 `{payload, expiresAt}`. Returns 409 when the access is off or not listening. |
 | DELETE | `/api/remote/pairing` | 204. Closes the window. |
@@ -232,12 +246,13 @@ serves them.
 | DELETE | `/api/remote/devices/{id}` | 204. Revokes the device and closes its streams. Returns 404 for an unknown id. |
 
 The configuration key is `remote` in `config.json`:
-`{"enabled":false,"interfaces":[],"port":0,"externalEnabled":false,"externalHost":"","externalPort":0}`, where `0` means
-the default port. A configuration written before the `external…` fields existed reads as off.
+`{"enabled":false,"interfaces":[],"port":0,"externalEnabled":false,"externalHost":"","externalPort":0,"tunnelEnabled":false,"tunnelDomain":""}`,
+where `0` means the default port and an empty `interfaces` is the automatic choice. A configuration written before the
+`external…` or `tunnel…` fields existed reads as off. The ngrok authtoken is never in it: it is in the Keychain.
 
 ## Access from outside
 
-Off by default. There is no tunnel service: the user forwards a TCP port on the router to the Mac and gives a stable
+Off by default. The user forwards a TCP port on the router to the Mac (no service in between) and gives a stable
 public name, and the end-to-end TLS with the pinned certificate stays the protection.
 
 Settings (`PUT /api/remote/settings`, echoed by `GET`):
@@ -293,6 +308,36 @@ the address is unknown, `ext` is left out of the pairing payload and `GET /remot
 - **Log**: each pairing from a non-local source, and the first authenticated or pairing request from each new non-local
   source address, is logged once with the address, never with a token or content. A lockout is logged too.
 
+## Access through a tunnel
+
+Off by default, and only while the access itself is on. The user gives the core their ngrok **static domain** and
+**authtoken** (the free plan has both) and turns it on; the phone gets `tun` in the pairing payload. The design and the
+reasons are in [REMOTE-E2E.md](REMOTE-E2E.md): the phone opens a WebSocket to `wss://<domain>/tunnel/v1` and runs TLS 1.3
+with the Mac inside its binary messages, so ngrok only carries ciphertext and the pinned certificate, the device tokens
+and the step-up are what protect the access, exactly as on the LAN.
+
+Settings (`PUT /api/remote/settings`, echoed by `GET` except the token):
+
+| Field | Meaning |
+|---|---|
+| `tunnelEnabled` | Boolean, `false` by default. Needs `tunnelDomain` and a stored authtoken. |
+| `tunnelDomain` | The ngrok domain: a lowercase DNS name of at least two labels (letters, digits, hyphens; labels up to 63 characters, 253 in all). No scheme, port, path, wildcard, space or IP address. Can be empty while the tunnel is off. |
+| `tunnelAuthtoken` | **Write only.** 8–256 characters of letters, digits, `_`, `-`, `.`. It goes to the Keychain; `""` removes it. It is never returned, logged or repeated in an error. |
+| `tunnelAuthtokenSet` | Read only. Whether an authtoken is stored. |
+| `tunnelStatus` | Read only. `off`, `starting`, `running` or `error`. `error` also covers a connection to ngrok that was lost and is being re-established by itself. |
+| `tunnelProblem` | Read only. A sentence in the interface language, empty when there is none: no network, authtoken refused, domain not reserved by the account, plan limit reached or the endpoint already online elsewhere, account suspended or unpaid, authtoken unreadable in the Keychain. |
+
+The tunnel starts with the core when it is on, restarts when the domain or the authtoken changes (the old session is
+closed before the new one binds), and stops when the access or the tunnel is turned off and when the core stops. A
+change of the Mac's addresses restarts the LAN listeners, never the tunnel. A fault the user must fix (authtoken,
+domain, account) is retried every 5 minutes, any other one every 30 seconds.
+
+The endpoint serves only `GET /tunnel/v1` (a WebSocket upgrade); anything else is 404 with no body and a request with
+an `Origin` or `Sec-Fetch-Site` header is 403. Each source (an IPv4 address, an IPv6 `/64`) may ask 30 upgrades per
+10 minutes, then 429 with `Retry-After`. A WebSocket reads messages of at most 1 MiB, is pinged every 20 seconds and is
+closed after 2 minutes without data. Its connections count in the same caps (256 in all, 16 per source) and go through
+the same TLS server, handler, throttle and timeouts as the LAN listener.
+
 ## Threat model
 
 **Assets**: the conversations (private messages, code context), the ability to make Pouple write (code, GitLab,
@@ -308,10 +353,13 @@ Asana, Slite), and the secrets of connected services.
 | Phone reaching what it should not | Explicit allowlist enforced by the remote handler, on a mux of its own. Connectors, secrets, settings, providers, GitLab access, terminal, updates, memory, style and the remote administration are never reachable. |
 | "Apply every change" setting | When it is on, text from the phone (new conversation, message, answer) needs a step-up, because it could be applied without anyone reading it. |
 | A scanner or a guesser on the internet (external access on) | The listener answers TLS 1.3 with a certificate that is not tied to any name; every route except pairing needs a 256-bit token and pairing needs the 128-bit code of an open window. A per-source throttle answers 429 with a growing lockout, a flood is reset before the handshake, and connection caps (256 in all, 16 per source) bound what a scanner can hold open. Turning the external access off drops non-local sources before the handshake. |
-| A router or reverse proxy that rewrites the source address | The core only sees the address of the TCP peer. If the router (or a proxy, a tunnel or a load balancer in front of the port) connects from its own LAN address, every Internet client looks local: they get the generous local throttle (30 failures, not 6), share one source for the throttle and the connection caps, and pass the source filter when the access from outside is off. **The port forward must be a plain NAT port forward, never a proxy** (no "reverse proxy", "hairpin NAT with source rewriting", or relay on the LAN). `X-Forwarded-For` and the PROXY protocol are never read. The pinned certificate, the tokens and the pairing code still protect the Mac in that case. |
+| A router or reverse proxy that rewrites the source address | The core only sees the address of the TCP peer. If the router (or a proxy, a tunnel or a load balancer in front of the port) connects from its own LAN address, every Internet client looks local: they get the generous local throttle (30 failures, not 6), share one source for the throttle and the connection caps, and pass the source filter when the access from outside is off. **The port forward must be a plain NAT port forward, never a proxy** (no "reverse proxy", "hairpin NAT with source rewriting", or relay on the LAN). `X-Forwarded-For` and the PROXY protocol are never read on the LAN listener. The pinned certificate, the tokens and the pairing code still protect the Mac in that case. The tunnel is the one place where a forwarded address is read, because ngrok is the proxy there: the **last** `X-Forwarded-For` value, the one ngrok appended (it appends to what the client sent, so the first value can be forged), when it is a public address; otherwise the address of the connection. |
 | A shared public address (CGNAT, office) where someone else fails to authenticate | Locking out the address does not lock out a request with a valid device token (see Lockout semantics). Pairing and unauthenticated requests from that address wait. |
 | A wrong address (typo, a stale DDNS entry, someone else behind the forwarded port) | The phone pins the certificate: it never sends a token to a Mac whose certificate does not match, and the address update payload is accepted only after that check. |
 | Lost Keychain key | A new certificate is made, its fingerprint changes, and pinned phones refuse it until they pair again. Nothing falls back to an unpinned connection. |
 
-Out of scope: a relay or tunnel service, push notifications (the phone polls), opening the router's port automatically
-(UPnP), and a compromised Mac user account. That account can already read everything through the local socket.
+| ngrok, or someone on the path to it | ngrok carries raw TLS records inside a WebSocket: it can drop or delay them, never read, forge or replay them. The phone pins the Mac's certificate inside that TLS session, so a tunnel that ends anywhere else fails the pin. The authtoken is in the Keychain and never leaves the Mac, but for the connection to ngrok itself. |
+| Someone who knows the ngrok domain | They get the same TLS 1.3 server as a scanner on the port forward: no route without a 256-bit token, a per-source throttle that sees the real external address, at most 30 upgrades per source and 10 minutes, the same connection caps. The endpoint answers 404 to anything but the upgrade. |
+
+Out of scope: push notifications (the phone polls), opening the router's port automatically
+(UPnP), that a Pouple Mac exists behind an ngrok domain, traffic volume and timing, and a compromised Mac user account. That account can already read everything through the local socket.
