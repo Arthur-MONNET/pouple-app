@@ -90,8 +90,8 @@ func throttleKey(source netip.Addr) netip.Addr {
 	return source
 }
 
-func (t *Throttle) limitsOf(source netip.Addr) limits {
-	if source.IsValid() && t.local(source) {
+func (t *Throttle) limitsOf(source netip.Addr, external bool) limits {
+	if !external && source.IsValid() && t.local(source) {
 		return localLimits
 	}
 	return externalLimits
@@ -132,8 +132,14 @@ func (t *Throttle) Flooding(source netip.Addr) bool {
 }
 
 // Fail counts a failed authentication and returns the lockout it started, or 0.
-func (t *Throttle) Fail(source netip.Addr) time.Duration {
-	now, key, lim := t.now(), throttleKey(source), t.limitsOf(source)
+func (t *Throttle) Fail(source netip.Addr) time.Duration { return t.fail(source, false) }
+
+// FailExternal is Fail for a source that must never get the generous limits of a local one: the clients that come
+// through a tunnel, whatever their address says (an address on the Mac's own network is still a stranger there).
+func (t *Throttle) FailExternal(source netip.Addr) time.Duration { return t.fail(source, true) }
+
+func (t *Throttle) fail(source netip.Addr, external bool) time.Duration {
+	now, key, lim := t.now(), throttleKey(source), t.limitsOf(source, external)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	entry := t.entries[key]

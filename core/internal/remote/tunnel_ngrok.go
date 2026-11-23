@@ -31,7 +31,11 @@ func classifyNgrok(err error) TunnelFault {
 	if match == nil {
 		return FaultNetwork
 	}
-	code, _ := strconv.Atoi(match[1])
+	return classifyCode(match[1])
+}
+
+func classifyCode(digits string) TunnelFault {
+	code, _ := strconv.Atoi(digits)
 	switch code {
 	case 105, 106, 107, 300: // the authtoken is malformed, of another version, invalid or revoked
 		return FaultToken
@@ -68,7 +72,7 @@ func (ngrokTunnel) Listen(ctx context.Context, domain, authtoken string, report 
 				return
 			}
 			fault := classifyNgrok(e.Error)
-			err := &TunnelError{Fault: fault, Err: withoutToken(e.Error, authtoken)}
+			err := &TunnelError{Fault: fault, Err: safeNgrokError(fault, e.Error, authtoken)}
 			if fault.userFixable() {
 				mu.Lock()
 				if fatalErr == nil {
@@ -105,7 +109,8 @@ func (ngrokTunnel) Listen(ctx context.Context, domain, authtoken string, report 
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, &TunnelError{Fault: classifyNgrok(err), Err: withoutToken(err, authtoken)}
+		fault := classifyNgrok(err)
+		return nil, &TunnelError{Fault: fault, Err: safeNgrokError(fault, err, authtoken)}
 	}
 	// Connect keeps trying while the network is down (the failures arrive as events), and returns once connected, or
 	// when the handler gave up on a fault only the user can fix.
@@ -137,6 +142,23 @@ func (l *ngrokListener) Close() error {
 	return err
 }
 
+// safeNgrokError is the error to keep and log. ngrok's text for a refused authtoken can repeat what was sent, so for
+// that fault only its code is kept; any other error only loses the authtoken if it holds it.
+func safeNgrokError(fault TunnelFault, err error, token string) error {
+	if fault == FaultToken {
+		return errors.New(tokenFaultText(err))
+	}
+	return withoutToken(err, token)
+}
+
+// tokenFaultText is the code of an ngrok error about the authtoken, and nothing else of its text.
+func tokenFaultText(err error) string {
+	if code := ngrokCode.FindString(err.Error()); code != "" {
+		return "authtoken refused (" + code + ")"
+	}
+	return "authtoken refused"
+}
+
 // withoutToken is an error whose text never holds the authtoken.
 func withoutToken(err error, token string) error {
 	if err == nil {
@@ -165,6 +187,10 @@ type redactingWriter struct{ token string }
 
 func (w redactingWriter) Write(p []byte) (int, error) {
 	line := strings.TrimRight(string(p), "\n")
+	if match := ngrokCode.FindStringSubmatch(line); match != nil && classifyCode(match[1]) == FaultToken {
+		// The text of such a line may repeat the authtoken in a form that is not the one that was sent.
+		line = "authtoken refused (" + match[0] + ")"
+	}
 	if w.token != "" {
 		line = strings.ReplaceAll(line, w.token, "[authtoken]")
 	}

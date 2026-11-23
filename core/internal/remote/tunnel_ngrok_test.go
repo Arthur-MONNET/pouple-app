@@ -87,3 +87,48 @@ func TestTheTunnelLogLineHasNoAuthtoken(t *testing.T) {
 		t.Fatalf("%q", out.String())
 	}
 }
+
+// ngrok's text about a refused authtoken can repeat what was sent, in any form: only its code is kept and logged.
+func TestATokenFaultKeepsAndLogsOnlyTheNgrokCode(t *testing.T) {
+	const token = "2abcDEF_ghiJKL0123456789"
+	text := "authentication failed: The authtoken you specified (2abcDEF_ghi...) does not look like a proper ngrok authtoken. " + token[:10] + "\n\nERR_NGROK_105"
+	err := errors.New(text)
+	fault := classifyNgrok(err)
+	if fault != FaultToken {
+		t.Fatalf("%d", fault)
+	}
+	safe := safeNgrokError(fault, err, token)
+	if safe.Error() != "authtoken refused (ERR_NGROK_105)" {
+		t.Fatalf("%q", safe)
+	}
+	if got := safeNgrokError(FaultToken, errors.New("no code in this one "+token), token); got.Error() != "authtoken refused" {
+		t.Fatalf("%q", got)
+	}
+	// Other faults keep their text, minus the token.
+	if got := safeNgrokError(FaultDomain, errors.New("ERR_NGROK_320 "+token), token); strings.Contains(got.Error(), token) || !strings.Contains(got.Error(), "ERR_NGROK_320") {
+		t.Fatalf("%q", got)
+	}
+
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	(&Service{}).logTunnel(tunnelConfig{On: true, Domain: "a.ngrok.app", Authtoken: token}, &TunnelError{Fault: FaultToken, Err: err})
+	if strings.Contains(out.String(), token[:8]) || strings.Contains(out.String(), "proper ngrok") || !strings.Contains(out.String(), "ERR_NGROK_105") {
+		t.Fatalf("only the code is logged: %q", out.String())
+	}
+	// Even a TunnelError built elsewhere, with the whole text, is cut down to the code.
+	out.Reset()
+	(&Service{}).logTunnel(tunnelConfig{On: true, Domain: "a.ngrok.app", Authtoken: token}, &TunnelError{Fault: FaultToken, Err: errors.New("raw " + text)})
+	if strings.Contains(out.String(), "raw") || strings.Contains(out.String(), token[:8]) {
+		t.Fatalf("%q", out.String())
+	}
+
+	// The SDK's own log lines about it are cut down too, whatever form of the token they hold.
+	out.Reset()
+	ngrokLogger(token).Warn("failed to reconnect session", "err", text)
+	ngrokLogger(token).Warn("other", "err", "dial tcp: no route")
+	got := out.String()
+	if strings.Contains(got, "2abcDEF") || strings.Contains(got, "proper ngrok") || !strings.Contains(got, "authtoken refused (ERR_NGROK_105)") || !strings.Contains(got, "no route") {
+		t.Fatalf("%q", got)
+	}
+}

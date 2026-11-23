@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -74,6 +76,45 @@ type Handler struct {
 	seen   map[netip.Addr]struct{} // external sources already logged
 }
 
+// tunnelKey marks the requests that came through the tunnel: they are never local, whatever their source address says.
+type tunnelKey struct{}
+
+// connAuthKey carries the connection of a request, which learns that the request authenticated.
+type connAuthKey struct{}
+
+// serverConnContext is the ConnContext of the TLS servers: it gives each request the connection's authentication hook,
+// and marks the tunnel's.
+func serverConnContext(tunnel bool) func(context.Context, net.Conn) context.Context {
+	return func(ctx context.Context, conn net.Conn) context.Context {
+		if tlsConn, ok := conn.(*tls.Conn); ok {
+			conn = tlsConn.NetConn()
+		}
+		if limited, ok := conn.(*limitedConn); ok {
+			ctx = context.WithValue(ctx, connAuthKey{}, limited)
+		}
+		if tunnel {
+			ctx = context.WithValue(ctx, tunnelKey{}, true)
+		}
+		return ctx
+	}
+}
+
+// isLocal says whether the source of a request is on a local network. A request that came through the tunnel never is:
+// its address is only what ngrok reported, and it gets the external limits and can never close the pairing window.
+func (h *Handler) isLocal(r *http.Request, source netip.Addr) bool {
+	if r.Context().Value(tunnelKey{}) != nil {
+		return false
+	}
+	return h.local(source)
+}
+
+// authenticated tells the connection of a request that a valid device token was presented on it.
+func (h *Handler) authenticated(r *http.Request) {
+	if conn, ok := r.Context().Value(connAuthKey{}).(interface{ Authenticated() }); ok {
+		conn.Authenticated()
+	}
+}
+
 // maxSeenSources bounds the external sources remembered for the "first request" log line.
 const maxSeenSources = 1024
 
@@ -94,8 +135,8 @@ func NewHandler(opts HandlerOptions) *Handler {
 
 // noteExternal logs, once per source address, the first request an external source makes that got past the TLS
 // handshake and authenticated or tried to pair. It writes no token and no content.
-func (h *Handler) noteExternal(source netip.Addr) {
-	if !source.IsValid() || h.local(source) {
+func (h *Handler) noteExternal(r *http.Request, source netip.Addr) {
+	if !source.IsValid() || h.isLocal(r, source) {
 		return
 	}
 	key := throttleKey(source)
@@ -114,8 +155,12 @@ func (h *Handler) noteExternal(source netip.Addr) {
 }
 
 // failed counts a failed authentication against the source, and logs the lockout it may start.
-func (h *Handler) failed(source netip.Addr) {
-	if lock := h.throttle.Fail(source); lock > 0 {
+func (h *Handler) failed(r *http.Request, source netip.Addr) {
+	fail := h.throttle.Fail
+	if r.Context().Value(tunnelKey{}) != nil {
+		fail = h.throttle.FailExternal
+	}
+	if lock := fail(source); lock > 0 {
 		log.Printf("remote access: %s failed to authenticate too many times, locked out for %s", source, lock)
 	}
 }
@@ -185,11 +230,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.tooManyAttempts(w, source, wait)
 			return
 		}
-		h.failed(source)
+		h.failed(r, source)
 		refuseAndClose(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	h.noteExternal(source)
+	h.authenticated(r)
+	h.noteExternal(r, source)
 	switch r.URL.Path {
 	case "/remote/v1/challenge":
 		h.challenge(w, r, device)
@@ -257,13 +303,13 @@ func (h *Handler) pair(w http.ResponseWriter, r *http.Request, source netip.Addr
 		refuseAndClose(w, http.StatusUnprocessableEntity, "bad-key")
 		return
 	}
-	switch err := h.opts.Pairing.ConsumeFrom(body.Code, h.local(source)); {
+	switch err := h.opts.Pairing.ConsumeFrom(body.Code, h.isLocal(r, source)); {
 	case errors.Is(err, ErrPairingClosed):
-		h.failed(source)
+		h.failed(r, source)
 		refuseAndClose(w, http.StatusForbidden, "pairing-closed")
 		return
 	case err != nil:
-		h.failed(source)
+		h.failed(r, source)
 		refuseAndClose(w, http.StatusForbidden, "pairing-refused")
 		return
 	}
@@ -278,11 +324,12 @@ func (h *Handler) pair(w http.ResponseWriter, r *http.Request, source netip.Addr
 		return
 	}
 	h.throttle.Succeed(source)
-	if h.local(source) {
+	h.authenticated(r)
+	if h.isLocal(r, source) {
 		log.Printf("remote access: paired %q (%s)", device.Name, device.ID)
 	} else {
 		log.Printf("remote access: paired %q (%s) from the external address %s", device.Name, device.ID, source)
-		h.noteExternal(source)
+		h.noteExternal(r, source)
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"deviceId": device.ID, "token": token})
 }
@@ -389,7 +436,7 @@ func (h *Handler) serveAllowed(w http.ResponseWriter, r *http.Request, device De
 					// A wrong signature is a failed attempt: while the source is locked out it gets the lockout's
 					// answer (the token alone does not let it keep guessing), else it is counted.
 					wait, blocked := h.throttle.Blocked(source)
-					h.failed(source)
+					h.failed(r, source)
 					if blocked {
 						h.tooManyAttempts(w, source, wait)
 						return

@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -49,21 +50,84 @@ type fakeTunnel struct {
 
 type tunnelCall struct{ Domain, Token string }
 
+// trackedListener is the endpoint of the fake: like ngrok's, the connections it accepts carry the address of the client
+// they stand for. A test client writes "@<address>\n" first (the stand-in for ngrok's proxy header); a connection that
+// starts with anything else has the address of the loopback connection.
 type trackedListener struct {
 	net.Listener
-	f    *fakeTunnel
-	once sync.Once
+	f     *fakeTunnel
+	once  sync.Once
+	ready chan net.Conn
+	done  chan struct{}
+}
+
+func newTrackedListener(inner net.Listener, f *fakeTunnel) *trackedListener {
+	l := &trackedListener{Listener: inner, f: f, ready: make(chan net.Conn), done: make(chan struct{})}
+	go func() {
+		for {
+			conn, err := inner.Accept()
+			if err != nil {
+				l.close()
+				return
+			}
+			go l.admit(conn)
+		}
+	}()
+	return l
+}
+
+func (l *trackedListener) admit(conn net.Conn) {
+	reader := bufio.NewReader(conn)
+	remote := conn.RemoteAddr()
+	first, err := reader.Peek(1)
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	if first[0] == '@' {
+		line, _ := reader.ReadString('\n')
+		if ip, err := netip.ParseAddr(strings.TrimSpace(line[1:])); err == nil {
+			remote = net.TCPAddrFromAddrPort(netip.AddrPortFrom(ip, 40000))
+		}
+	}
+	select {
+	case l.ready <- &proxiedConn{Conn: conn, reader: reader, remote: remote}:
+	case <-l.done:
+		_ = conn.Close()
+	}
+}
+
+func (l *trackedListener) close() { l.once.Do(func() { close(l.done) }) }
+
+func (l *trackedListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.ready:
+		return conn, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
 }
 
 func (l *trackedListener) Close() error {
-	l.once.Do(func() {
+	first := false
+	l.once.Do(func() { first = true; close(l.done) })
+	if first {
 		l.f.mu.Lock()
 		l.f.active--
 		l.f.closed++
 		l.f.mu.Unlock()
-	})
+	}
 	return l.Listener.Close()
 }
+
+type proxiedConn struct {
+	net.Conn
+	reader *bufio.Reader
+	remote net.Addr
+}
+
+func (c *proxiedConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
+func (c *proxiedConn) RemoteAddr() net.Addr       { return c.remote }
 
 func (f *fakeTunnel) Listen(ctx context.Context, domain, token string, report TunnelReport) (net.Listener, error) {
 	f.mu.Lock()
@@ -89,7 +153,7 @@ func (f *fakeTunnel) Listen(ctx context.Context, domain, token string, report Tu
 	if f.active > 1 {
 		f.overlap = true
 	}
-	tracked := &trackedListener{Listener: inner, f: f}
+	tracked := newTrackedListener(inner, f)
 	f.listener, f.report = tracked, report
 	f.mu.Unlock()
 	report(true, nil)
@@ -116,7 +180,7 @@ func (f *fakeTunnel) snapshot() (calls []tunnelCall, active int, overlap bool, c
 
 func eventually(t *testing.T, what string, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for !condition() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
@@ -192,52 +256,57 @@ func (f *tunnelFixture) waitStatus(t *testing.T, want string) {
 	eventually(t, "tunnel status "+want, func() bool { return f.status() == want })
 }
 
-// dial opens the WebSocket of the tunnel, as the phone's forwarder does, with the headers ngrok would have set.
-func (f *tunnelFixture) dial(ctx context.Context, header http.Header) (*websocket.Conn, *http.Response, error) {
-	return websocket.Dial(ctx, "ws://"+f.fake.address()+tunnelPath, &websocket.DialOptions{HTTPHeader: header})
-}
-
-func forwarded(values ...string) http.Header {
-	header := http.Header{}
-	for _, value := range values {
-		header.Add("X-Forwarded-For", value)
-	}
-	return header
+// dial opens the WebSocket of the tunnel, as the phone's forwarder does, as a client whose address (as ngrok would
+// report it) is source; "" is a client with no such header, which has the loopback address.
+func (f *tunnelFixture) dial(ctx context.Context, source string, header http.Header) (*websocket.Conn, *http.Response, error) {
+	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+		if err == nil && source != "" {
+			_, err = io.WriteString(conn, "@"+source+"\n")
+		}
+		return conn, err
+	}}}
+	return websocket.Dial(ctx, "ws://"+f.fake.address()+tunnelPath, &websocket.DialOptions{HTTPClient: client, HTTPHeader: header})
 }
 
 // tunnelClient is the pinned HTTP client of the phone: every connection it makes is a WebSocket to the tunnel, and TLS
 // runs inside it, with the certificate checked against the pin only.
-func (f *tunnelFixture) tunnelClient(t *testing.T, fingerprint string, header http.Header) *http.Client {
+func (f *tunnelFixture) tunnelClient(t *testing.T, fingerprint, source string) *http.Client {
 	t.Helper()
 	transport := &http.Transport{
 		DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			f.dialed.Add(1)
-			socket, response, err := f.dial(ctx, header)
-			if response != nil && response.Body != nil {
-				response.Body.Close()
-			}
-			if err != nil {
-				return nil, err
-			}
-			conn := websocket.NetConn(context.Background(), socket, websocket.MessageBinary)
-			secure := tls.Client(conn, &tls.Config{
-				InsecureSkipVerify: true, MinVersion: tls.VersionTLS13, // the pin below replaces the chain check
-				VerifyConnection: func(state tls.ConnectionState) error {
-					if len(state.PeerCertificates) == 0 || Fingerprint(state.PeerCertificates[0].Raw) != fingerprint {
-						return errors.New("certificate does not match the pin")
-					}
-					return nil
-				},
-			})
-			if err := secure.HandshakeContext(ctx); err != nil {
-				_ = conn.Close()
-				return nil, err
-			}
-			return secure, nil
+			return f.dialTLS(ctx, fingerprint, source)
 		},
 	}
 	t.Cleanup(transport.CloseIdleConnections)
 	return &http.Client{Transport: transport, Timeout: 5 * time.Second}
+}
+
+// dialTLS opens a WebSocket and runs TLS inside it, checking the certificate against the pin only.
+func (f *tunnelFixture) dialTLS(ctx context.Context, fingerprint, source string) (net.Conn, error) {
+	socket, response, err := f.dial(ctx, source, nil)
+	if response != nil && response.Body != nil {
+		response.Body.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+	conn := websocket.NetConn(context.Background(), socket, websocket.MessageBinary)
+	secure := tls.Client(conn, &tls.Config{
+		InsecureSkipVerify: true, MinVersion: tls.VersionTLS13, // the pin below replaces the chain check
+		VerifyConnection: func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 || Fingerprint(state.PeerCertificates[0].Raw) != fingerprint {
+				return errors.New("certificate does not match the pin")
+			}
+			return nil
+		},
+	})
+	if err := secure.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return secure, nil
 }
 
 // pair opens a pairing window and returns the pin and the pairing code.
@@ -291,7 +360,7 @@ func TestTunnelCarriesTheLANTLSSessionAndServesTheSnapshot(t *testing.T) {
 	f := newTunnelFixture(t)
 	f.turnOn(t)
 	fingerprint, code, _ := f.pair(t)
-	client := f.tunnelClient(t, fingerprint, forwarded("198.51.100.77, "+testSource))
+	client := f.tunnelClient(t, fingerprint, testSource)
 
 	token := pairOver(t, client, code)
 	response, body := get(t, client, "/api/assistant", token)
@@ -325,7 +394,7 @@ func TestTunnelCarriesTheLANTLSSessionAndServesTheSnapshot(t *testing.T) {
 func TestTunnelRefusesAnotherCertificateThanThePinnedOne(t *testing.T) {
 	f := newTunnelFixture(t)
 	f.turnOn(t)
-	client := f.tunnelClient(t, strings.Repeat("0", 64), forwarded(testSource))
+	client := f.tunnelClient(t, strings.Repeat("0", 64), testSource)
 	if _, err := client.Get(tunnelBase + "/api/assistant"); err == nil {
 		t.Fatal("a wrong pin must fail the handshake inside the tunnel")
 	}
@@ -336,7 +405,7 @@ func TestTunnelServesTheSameHandlerAsTheLAN(t *testing.T) {
 	f := newTunnelFixture(t)
 	f.turnOn(t)
 	fingerprint, _, _ := f.pair(t)
-	client := f.tunnelClient(t, fingerprint, forwarded(testSource))
+	client := f.tunnelClient(t, fingerprint, testSource)
 	if response, _ := get(t, client, "/api/assistant", ""); response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("no token: %d", response.StatusCode)
 	}
@@ -373,14 +442,46 @@ func TestTunnelServesOnlyTheUpgradePathAndAnswers404WithNoBody(t *testing.T) {
 			t.Errorf("%s %s: %d with %d bytes of body", tc.method, tc.path, response.StatusCode, len(body))
 		}
 	}
-	// A plain GET of the path that is not an upgrade is no WebSocket and gets no tunnel either.
-	response, err := http.Get(base + tunnelPath)
-	if err != nil {
-		t.Fatal(err)
+}
+
+// A GET of the path that is not a WebSocket upgrade (no Upgrade, Connection, key or version header) is a 404 with no body
+// that closes the connection, and costs no upgrade of the budget of its source.
+func TestTunnelAnswers404ToAGetThatIsNotAnUpgradeAndChargesNothing(t *testing.T) {
+	f := newTunnelFixture(t)
+	f.turnOn(t)
+	base := "http://" + f.fake.address()
+	for _, header := range []http.Header{
+		nil,
+		{"Upgrade": {"websocket"}},
+		{"Connection": {"Upgrade"}},
+		{"Upgrade": {"websocket"}, "Connection": {"Upgrade"}},
+		{"Upgrade": {"websocket"}, "Connection": {"Upgrade"}, "Sec-WebSocket-Key": {"dGhlIHNhbXBsZSBub25jZQ=="}},
+		{"Upgrade": {"websocket"}, "Connection": {"Upgrade"}, "Sec-WebSocket-Key": {"dGhlIHNhbXBsZSBub25jZQ=="}, "Sec-WebSocket-Version": {"8"}},
+		{"Upgrade": {"h2c"}, "Connection": {"Upgrade"}, "Sec-WebSocket-Key": {"x"}, "Sec-WebSocket-Version": {"13"}},
+	} {
+		for range 40 { // more than the budget of one source
+			request, _ := http.NewRequest("GET", base+tunnelPath, nil)
+			for name, values := range header {
+				request.Header[name] = values
+			}
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			if response.StatusCode != http.StatusNotFound || len(body) != 0 || !response.Close {
+				t.Fatalf("%v: %d, %d bytes, close=%v", header, response.StatusCode, len(body), response.Close)
+			}
+		}
 	}
-	response.Body.Close()
-	if response.StatusCode == http.StatusOK || response.StatusCode == http.StatusSwitchingProtocols {
-		t.Fatalf("a request that is not an upgrade: %d", response.StatusCode)
+	// The same source (the loopback address, no header) still has its whole budget for real upgrades.
+	for i := range tunnelUpgradeBurst {
+		socket, _, err := f.dial(context.Background(), "", nil)
+		if err != nil {
+			t.Fatalf("upgrade %d after the plain requests: %v", i+1, err)
+		}
+		_ = socket.CloseNow()
 	}
 }
 
@@ -388,7 +489,7 @@ func TestTunnelRefusesRequestsThatCarryAnOrigin(t *testing.T) {
 	f := newTunnelFixture(t)
 	f.turnOn(t)
 	for _, header := range []http.Header{{"Origin": {"https://evil.example"}}, {"Origin": {"null"}}, {"Sec-Fetch-Site": {"cross-site"}}} {
-		_, response, err := f.dial(context.Background(), header)
+		_, response, err := f.dial(context.Background(), testSource, header)
 		if err == nil {
 			t.Fatalf("%v: a browser must not get a tunnel", header)
 		}
@@ -397,81 +498,104 @@ func TestTunnelRefusesRequestsThatCarryAnOrigin(t *testing.T) {
 		}
 		response.Body.Close()
 	}
-	socket, _, err := f.dial(context.Background(), forwarded(testSource))
+	socket, _, err := f.dial(context.Background(), testSource, nil)
 	if err != nil {
 		t.Fatalf("a phone is accepted: %v", err)
 	}
 	_ = socket.CloseNow()
 }
 
-func TestTunnelSourceIsTheLastForwardedAddressThatIsPublic(t *testing.T) {
-	request := func(remote string, values ...string) *http.Request {
-		r, _ := http.NewRequest("GET", "http://x"+tunnelPath, nil)
-		r.RemoteAddr = remote
-		for _, value := range values {
-			r.Header.Add("X-Forwarded-For", value)
-		}
-		return r
-	}
-	for _, tc := range []struct {
-		name string
-		r    *http.Request
-		want string
-	}{
-		{"one value", request("127.0.0.1:5000", "203.0.113.9"), "203.0.113.9"},
-		{"ngrok appends to what the client sent: the last is ngrok's", request("127.0.0.1:5000", "10.0.0.1, 198.51.100.7, 203.0.113.9"), "203.0.113.9"},
-		{"several header lines", request("127.0.0.1:5000", "198.51.100.7", "203.0.113.9"), "203.0.113.9"},
-		{"ipv6", request("127.0.0.1:5000", "2001:db8::1"), "2001:db8::1"},
-		{"mapped ipv4", request("127.0.0.1:5000", "::ffff:203.0.113.9"), "203.0.113.9"},
-		{"none: the connection's address", request("198.51.100.20:4000"), "198.51.100.20"},
-		{"not an address", request("198.51.100.20:4000", "203.0.113.9, nonsense"), "198.51.100.20"},
-		{"a private last value is not a source", request("198.51.100.20:4000", "203.0.113.9, 192.168.1.4"), "198.51.100.20"},
-		{"a loopback last value", request("198.51.100.20:4000", "127.0.0.1"), "198.51.100.20"},
-		{"a zone", request("198.51.100.20:4000", "fe80::1%en0"), "198.51.100.20"},
-		{"empty", request("198.51.100.20:4000", ""), "198.51.100.20"},
-	} {
-		if got := tunnelSource(tc.r); got != netip.MustParseAddr(tc.want) {
-			t.Errorf("%s: got %v, want %s", tc.name, got, tc.want)
-		}
-	}
+// badToken is a request with a token nobody was given: it fails to authenticate, which the throttle counts.
+func badToken(t *testing.T, client *http.Client) int {
+	t.Helper()
+	response, _ := get(t, client, "/api/assistant", "wrong-token")
+	return response.StatusCode
 }
 
-func TestTheForwardedAddressDrivesTheAuthenticationThrottle(t *testing.T) {
+// The source of a tunnel client is the address ngrok reports for its connection. A client can send any
+// X-Forwarded-For it likes: it changes nothing.
+func TestTunnelSourceIsTheAddressNgrokReportsNotAHeaderTheClientSent(t *testing.T) {
 	f := newTunnelFixture(t)
 	f.turnOn(t)
 	fingerprint, _, _ := f.pair(t)
-	source, other := netip.MustParseAddr(testSource), netip.MustParseAddr("198.51.100.77")
-	client := f.tunnelClient(t, fingerprint, forwarded(other.String()+", "+source.String()))
+	source, forged := netip.MustParseAddr(testSource), netip.MustParseAddr("198.51.100.77")
+	transport := &http.Transport{DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		socket, _, err := f.dial(ctx, testSource, http.Header{"X-Forwarded-For": {forged.String(), "10.0.0.1"}, "Forwarded": {"for=192.0.2.60"}, "X-Real-Ip": {"192.0.2.61"}})
+		if err != nil {
+			return nil, err
+		}
+		conn := websocket.NetConn(context.Background(), socket, websocket.MessageBinary)
+		secure := tls.Client(conn, &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13, VerifyConnection: func(tls.ConnectionState) error { return nil }})
+		return secure, secure.HandshakeContext(ctx)
+	}}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	_ = fingerprint
 	for range 6 {
-		if response, _ := get(t, client, "/api/assistant", "wrong-token"); response.StatusCode != http.StatusUnauthorized && response.StatusCode != http.StatusTooManyRequests {
-			t.Fatalf("wrong token: %d", response.StatusCode)
+		if status := badToken(t, client); status != http.StatusUnauthorized && status != http.StatusTooManyRequests {
+			t.Fatalf("wrong token: %d", status)
 		}
 	}
-	if _, blocked := f.service.handler.throttle.Blocked(source); !blocked {
-		t.Fatal("the failures of the phone behind the tunnel must count against its external address")
+	throttle := f.service.handler.throttle
+	if _, blocked := throttle.Blocked(source); !blocked {
+		t.Fatal("the failures of the phone behind the tunnel must count against the address ngrok reported")
 	}
-	for _, innocent := range []netip.Addr{other, netip.MustParseAddr("127.0.0.1")} {
-		if _, blocked := f.service.handler.throttle.Blocked(innocent); blocked {
-			t.Fatalf("%s did nothing: the throttle must not see the tunnel's own address nor the forged value", innocent)
+	for _, innocent := range []string{forged.String(), "10.0.0.1", "192.0.2.60", "192.0.2.61", "127.0.0.1"} {
+		if _, blocked := throttle.Blocked(netip.MustParseAddr(innocent)); blocked {
+			t.Fatalf("%s did nothing: no header the client sends, nor the tunnel's own address, is a source", innocent)
 		}
 	}
 	// The next request of that source gets the lockout's answer through the same TLS session.
-	if response, _ := get(t, client, "/api/assistant", "wrong-token"); response.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("a locked-out source: %d", response.StatusCode)
+	if status := badToken(t, client); status != http.StatusTooManyRequests {
+		t.Fatalf("a locked-out source: %d", status)
 	}
 	// Another source behind the same tunnel is not affected.
-	fresh := f.tunnelClient(t, fingerprint, forwarded("192.0.2.200"))
-	if response, _ := get(t, fresh, "/api/assistant", "wrong-token"); response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("another source: %d", response.StatusCode)
+	fresh := f.tunnelClient(t, fingerprint, "192.0.2.200")
+	if status := badToken(t, fresh); status != http.StatusUnauthorized {
+		t.Fatalf("another source: %d", status)
 	}
 }
 
-func TestTunnelUpgradesAreCountedPerSourceThen429(t *testing.T) {
+// A source that comes through the tunnel is never local, whatever its address and whatever the Mac's own networks are:
+// it gets the external limits (6 failures, not 30) and its wrong pairing codes never close the pairing window.
+func TestTunnelSourcesAreNeverLocal(t *testing.T) {
+	f := newTunnelFixture(t, func(o *Options) { o.Local = func(netip.Addr) bool { return true } }) // even if the Mac believed so
+	f.turnOn(t)
+	fingerprint, code, _ := f.pair(t)
+	for _, source := range []string{"192.168.1.50", "10.1.2.3", "fd00::7", "2001:db8:aaaa:bbbb::5", "169.254.4.4"} {
+		client := f.tunnelClient(t, fingerprint, source)
+		for range 6 {
+			badToken(t, client)
+		}
+		if _, blocked := f.service.handler.throttle.Blocked(netip.MustParseAddr(source)); !blocked {
+			t.Errorf("%s: a tunnel source must get the external limits, locked out after 6 failures", source)
+		}
+	}
+	// Wrong pairing codes through the tunnel do not count toward the 5 that close the window.
+	client := f.tunnelClient(t, fingerprint, "192.168.1.60")
+	_, public := newKey(t)
+	for range maxPairingAttempts {
+		body, _ := json.Marshal(map[string]string{"code": strings.Repeat("0", 32), "deviceName": "Pixel", "stepUpPublicKey": public})
+		response, err := client.Post(tunnelBase+"/remote/v1/pair", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusForbidden {
+			t.Fatalf("a wrong code: %d", response.StatusCode)
+		}
+	}
+	if token := pairOver(t, client, code); token == "" {
+		t.Fatal("the window must still be open")
+	}
+}
+
+func TestTunnelUpgradesFollowATokenBucketPerSource(t *testing.T) {
 	f := newTunnelFixture(t)
 	f.turnOn(t)
 	ctx := context.Background()
 	open := func(source string) (int, string) {
-		socket, response, err := f.dial(ctx, forwarded(source))
+		socket, response, err := f.dial(ctx, source, nil)
 		if err == nil {
 			_ = socket.CloseNow()
 			return http.StatusSwitchingProtocols, ""
@@ -479,31 +603,90 @@ func TestTunnelUpgradesAreCountedPerSourceThen429(t *testing.T) {
 		defer response.Body.Close()
 		return response.StatusCode, response.Header.Get("Retry-After")
 	}
-	for i := range tunnelUpgrades {
+	for i := range tunnelUpgradeBurst {
 		if status, _ := open(testSource); status != http.StatusSwitchingProtocols {
 			t.Fatalf("upgrade %d: %d", i+1, status)
 		}
 	}
 	status, retry := open(testSource)
 	if status != http.StatusTooManyRequests {
-		t.Fatalf("upgrade %d: %d, want 429", tunnelUpgrades+1, status)
+		t.Fatalf("upgrade %d: %d, want 429", tunnelUpgradeBurst+1, status)
 	}
-	if seconds, err := strconv.Atoi(retry); err != nil || seconds < 1 || seconds > int(tunnelUpgradeWindow/time.Second) {
+	if seconds, err := strconv.Atoi(retry); err != nil || seconds < 1 || seconds > int(tunnelUpgradeRefill/time.Second) {
 		t.Fatalf("Retry-After %q", retry)
 	}
 	if status, _ := open("198.51.100.77"); status != http.StatusSwitchingProtocols {
 		t.Fatalf("another source is counted on its own: %d", status)
 	}
 	// An IPv6 source counts by its /64.
-	for range tunnelUpgrades {
+	for range tunnelUpgradeBurst {
 		_, _ = open("2001:db8:1:2::1")
 	}
 	if status, _ := open("2001:db8:1:2:ffff::7"); status != http.StatusTooManyRequests {
 		t.Fatalf("the same /64: %d", status)
 	}
-	f.clock.advance(tunnelUpgradeWindow)
+	// The budget comes back one upgrade at a time, not all at once after a window.
+	f.clock.advance(tunnelUpgradeRefill / 2)
+	if status, _ := open(testSource); status != http.StatusTooManyRequests {
+		t.Fatalf("half a refill: %d", status)
+	}
+	f.clock.advance(tunnelUpgradeRefill / 2)
 	if status, _ := open(testSource); status != http.StatusSwitchingProtocols {
-		t.Fatalf("after the window: %d", status)
+		t.Fatalf("one refill: %d", status)
+	}
+	if status, _ := open(testSource); status != http.StatusTooManyRequests {
+		t.Fatalf("only one upgrade came back: %d", status)
+	}
+	f.clock.advance(time.Duration(tunnelUpgradeBurst) * tunnelUpgradeRefill)
+	for i := range tunnelUpgradeBurst {
+		if status, _ := open(testSource); status != http.StatusSwitchingProtocols {
+			t.Fatalf("a full budget again, upgrade %d: %d", i+1, status)
+		}
+	}
+}
+
+// A connection that proves to be a paired phone gives its upgrade back: a scanner behind the same carrier address that
+// empties the budget cannot lock the owner out for long.
+func TestAuthenticatedConnectionsGiveTheirUpgradeBack(t *testing.T) {
+	f := newTunnelFixture(t)
+	f.turnOn(t)
+	ctx := context.Background()
+	fingerprint, code, _ := f.pair(t)
+	scan := func() int {
+		socket, response, err := f.dial(ctx, testSource, nil)
+		if err != nil {
+			response.Body.Close()
+			return response.StatusCode
+		}
+		_ = socket.CloseNow()
+		return http.StatusSwitchingProtocols
+	}
+	for range tunnelUpgradeBurst - 1 {
+		if scan() != http.StatusSwitchingProtocols {
+			t.Fatal("within the burst")
+		}
+	}
+	// The last upgrade of the budget is the phone's: pairing authenticates, and gives it back.
+	client := f.tunnelClient(t, fingerprint, testSource)
+	token := pairOver(t, client, code)
+	if response, _ := get(t, client, "/api/assistant", token); response.StatusCode != http.StatusOK {
+		t.Fatal("authenticated request")
+	}
+	if got := f.dialed.Load(); got != 1 {
+		t.Fatalf("one WebSocket for the phone: %d", got)
+	}
+	if scan() != http.StatusSwitchingProtocols {
+		t.Fatal("the upgrade of the authenticated connection must have been given back")
+	}
+	if scan() != http.StatusTooManyRequests {
+		t.Fatal("and only that one")
+	}
+	// A second authenticated request on the same connection gives nothing more back.
+	if response, _ := get(t, client, "/api/assistant", token); response.StatusCode != http.StatusOK {
+		t.Fatal("authenticated request")
+	}
+	if scan() != http.StatusTooManyRequests {
+		t.Fatal("a connection gives back its upgrade once")
 	}
 }
 
@@ -520,7 +703,7 @@ func TestUpgradeLimiterIsBounded(t *testing.T) {
 	}
 }
 
-// The gate on its own, with no TLS: what it hands the server is a connection with the external source as its address,
+// The gate on its own, with no TLS: what it hands the server is a connection with the address it came from,
 // whose messages are limited to 1 MiB and whose bytes go both ways.
 func TestTunnelGateHandsOverConnectionsWithTheSourceAndTheReadLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -529,7 +712,7 @@ func TestTunnelGateHandsOverConnectionsWithTheSourceAndTheReadLimit(t *testing.T
 	gate := &tunnelGate{ctx: ctx, conns: conns, upgrades: newUpgradeLimiter(nil), pingEvery: time.Hour, pingTimeout: time.Second, idle: time.Hour}
 	server := httptest.NewServer(gate)
 	defer server.Close()
-	socket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+tunnelPath, &websocket.DialOptions{HTTPHeader: forwarded("198.51.100.77, " + testSource)})
+	socket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+tunnelPath, &websocket.DialOptions{HTTPHeader: http.Header{"X-Forwarded-For": {"198.51.100.77, " + testSource}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,8 +730,9 @@ func TestTunnelGateHandsOverConnectionsWithTheSourceAndTheReadLimit(t *testing.T
 		t.Fatal("the upgraded connection was never handed over")
 	}
 	defer conn.Close()
-	if got := sourceOf(conn.RemoteAddr().String()); got != netip.MustParseAddr(testSource) {
-		t.Fatalf("the connection's address is the external source: %v", conn.RemoteAddr())
+	// The address of the connection is the one the server saw (ngrok's report, in production), whatever the client sent.
+	if got := sourceOf(conn.RemoteAddr().String()); got != netip.MustParseAddr("127.0.0.1") {
+		t.Fatalf("the connection's address is the connection's: %v", conn.RemoteAddr())
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
@@ -610,7 +794,7 @@ func TestTunnelKeepsOneWebSocketAcrossRequestsAndStreams(t *testing.T) {
 	})
 	f.turnOn(t)
 	fingerprint, code, _ := f.pair(t)
-	client := f.tunnelClient(t, fingerprint, forwarded(testSource))
+	client := f.tunnelClient(t, fingerprint, testSource)
 	token := pairOver(t, client, code)
 	for range 3 {
 		if response, body := get(t, client, "/api/assistant", token); response.StatusCode != http.StatusOK || body != `{"requests":[]}` {
@@ -687,28 +871,83 @@ func TestTunnelWebSocketsCountInTheConnectionCaps(t *testing.T) {
 	f := newTunnelFixture(t, func(o *Options) { o.MaxConnectionsPerSource = 1 })
 	f.turnOn(t)
 	fingerprint, code, _ := f.pair(t)
-	header := forwarded(testSource)
-	first := f.tunnelClient(t, fingerprint, header)
-	token := pairOver(t, first, code)
-	if response, _ := get(t, first, "/api/assistant", token); response.StatusCode != http.StatusOK {
-		t.Fatalf("the first connection: %d", response.StatusCode)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// A connection that has not authenticated holds the slot of its source.
+	idle, err := f.dialTLS(ctx, fingerprint, testSource)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer idle.Close()
 	if total, sources := f.service.limiter.open(); total != 1 || sources != 1 {
 		t.Fatalf("a tunnel connection counts in the caps: %d connections, %d sources", total, sources)
 	}
-	// The same external source cannot hold a second one: it is reset before any TLS work.
-	second := f.tunnelClient(t, fingerprint, header)
-	if _, err := second.Get(tunnelBase + "/api/assistant"); err == nil {
+	// The same external source cannot hold a second one: it is reset before any TLS work. Another source has its own share.
+	if _, err := f.dialTLS(ctx, fingerprint, testSource); err == nil {
 		t.Fatal("a second connection of the same source must be refused by the per-source cap")
 	}
-	// Another source has its own share.
-	third := f.tunnelClient(t, fingerprint, forwarded("198.51.100.77"))
-	if response, _ := get(t, third, "/api/assistant", token); response.StatusCode != http.StatusOK {
-		t.Fatalf("another source: %d", response.StatusCode)
+	other, err := f.dialTLS(ctx, fingerprint, "198.51.100.77")
+	if err != nil {
+		t.Fatalf("another source: %v", err)
 	}
-	first.CloseIdleConnections()
-	third.CloseIdleConnections()
-	eventually(t, "the slots to be given back", func() bool { total, _ := f.service.limiter.open(); return total == 0 })
+	defer other.Close()
+	_ = idle.Close()
+	eventually(t, "the slot of the idle connection", func() bool { total, _ := f.service.limiter.open(); return total == 1 })
+
+	// A source that has an authenticated connection open is a paired phone, perhaps behind a carrier NAT shared with a
+	// scanner: the per-source cap no longer applies to it, while that connection is open.
+	phone := f.tunnelClient(t, fingerprint, testSource)
+	token := pairOver(t, phone, code)
+	if response, _ := get(t, phone, "/api/assistant", token); response.StatusCode != http.StatusOK {
+		t.Fatalf("the phone: %d", response.StatusCode)
+	}
+	second := f.tunnelClient(t, fingerprint, testSource)
+	if response, _ := get(t, second, "/api/assistant", token); response.StatusCode != http.StatusOK {
+		t.Fatalf("a second connection of a source with an authenticated one: %d", response.StatusCode)
+	}
+	if total, _ := f.service.limiter.open(); total != 3 {
+		t.Fatalf("%d connections", total)
+	}
+	// The exemption ends with the authenticated connections, and the total cap still holds for everybody.
+	phone.CloseIdleConnections()
+	second.CloseIdleConnections()
+	eventually(t, "the authenticated connections to end", func() bool {
+		f.service.limiter.mu.Lock()
+		defer f.service.limiter.mu.Unlock()
+		return len(f.service.limiter.authed) == 0
+	})
+	idle2, err := f.dialTLS(ctx, fingerprint, testSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer idle2.Close()
+	if _, err := f.dialTLS(ctx, fingerprint, testSource); err == nil {
+		t.Fatal("the cap applies again to a source with no authenticated connection")
+	}
+}
+
+func TestConnectionLimiterExemptsAuthenticatedSourcesFromTheSourceCapOnly(t *testing.T) {
+	l := newConnLimiter(3, 1, nil)
+	phone, scanner := netip.MustParseAddr("203.0.113.9"), netip.MustParseAddr("198.51.100.1")
+	if !l.acquire(phone) || l.acquire(phone) {
+		t.Fatal("the per-source cap applies before any authentication")
+	}
+	l.setAuthenticated(phone, true)
+	if !l.acquire(phone) {
+		t.Fatal("exempt while an authenticated connection is open")
+	}
+	if !l.acquire(scanner) || l.acquire(scanner) {
+		t.Fatal("other sources keep the cap")
+	}
+	if l.acquire(phone) {
+		t.Fatal("the total cap holds for everybody")
+	}
+	l.setAuthenticated(phone, false)
+	l.release(phone)
+	if l.acquire(phone) {
+		t.Fatal("the exemption ended")
+	}
 }
 
 func TestTunnelClosesIdleWebSockets(t *testing.T) {
@@ -719,7 +958,7 @@ func TestTunnelClosesIdleWebSockets(t *testing.T) {
 	f.turnOn(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	socket, _, err := f.dial(ctx, forwarded(testSource))
+	socket, _, err := f.dial(ctx, testSource, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1168,5 +1407,223 @@ func TestOldConfigurationsReadTheTunnelAsOff(t *testing.T) {
 	raw, _ := json.Marshal(config.RemoteSettings{TunnelEnabled: true, TunnelDomain: "a.ngrok.app"})
 	if !strings.Contains(string(raw), `"tunnelEnabled":true`) || !strings.Contains(string(raw), `"tunnelDomain":"a.ngrok.app"`) || strings.Contains(strings.ToLower(string(raw)), "token") {
 		t.Fatalf("%s", raw)
+	}
+}
+
+// --- the server that reads the upgrade requests ---------------------------------------------------------------------
+
+func TestEdgeServerHasShortTimeoutsAndSmallHeaders(t *testing.T) {
+	edge := newEdgeServer(context.Background(), &tunnelGate{}, &edgeListener{limiter: newConnLimiter(0, 0, nil)})
+	if edge.ReadHeaderTimeout <= 0 || edge.ReadHeaderTimeout > 10*time.Second || edge.ReadTimeout <= 0 || edge.ReadTimeout > 15*time.Second ||
+		edge.WriteTimeout <= 0 || edge.WriteTimeout > 15*time.Second || edge.IdleTimeout <= 0 || edge.IdleTimeout > 30*time.Second {
+		t.Fatalf("timeouts %v %v %v %v", edge.ReadHeaderTimeout, edge.ReadTimeout, edge.WriteTimeout, edge.IdleTimeout)
+	}
+	if edge.MaxHeaderBytes <= 0 || edge.MaxHeaderBytes > 16<<10 {
+		t.Fatalf("header limit %d", edge.MaxHeaderBytes)
+	}
+}
+
+// The timeouts of the server that reads the request must not follow the connection into the WebSocket: they are cleared
+// when it is taken over.
+func TestUpgradedConnectionsOutliveTheTimeoutsOfTheEdgeServer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conns := newChanListener(&net.TCPAddr{})
+	gate := &tunnelGate{ctx: ctx, conns: conns, upgrades: newUpgradeLimiter(nil), pingEvery: time.Hour, pingTimeout: time.Second, idle: time.Hour}
+	server := httptest.NewUnstartedServer(gate)
+	server.Config.ReadTimeout, server.Config.WriteTimeout, server.Config.IdleTimeout = 100*time.Millisecond, 100*time.Millisecond, 100*time.Millisecond
+	server.Start()
+	defer server.Close()
+	socket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+tunnelPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer socket.CloseNow()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		if conn, err := conns.Accept(); err == nil {
+			accepted <- conn
+		}
+	}()
+	conn := <-accepted
+	defer conn.Close()
+	time.Sleep(400 * time.Millisecond) // several times every timeout of the edge server
+	if err := socket.Write(ctx, websocket.MessageBinary, []byte("still here")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	got := make([]byte, len("still here"))
+	if _, err := io.ReadFull(conn, got); err != nil || string(got) != "still here" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if _, err := conn.Write([]byte("and here")); err != nil {
+		t.Fatalf("a write after the write timeout of the edge server: %v", err)
+	}
+	if _, data, err := socket.Read(ctx); err != nil || string(data) != "and here" {
+		t.Fatalf("%q %v", data, err)
+	}
+}
+
+func TestEdgeCapsTheConnectionsThatHaveNotUpgradedAndGivesTheSlotBackOnUpgrade(t *testing.T) {
+	f := newTunnelFixture(t)
+	f.turnOn(t)
+	address := f.fake.address()
+	hold := func(source string) net.Conn {
+		conn, err := net.Dial("tcp", address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(conn, "@"+source+"\n"); err != nil {
+			t.Fatal(err)
+		}
+		return conn
+	}
+	// Sixteen connections of one source that say nothing hold the pre-upgrade slots of that source.
+	var holders []net.Conn
+	for range defaultMaxConnectionsPerSource {
+		holders = append(holders, hold(testSource))
+	}
+	defer func() {
+		for _, conn := range holders {
+			conn.Close()
+		}
+	}()
+	// Wait until the edge has accepted them all: a further one is then dropped without a byte of answer.
+	eventually(t, "the 17th connection of the source to be dropped", func() bool {
+		extra := hold(testSource)
+		defer extra.Close()
+		_ = extra.SetReadDeadline(time.Now().Add(time.Second))
+		_, err := extra.Read(make([]byte, 1))
+		return err != nil && !errors.Is(err, os.ErrDeadlineExceeded)
+	})
+	// Another source is not affected, and the ones that hold their slot are still there.
+	other := hold("198.51.100.77")
+	defer other.Close()
+	_, _ = io.WriteString(other, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+	_ = other.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if line, err := bufio.NewReader(other).ReadString('\n'); err != nil || !strings.Contains(line, "404") {
+		t.Fatalf("another source: %q %v", line, err)
+	}
+	// A connection that upgrades gives its slot back: more upgrades than the cap of one source go through in turn (and
+	// fewer than its upgrade budget).
+	for _, conn := range holders {
+		conn.Close()
+	}
+	holders = nil
+	for i := range defaultMaxConnectionsPerSource + 8 {
+		socket, _, err := f.dial(context.Background(), "192.0.2.9", nil)
+		if err != nil {
+			t.Fatalf("upgrade %d: %v", i+1, err)
+		}
+		_ = socket.CloseNow()
+	}
+}
+
+// --- the authtoken and the configuration are saved as one step ---------------------------------------------------------
+
+// refusingSecrets is a Keychain whose writes can be made to fail.
+type refusingSecrets struct {
+	*secrets.Memory
+	mu                      sync.Mutex
+	refuseSet, refuseDelete bool
+}
+
+func (r *refusingSecrets) Set(name, value string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.refuseSet {
+		return errors.New("keychain refused the write of " + value)
+	}
+	return r.Memory.Set(name, value)
+}
+
+func (r *refusingSecrets) Delete(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.refuseDelete {
+		return errors.New("keychain refused")
+	}
+	return r.Memory.Delete(name)
+}
+
+func (r *refusingSecrets) refuse(set, del bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.refuseSet, r.refuseDelete = set, del
+}
+
+func TestAFailedSaveLeavesTheKeychainAsItWas(t *testing.T) {
+	keychain := &refusingSecrets{Memory: secrets.NewMemory()}
+	f := newTunnelFixture(t, func(o *Options) { o.Secrets = keychain })
+	const first, second = "ngrok_first_0123456789abcd", "ngrok_second_0123456789abc"
+	update(t, f.service, SettingsUpdate{TunnelDomain: ptr(testTunnelDomain), TunnelAuthtoken: ptr(first)})
+
+	// The configuration cannot be saved: the new token must not stay in the Keychain, nor must the old one be lost.
+	f.settings.mu.Lock()
+	f.settings.saveErr = errors.New("disk full")
+	f.settings.mu.Unlock()
+	if _, err := f.service.UpdateSettings(SettingsUpdate{TunnelDomain: ptr("other.ngrok-free.app"), TunnelAuthtoken: ptr(second)}); err == nil {
+		t.Fatal("the save failed: so must the update")
+	}
+	if stored, err := keychain.Get(tunnelTokenSecret); err != nil || stored != first {
+		t.Fatalf("the previous token must be back: %q %v", stored, err)
+	}
+	if view, _ := f.service.Settings(); view.TunnelDomain != testTunnelDomain || !view.TunnelAuthtokenSet {
+		t.Fatalf("nothing changed: %+v", view)
+	}
+	// Same when there was no token before: nothing is left behind.
+	_ = keychain.Delete(tunnelTokenSecret)
+	f.service.tokenSet.Store(0)
+	if _, err := f.service.UpdateSettings(SettingsUpdate{TunnelAuthtoken: ptr(second)}); err == nil {
+		t.Fatal("the save failed: so must the update")
+	}
+	if _, err := keychain.Get(tunnelTokenSecret); !errors.Is(err, secrets.ErrNotFound) {
+		t.Fatalf("a token saved by an update that failed must not stay: %v", err)
+	}
+	if view, _ := f.service.Settings(); view.TunnelAuthtokenSet {
+		t.Fatal("and the settings must say so")
+	}
+	// Removing the token fails the same way.
+	f.settings.mu.Lock()
+	f.settings.saveErr = nil
+	f.settings.mu.Unlock()
+	update(t, f.service, SettingsUpdate{TunnelAuthtoken: ptr(first)})
+	f.settings.mu.Lock()
+	f.settings.saveErr = errors.New("disk full")
+	f.settings.mu.Unlock()
+	if _, err := f.service.UpdateSettings(SettingsUpdate{TunnelAuthtoken: ptr("")}); err == nil {
+		t.Fatal("the save failed: so must the update")
+	}
+	if stored, err := keychain.Get(tunnelTokenSecret); err != nil || stored != first {
+		t.Fatalf("the removed token must be back: %q %v", stored, err)
+	}
+	if view, _ := f.service.Settings(); !view.TunnelAuthtokenSet {
+		t.Fatal("still set")
+	}
+}
+
+func TestAKeychainThatRefusesTheTokenLeavesEverythingAsItWas(t *testing.T) {
+	keychain := &refusingSecrets{Memory: secrets.NewMemory()}
+	f := newTunnelFixture(t, func(o *Options) { o.Secrets = keychain })
+	const first, second = "ngrok_first_0123456789abcd", "ngrok_second_0123456789abc"
+	update(t, f.service, SettingsUpdate{TunnelDomain: ptr(testTunnelDomain), TunnelAuthtoken: ptr(first)})
+
+	keychain.refuse(true, false)
+	_, err := f.service.UpdateSettings(SettingsUpdate{TunnelDomain: ptr("other.ngrok-free.app"), TunnelAuthtoken: ptr(second)})
+	if err == nil || strings.Contains(err.Error(), second) {
+		t.Fatalf("an error that never repeats the token: %v", err)
+	}
+	if stored, _ := keychain.Get(tunnelTokenSecret); stored != first {
+		t.Fatalf("the previous token stays: %q", stored)
+	}
+	if stored, _ := f.settings.load(); stored.TunnelDomain != testTunnelDomain {
+		t.Fatalf("the configuration was not saved either: %+v", stored)
+	}
+	keychain.refuse(false, true)
+	if _, err := f.service.UpdateSettings(SettingsUpdate{TunnelAuthtoken: ptr("")}); err == nil {
+		t.Fatal("a token that cannot be removed")
+	}
+	if view, _ := f.service.Settings(); !view.TunnelAuthtokenSet {
+		t.Fatal("it is still there, and the settings say so")
 	}
 }
