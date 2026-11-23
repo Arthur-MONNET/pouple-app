@@ -310,7 +310,7 @@ export const en: MessageTree = {
       step1: 'Create a free account at ngrok.com.',
       step2: 'In the dashboard, claim your free static domain (Domains) and copy your authtoken.',
       step3: 'Paste both below.',
-      privacy: "ngrok only carries data it cannot read. Your phone checks this Mac's certificate itself, so nobody in between can see or change a conversation.",
+      privacy: "ngrok only carries data it cannot read. Your phone checks this Mac's certificate itself, so nobody in between can see or change a conversation. ngrok does learn your Mac's name and your public address, and the tunnel can be reached from the Internet even when router access is off: only paired phones get in.",
       domain: 'Static domain',
       domainPlaceholder: 'name.ngrok-free.app',
       domainRequired: 'Enter your ngrok domain to turn the tunnel on.',
