@@ -83,6 +83,15 @@ type RemoteSettings struct {
 	Interfaces []string `json:"interfaces"`
 	// Port is the fixed TCP port of the remote listener, so a paired phone finds it again; 0 is the default port.
 	Port int `json:"port"`
+	// ExternalEnabled opens the listener to sources outside the home network (a router forwards a TCP port to the Mac)
+	// and adds the public address to the pairing payload. Off, the listener drops every source that is not on a local
+	// network. Configurations written before it existed read as off.
+	ExternalEnabled bool `json:"externalEnabled"`
+	// ExternalHost is the stable public name (a DDNS host name) or IP address the phone uses from outside, or "auto"
+	// to let the core detect its public IPv4 address. Empty until the user enters one.
+	ExternalHost string `json:"externalHost"`
+	// ExternalPort is the TCP port the router exposes, which may differ from Port; 0 is the same as Port.
+	ExternalPort int `json:"externalPort"`
 }
 
 // DefaultMemoryFolder is where the memory lives, in the home folder, unless the user chose another folder.

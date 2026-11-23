@@ -12,12 +12,18 @@ const settingsOf = (patch: Partial<RemoteSettings> = {}): RemoteSettings => ({
   listening: ['192.168.1.24:47821'],
   problem: '',
   fingerprint: 'ab',
+  externalEnabled: false,
+  externalHost: '',
+  externalPort: 0,
+  externalDetected: '',
+  externalDetectedAt: '',
+  externalReady: false,
   ...patch,
 });
 
 const phone = (id: string, patch: Partial<RemoteDevice> = {}): RemoteDevice => ({ id, name: `Phone ${id}`, createdAt: '2026-11-01T10:00:00Z', lastSeen: '2026-11-01T10:00:00Z', revoked: false, expired: false, ...patch });
 
-type Remote = Pick<PoupleApi, 'getRemoteSettings' | 'updateRemoteSettings' | 'openPairing' | 'cancelPairing' | 'listRemoteDevices' | 'revokeRemoteDevice'>;
+type Remote = Pick<PoupleApi, 'getRemoteSettings' | 'updateRemoteSettings' | 'getRemoteAddress' | 'openPairing' | 'cancelPairing' | 'listRemoteDevices' | 'revokeRemoteDevice'>;
 
 function setup(overrides: Partial<Remote> = {}) {
   let devices: RemoteDevice[] = [phone('old')];
@@ -25,6 +31,7 @@ function setup(overrides: Partial<Remote> = {}) {
   const api = {
     getRemoteSettings: vi.fn(() => Promise.resolve(nextSettings)),
     updateRemoteSettings: vi.fn((patch) => Promise.resolve((nextSettings = { ...nextSettings, ...patch }))),
+    getRemoteAddress: vi.fn(() => Promise.resolve({ payload: 'pouple-address:v1?ext=home.example.net%3A47821&fp=ab' })),
     openPairing: vi.fn((): Promise<PairingOffer> => Promise.resolve({ payload: 'pouple-pair:v1?code=1', expiresAt: new Date(Date.now() + 120_000).toISOString() })),
     cancelPairing: vi.fn(() => Promise.resolve()),
     listRemoteDevices: vi.fn(() => Promise.resolve(structuredClone(devices))),
@@ -213,5 +220,80 @@ describe('phone access', () => {
     await refused.access.load();
     expect(await refused.access.revoke('ghost')).toBe(false);
     expect(refused.access.revokeError.value).toBe('This device is not paired.');
+  });
+
+  describe('address update', () => {
+    const external = { externalEnabled: true, externalHost: 'home.example.net' };
+
+    it('can be shared only with the access from outside on, listening, and an address known', async () => {
+      const cases: [Partial<RemoteSettings>, boolean][] = [
+        [{}, false],
+        [external, true],
+        [{ ...external, enabled: false }, false],
+        [{ ...external, listening: [] }, false],
+        [{ ...external, problem: 'port busy' }, false],
+        [{ ...external, externalHost: 'auto' }, false],
+        [{ ...external, externalHost: 'auto', externalDetected: '203.0.113.50' }, true],
+      ];
+      for (const [patch, expected] of cases) {
+        const { access } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(settingsOf(patch))) });
+        await access.load();
+        expect(access.canShareAddress.value, JSON.stringify(patch)).toBe(expected);
+      }
+    });
+
+    it('asks the core for the payload on demand, and hides it', async () => {
+      const { access, api } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(settingsOf(external))) });
+      await access.load();
+      expect(access.address.value).toBeNull();
+      await access.showAddress();
+      expect(api.getRemoteAddress).toHaveBeenCalledTimes(1);
+      expect(access.address.value?.payload.startsWith('pouple-address:v1?ext=')).toBe(true);
+      expect(access.addressLoading.value).toBe(false);
+      access.hideAddress();
+      expect(access.address.value).toBeNull();
+    });
+
+    it('keeps the core message when it refuses, and does not send twice at once', async () => {
+      let release: () => void = () => undefined;
+      const getRemoteAddress = vi.fn(() => new Promise<{ payload: string }>((_, reject) => (release = () => reject(new ApiError(409, 'No address is known yet.')))));
+      const { access } = setup({ getRemoteAddress });
+      await access.load();
+      const first = access.showAddress();
+      await access.showAddress();
+      expect(getRemoteAddress).toHaveBeenCalledTimes(1);
+      release();
+      await first;
+      expect(access.addressError.value).toBe('No address is known yet.');
+      expect(access.address.value).toBeNull();
+    });
+
+    it('is dropped when a setting changes, because what it says may have changed', async () => {
+      const { access } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(settingsOf(external))) });
+      await access.load();
+      await access.showAddress();
+      await access.save({ externalPort: 8443 });
+      expect(access.address.value).toBeNull();
+    });
+
+    it('ignores an answer that arrives after it was hidden', async () => {
+      let resolve: (value: { payload: string }) => void = () => undefined;
+      const getRemoteAddress = vi.fn(() => new Promise<{ payload: string }>((done) => (resolve = done)));
+      const { access } = setup({ getRemoteAddress });
+      await access.load();
+      const pending = access.showAddress();
+      access.hideAddress();
+      resolve({ payload: 'pouple-address:v1?ext=late' });
+      await pending;
+      expect(access.address.value).toBeNull();
+    });
+  });
+
+  it('saves the fields of the access from outside as one patch', async () => {
+    const { access, api } = setup();
+    await access.load();
+    expect(await access.save({ externalEnabled: true, externalHost: 'home.example.net', externalPort: 8443 })).toBe(true);
+    expect(api.updateRemoteSettings).toHaveBeenCalledWith({ externalEnabled: true, externalHost: 'home.example.net', externalPort: 8443 });
+    expect(access.settings.value).toMatchObject({ externalEnabled: true, externalHost: 'home.example.net', externalPort: 8443 });
   });
 });

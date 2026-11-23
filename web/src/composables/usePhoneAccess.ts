@@ -1,7 +1,7 @@
 import { computed, onScopeDispose, ref } from 'vue';
 import { errorMessage, type PoupleApi } from '../api/client';
-import type { PairingOffer, RemoteDevice, RemoteSettings, RemoteSettingsPatch } from '../api/types';
-import { defaultInterfaces, freshDevices, secondsLeft } from '../lib/phonePairing';
+import type { AddressOffer, PairingOffer, RemoteDevice, RemoteSettings, RemoteSettingsPatch } from '../api/types';
+import { defaultInterfaces, externalEndpoint, freshDevices, secondsLeft } from '../lib/phonePairing';
 
 /** How often the clock of the countdown ticks, and how often the device list is asked while a window is open. */
 export const TICK_MS = 1000;
@@ -33,13 +33,25 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
   const offer = ref<PairingOffer | null>(null);
   const pairingError = ref<string | null>(null);
   const clock = ref(now());
+
+  const address = ref<AddressOffer | null>(null);
+  const addressLoading = ref(false);
+  const addressError = ref<string | null>(null);
   const pairedName = ref<string | null>(null);
 
   const remaining = computed(() => (offer.value ? secondsLeft(offer.value.expiresAt, clock.value) : 0));
   /** Pairing needs the access on and a listener that really runs. */
   const canPair = computed(() => settings.value?.enabled === true && (settings.value?.listening.length ?? 0) > 0 && !settings.value.problem);
 
+  /** The address update needs the access from outside on and an address the core knows (a name, or one it detected). */
+  const canShareAddress = computed(() => {
+    const current = settings.value;
+    if (!current || !current.enabled || !current.externalEnabled || current.listening.length === 0 || current.problem) return false;
+    return externalEndpoint(current) !== null;
+  });
+
   let disposed = false;
+  let addressTicket = 0;
   let tick: ReturnType<typeof setInterval> | undefined;
   let poll: ReturnType<typeof setInterval> | undefined;
   let knownDevices = new Set<string>();
@@ -184,6 +196,8 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
       const next = await api.updateRemoteSettings(patched);
       if (disposed) return true;
       settings.value = next;
+      // What the address says may have changed with the settings: it is asked again on demand.
+      if (address.value || addressError.value) hideAddress();
       // The listener restarted: its window is gone.
       if (phase.value === 'open' || phase.value === 'opening') {
         endPairing('idle');
@@ -196,6 +210,32 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
     } finally {
       if (!disposed) saving.value = false;
     }
+  }
+
+  /** Asks the core for the address update payload (no secret, no pairing window). */
+  async function showAddress(): Promise<void> {
+    if (addressLoading.value) return;
+    const ticket = ++addressTicket;
+    addressLoading.value = true;
+    addressError.value = null;
+    try {
+      const next = await api.getRemoteAddress();
+      if (disposed || ticket !== addressTicket) return;
+      address.value = next;
+    } catch (cause) {
+      if (disposed || ticket !== addressTicket) return;
+      address.value = null;
+      addressError.value = errorMessage(cause);
+    } finally {
+      if (!disposed && ticket === addressTicket) addressLoading.value = false;
+    }
+  }
+
+  function hideAddress(): void {
+    addressTicket++;
+    address.value = null;
+    addressError.value = null;
+    addressLoading.value = false;
   }
 
   async function revoke(id: string): Promise<boolean> {
@@ -241,6 +281,12 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
     pairingError,
     pairedName,
     canPair,
+    address,
+    addressLoading,
+    addressError,
+    canShareAddress,
+    showAddress,
+    hideAddress,
     load,
     refreshDevices,
     save,

@@ -182,6 +182,15 @@ func (f *fakeRemoteAdmin) OpenPairing() (remote.PairingOffer, error) {
 	}
 	return remote.PairingOffer{Payload: "pouple-pair:v1?hosts=192.168.1.20", ExpiresAt: time.Now().Add(remote.PairingWindow)}, nil
 }
+func (f *fakeRemoteAdmin) AddressOffer() (remote.AddressOffer, error) {
+	if !f.enabled {
+		return remote.AddressOffer{}, remote.ErrDisabled
+	}
+	if f.update.ExternalHost == nil {
+		return remote.AddressOffer{}, remote.ErrNoExternalAddress
+	}
+	return remote.AddressOffer{Payload: "pouple-address:v1?ext=home.example.net%3A47821&fp=" + strings.Repeat("a", 64)}, nil
+}
 func (f *fakeRemoteAdmin) CancelPairing() {}
 func (f *fakeRemoteAdmin) Devices() []remote.DeviceInfo {
 	return []remote.DeviceInfo{{ID: "d1", Name: "Pixel"}}
@@ -225,6 +234,18 @@ func TestRemoteAdminIsOnTheLoopbackAPIBehindItsToken(t *testing.T) {
 	}
 	if response := call(server, "POST", "/api/remote/pairing", "", nil); response.Code != http.StatusCreated || !strings.Contains(response.Body.String(), "pouple-pair:v1?") {
 		t.Fatalf("pairing: %d %s", response.Code, response.Body)
+	}
+	if response := call(server, "GET", "/api/remote/address", "", map[string]string{"Authorization": ""}); response.Code != http.StatusUnauthorized {
+		t.Fatalf("the address payload without the token: %d", response.Code)
+	}
+	if response := call(server, "GET", "/api/remote/address", "", nil); response.Code != http.StatusConflict {
+		t.Fatalf("no external address yet: %d %s", response.Code, response.Body)
+	}
+	if response := call(server, "PUT", "/api/remote/settings", `{"externalEnabled":true,"externalHost":"home.example.net"}`, nil); response.Code != http.StatusOK {
+		t.Fatalf("external settings: %d %s", response.Code, response.Body)
+	}
+	if response := call(server, "GET", "/api/remote/address", "", nil); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"payload":"pouple-address:v1?ext=`) {
+		t.Fatalf("the address payload: %d %s", response.Code, response.Body)
 	}
 	if response := call(server, "GET", "/api/remote/devices", "", nil); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"d1"`) {
 		t.Fatalf("devices: %d %s", response.Code, response.Body)

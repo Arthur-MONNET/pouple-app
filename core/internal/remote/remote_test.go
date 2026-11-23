@@ -88,11 +88,15 @@ type fixture struct {
 	deviceID string
 	token    string
 	key      *ecdsa.PrivateKey
+	// source is the address requests come from (the phone's); a home network address unless a test says otherwise.
+	source string
+	// endpoint is what GET /remote/v1/endpoint reports.
+	endpoint string
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	f := &fixture{t: t, clock: &clock{now: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)}, routes: &fakeRoutes{stream: make(chan struct{}, 2)}, granted: map[string]bool{}}
+	f := &fixture{t: t, clock: &clock{now: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)}, routes: &fakeRoutes{stream: make(chan struct{}, 2)}, granted: map[string]bool{}, source: "192.168.1.50:51234"}
 	devices, err := OpenDevices(filepath.Join(t.TempDir(), "devices.json"), f.clock.Now)
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +106,8 @@ func newFixture(t *testing.T) *fixture {
 		Devices: devices, Pairing: f.pairing, Nonces: f.nonces, Mount: f.routes.mount,
 		Granted:        func(id string) bool { return f.granted[id] },
 		AutoApproveAll: func() bool { return f.autoAll },
+		Endpoint:       func() string { return f.endpoint },
+		Now:            f.clock.Now,
 	})
 	return f
 }
@@ -121,6 +127,7 @@ func newKey(t *testing.T) (*ecdsa.PrivateKey, string) {
 
 func (f *fixture) do(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, "https://192.168.1.20:47821"+path, strings.NewReader(body))
+	request.RemoteAddr = f.source
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}

@@ -26,6 +26,7 @@ import type {
   ProviderTestResult,
   ProvidersInfo,
   PairingOffer,
+  AddressOffer,
   RemoteDevice,
   RemoteSettings,
   RemoteSettingsPatch,
@@ -75,6 +76,8 @@ export interface PoupleApi {
   getRemoteSettings(): Promise<RemoteSettings>;
   /** Changes only the given fields and restarts the listener; rejects with a 422 ApiError when a value is refused. */
   updateRemoteSettings(patch: RemoteSettingsPatch): Promise<RemoteSettings>;
+  /** The payload that updates the address of an already paired phone. Rejects with 409 when no external address is known. */
+  getRemoteAddress(): Promise<AddressOffer>;
   /** Opens a pairing window (2 minutes). Rejects with 409 when the access is off or not listening. */
   openPairing(): Promise<PairingOffer>;
   cancelPairing(): Promise<void>;
@@ -226,6 +229,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
 
     getRemoteSettings: () => read<RemoteSettings>('/api/remote/settings'),
     updateRemoteSettings: (patch) => read<RemoteSettings>('/api/remote/settings', { method: 'PUT' }, patch),
+    getRemoteAddress: () => read<AddressOffer>('/api/remote/address'),
     openPairing: () => read<PairingOffer>('/api/remote/pairing', { method: 'POST' }, {}),
     cancelPairing: async () => void (await send('/api/remote/pairing', { method: 'DELETE' })),
     listRemoteDevices: async () => (await read<{ devices: RemoteDevice[] | null }>('/api/remote/devices')).devices ?? [],
