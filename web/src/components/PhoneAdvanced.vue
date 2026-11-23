@@ -3,6 +3,7 @@ import type { PhoneAccess } from '../composables/usePhoneAccess';
 import AppIcon from './AppIcon.vue';
 import PhoneAddress from './PhoneAddress.vue';
 import PhoneExternal from './PhoneExternal.vue';
+import PhoneFold from './PhoneFold.vue';
 import PhoneNetwork from './PhoneNetwork.vue';
 import PhoneTunnel from './PhoneTunnel.vue';
 
@@ -11,17 +12,25 @@ defineProps<{ access: PhoneAccess }>();
 
 <template>
   <!-- Closed by default: the technical settings are out of the way until someone looks for them. -->
-  <details class="group/advanced rounded-xl border border-line bg-surface" data-testid="phone-advanced">
-    <summary class="flex cursor-pointer list-none items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-ink hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent">
-      <AppIcon name="chevron-right" size="sm" class="shrink-0 transition-transform group-open/advanced:rotate-90 motion-reduce:transition-none" />
-      <span>{{ $t('phone.advanced.title') }}</span>
-      <span class="min-w-0 truncate text-xs font-normal text-ink-muted">{{ $t('phone.advanced.hint') }}</span>
+  <details class="group/advanced border-t border-line pt-4" data-testid="phone-advanced">
+    <summary class="flex cursor-pointer list-none items-center gap-2.5 rounded text-ink focus-visible:outline-2 focus-visible:outline-accent">
+      <AppIcon name="chevron-right" size="sm" class="shrink-0 text-ink-muted transition-transform group-open/advanced:rotate-90 motion-reduce:transition-none" />
+      <span class="text-sm font-medium">{{ $t('phone.advanced.title') }}</span>
+      <span class="min-w-0 truncate text-xs text-ink-dim">{{ $t('phone.advanced.hint') }}</span>
     </summary>
-    <div class="flex flex-col gap-8 border-t border-line px-4 py-5">
-      <PhoneNetwork :access="access" />
-      <PhoneExternal :access="access" />
-      <PhoneAddress :access="access" />
-      <PhoneTunnel :access="access" />
+
+    <div class="mt-6 flex flex-col gap-8">
+      <section class="flex flex-col gap-3" aria-labelledby="advanced-home">
+        <h2 id="advanced-home" class="text-base font-semibold text-ink">{{ $t('phone.reach.home') }}</h2>
+        <PhoneNetwork :access="access" />
+      </section>
+
+      <section class="flex flex-col gap-3" aria-labelledby="advanced-away">
+        <h2 id="advanced-away" class="text-base font-semibold text-ink">{{ $t('phone.reach.away') }}</h2>
+        <PhoneTunnel :access="access" />
+        <PhoneFold :title="$t('phone.router.title')" :hint="$t('phone.router.hint')"><PhoneExternal :access="access" /></PhoneFold>
+        <PhoneFold :title="$t('phone.address.title')" :hint="$t('phone.address.hint')"><PhoneAddress :access="access" /></PhoneFold>
+      </section>
     </div>
   </details>
 </template>

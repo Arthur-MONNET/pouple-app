@@ -3,9 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue';
 import type { PhoneAccess } from '../composables/usePhoneAccess';
 import { MAX_HOST_LENGTH, checkTunnelDomain, tunnelPatch } from '../lib/phonePairing';
 import AppButton from './AppButton.vue';
+import AppIcon from './AppIcon.vue';
 import InlineError from './InlineError.vue';
-import SettingsRow from './SettingsRow.vue';
-import SettingsSection from './SettingsSection.vue';
 import ToggleSwitch from './ToggleSwitch.vue';
 
 const props = defineProps<{ access: PhoneAccess }>();
@@ -67,87 +66,95 @@ function cancelReplace(): void {
 </script>
 
 <template>
-  <SettingsSection v-if="settings" :title="$t('phone.tunnel.title')" :description="$t('phone.tunnel.intro')">
-    <div class="flex flex-col gap-2 py-4" data-testid="tunnel-steps">
-      <h3 class="text-sm font-medium text-ink">{{ $t('phone.tunnel.stepsTitle') }}</h3>
-      <ol class="flex list-decimal flex-col gap-1.5 pl-5 text-sm leading-relaxed text-ink">
-        <li>{{ $t('phone.tunnel.step1') }}</li>
-        <li>{{ $t('phone.tunnel.step2') }}</li>
-        <li>{{ $t('phone.tunnel.step3') }}</li>
-      </ol>
-      <p class="text-xs leading-relaxed text-ink-muted" data-testid="tunnel-privacy">{{ $t('phone.tunnel.privacy') }}</p>
-    </div>
+  <div v-if="settings" class="flex flex-col gap-4 rounded-2xl border border-line-strong bg-surface p-5" data-testid="phone-tunnel">
+    <ToggleSwitch :model-value="enabled" :label="$t('phone.tunnel.title')" :description="$t('phone.tunnel.intro')" :disabled="saving" data-testid="tunnel-enable" @update:model-value="setEnabled">
+      <template #badge>
+        <!-- A live region that is always there, so a change of state (starting, running, error) is read out. -->
+        <span role="status" data-testid="tunnel-status-area">
+          <span
+            v-if="status !== 'off'"
+            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+            :class="{
+              'bg-ok/15 text-ok': status === 'running',
+              'bg-warn/15 text-warn': status === 'starting',
+              'bg-fail/15 text-fail': status === 'error',
+            }"
+            data-testid="tunnel-status"
+          >
+            <span
+              class="size-1.5 rounded-full"
+              :class="{ 'bg-ok': status === 'running', 'bg-warn motion-safe:animate-pulse': status === 'starting', 'bg-fail': status === 'error' }"
+              aria-hidden="true"
+            />{{ $t(`phone.tunnel.status.${status}`) }}
+          </span>
+        </span>
+      </template>
+    </ToggleSwitch>
+    <InlineError v-if="settings.tunnelProblem" data-testid="tunnel-problem">{{ $t('phone.tunnel.problem', { problem: settings.tunnelProblem }) }}</InlineError>
 
-    <SettingsRow :label="$t('phone.tunnel.domain')" :description="$t('phone.tunnel.domainHelp')" label-for="tunnel-domain" stacked>
-      <input
-        id="tunnel-domain"
-        v-model="domainText"
-        type="text"
-        inputmode="url"
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        :maxlength="MAX_HOST_LENGTH"
-        :placeholder="$t('phone.tunnel.domainPlaceholder')"
-        :disabled="saving"
-        :aria-invalid="domainIssue !== null"
-        :aria-describedby="domainIssue !== null ? 'tunnel-domain-error' : undefined"
-        class="h-10 w-full rounded-lg border border-line-strong bg-canvas px-3 font-mono text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
-        data-testid="tunnel-domain"
-        @change="checkDomain"
-      />
-      <InlineError v-if="domainIssue === 'required'" id="tunnel-domain-error" data-testid="tunnel-domain-error">{{ $t('phone.tunnel.domainRequired') }}</InlineError>
-      <InlineError v-else-if="domainIssue === 'invalid'" id="tunnel-domain-error" data-testid="tunnel-domain-error">{{ $t('phone.tunnel.domainInvalid') }}</InlineError>
-    </SettingsRow>
+    <ol class="flex flex-col gap-2 border-t border-line pt-3.5 text-xs leading-relaxed text-ink-muted" data-testid="tunnel-steps">
+      <li class="flex gap-2.5"><span class="font-mono text-accent" aria-hidden="true">1</span><span>{{ $t('phone.tunnel.step1') }}</span></li>
+      <li class="flex gap-2.5"><span class="font-mono text-accent" aria-hidden="true">2</span><span>{{ $t('phone.tunnel.step2') }}</span></li>
+      <li class="flex gap-2.5"><span class="font-mono text-accent" aria-hidden="true">3</span><span>{{ $t('phone.tunnel.step3') }}</span></li>
+    </ol>
 
-    <SettingsRow :label="$t('phone.tunnel.token')" :description="$t('phone.tunnel.tokenHelp')" :label-for="showTokenField ? 'tunnel-token' : undefined" stacked>
-      <div v-if="!showTokenField" class="flex flex-wrap items-center gap-3" data-testid="tunnel-token-set">
-        <span class="text-sm text-ok">{{ $t('phone.tunnel.tokenSet') }}</span>
-        <AppButton variant="outline" size="sm" :disabled="saving" data-testid="tunnel-token-replace" @click="replace">{{ $t('phone.tunnel.tokenReplace') }}</AppButton>
-      </div>
-      <div v-else class="flex flex-wrap items-center gap-2">
+    <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-1.5">
+        <label for="tunnel-domain" class="text-xs font-medium text-ink">{{ $t('phone.tunnel.domain') }}</label>
         <input
-          id="tunnel-token"
-          ref="tokenInput"
-          v-model="tokenText"
-          type="password"
+          id="tunnel-domain"
+          v-model="domainText"
+          type="text"
+          inputmode="url"
           autocomplete="off"
           autocapitalize="off"
           spellcheck="false"
-          :placeholder="$t('phone.tunnel.tokenPlaceholder')"
+          :maxlength="MAX_HOST_LENGTH"
+          :placeholder="$t('phone.tunnel.domainPlaceholder')"
           :disabled="saving"
-          :aria-invalid="issue === 'token'"
-          :aria-describedby="issue === 'token' ? 'tunnel-token-error' : undefined"
-          class="h-10 min-w-0 flex-1 rounded-lg border border-line-strong bg-canvas px-3 font-mono text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
-          data-testid="tunnel-token"
+          :aria-invalid="domainIssue !== null"
+          :aria-describedby="domainIssue !== null ? 'tunnel-domain-error' : undefined"
+          class="h-10 w-full rounded-lg border border-line-strong bg-canvas px-3 font-mono text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
+          data-testid="tunnel-domain"
+          @change="checkDomain"
         />
-        <AppButton v-if="replacing" variant="ghost" size="lg" :disabled="saving" data-testid="tunnel-token-cancel" @click="cancelReplace">{{ $t('phone.tunnel.tokenCancel') }}</AppButton>
+        <InlineError v-if="domainIssue === 'required'" id="tunnel-domain-error" data-testid="tunnel-domain-error">{{ $t('phone.tunnel.domainRequired') }}</InlineError>
+        <InlineError v-else-if="domainIssue === 'invalid'" id="tunnel-domain-error" data-testid="tunnel-domain-error">{{ $t('phone.tunnel.domainInvalid') }}</InlineError>
       </div>
-      <InlineError v-if="issue === 'token'" id="tunnel-token-error" data-testid="tunnel-token-error">{{ $t('phone.tunnel.tokenRequired') }}</InlineError>
-    </SettingsRow>
 
-    <div class="flex flex-wrap items-center gap-3 py-4">
-      <AppButton variant="outline" size="lg" :disabled="saving || !dirty" data-testid="tunnel-save" @click="submit()">{{ $t('phone.tunnel.save') }}</AppButton>
+      <div class="flex flex-col gap-1.5">
+        <label :for="showTokenField ? 'tunnel-token' : undefined" class="text-xs font-medium text-ink">{{ $t('phone.tunnel.token') }}</label>
+        <div v-if="!showTokenField" class="flex h-10 items-center gap-3 rounded-lg border border-line-strong bg-canvas px-3 text-sm" data-testid="tunnel-token-set">
+          <span class="inline-flex items-center gap-2 text-ok"><AppIcon name="check" size="sm" />{{ $t('phone.tunnel.tokenSet') }}</span>
+          <button type="button" class="ml-auto rounded py-1 text-xs font-medium text-ink hover:text-accent focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" :disabled="saving" data-testid="tunnel-token-replace" @click="replace">{{ $t('phone.tunnel.tokenReplace') }}</button>
+        </div>
+        <div v-else class="flex items-center gap-2">
+          <input
+            id="tunnel-token"
+            ref="tokenInput"
+            v-model="tokenText"
+            type="password"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            :placeholder="$t('phone.tunnel.tokenPlaceholder')"
+            :disabled="saving"
+            :aria-invalid="issue === 'token'"
+            :aria-describedby="issue === 'token' ? 'tunnel-token-error' : undefined"
+            class="h-10 min-w-0 flex-1 rounded-lg border border-line-strong bg-canvas px-3 font-mono text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
+            data-testid="tunnel-token"
+          />
+          <AppButton v-if="replacing" variant="ghost" size="lg" :disabled="saving" data-testid="tunnel-token-cancel" @click="cancelReplace">{{ $t('phone.tunnel.tokenCancel') }}</AppButton>
+        </div>
+        <InlineError v-if="issue === 'token'" id="tunnel-token-error" data-testid="tunnel-token-error">{{ $t('phone.tunnel.tokenRequired') }}</InlineError>
+      </div>
+
+      <div v-if="dirty"><AppButton variant="primary" size="lg" :disabled="saving" data-testid="tunnel-save" @click="submit()">{{ $t('phone.tunnel.save') }}</AppButton></div>
     </div>
 
-    <div class="py-4">
-      <ToggleSwitch :model-value="enabled" :label="$t('phone.tunnel.enable')" :description="$t('phone.tunnel.enableHelp')" :disabled="saving" data-testid="tunnel-enable" @update:model-value="setEnabled" />
-      <!-- A live region that is always there, so a change of state (starting, running, error) is read out. -->
-      <div class="mt-2 flex flex-col gap-1.5" role="status" data-testid="tunnel-status-area">
-        <p v-if="status !== 'off'" class="flex items-center gap-2 text-xs text-ink-muted">
-          <span>{{ $t('phone.tunnel.statusLabel') }}</span>
-          <span
-            class="rounded-full border px-2 py-0.5 text-2xs"
-            :class="{
-              'border-ok/50 text-ok': status === 'running',
-              'border-warn/50 text-warn': status === 'starting',
-              'border-fail/50 text-fail': status === 'error',
-            }"
-            data-testid="tunnel-status"
-          >{{ $t(`phone.tunnel.status.${status}`) }}</span>
-        </p>
-      </div>
-      <InlineError v-if="settings.tunnelProblem" class="mt-2" data-testid="tunnel-problem">{{ $t('phone.tunnel.problem', { problem: settings.tunnelProblem }) }}</InlineError>
+    <div class="flex items-start gap-3 rounded-xl border border-lavender/30 bg-lavender/10 px-3.5 py-3" data-testid="tunnel-privacy">
+      <AppIcon name="lock" size="sm" class="mt-0.5 shrink-0 text-lavender" />
+      <p class="text-xs leading-relaxed text-ink">{{ $t('phone.tunnel.privacy') }}</p>
     </div>
-  </SettingsSection>
+  </div>
 </template>

@@ -177,3 +177,31 @@ export function tunnelPatch(input: { domain: string; token: string; tokenStored:
   if (input.enable !== undefined) patch.tunnelEnabled = input.enable;
   return { ok: true, patch };
 }
+
+export type ReachTone = 'ok' | 'warn' | 'fail' | 'idle';
+export interface Reach {
+  tone: ReachTone;
+  /** The key under `phone.reach.` that says it. */
+  key: 'homeAuto' | 'homeChosen' | 'homeNone' | 'tunnelRunning' | 'tunnelStarting' | 'tunnelError' | 'router' | 'routerNotReady' | 'awayOff';
+  /** A technical value shown next to it (the tunnel domain, the public address); empty when none. */
+  value: string;
+}
+
+/**
+ * Where the phone can reach this Mac from, read off the settings: at home (the listener runs on a network) and away
+ * from home (the tunnel first, else the router port forward). The tunnel wins because it needs no router.
+ */
+export function reachability(settings: Pick<RemoteSettings, 'interfaces' | 'listening' | 'port' | 'externalEnabled' | 'externalHost' | 'externalPort' | 'externalDetected' | 'externalReady' | 'tunnelStatus' | 'tunnelDomain'>): { home: Reach; away: Reach } {
+  const home: Reach =
+    settings.listening.length === 0
+      ? { tone: 'warn', key: 'homeNone', value: '' }
+      : { tone: 'ok', key: settings.interfaces.length === 0 ? 'homeAuto' : 'homeChosen', value: '' };
+  const tunnel = settings.tunnelDomain;
+  let away: Reach;
+  if (settings.tunnelStatus === 'running') away = { tone: 'ok', key: 'tunnelRunning', value: tunnel };
+  else if (settings.tunnelStatus === 'starting') away = { tone: 'warn', key: 'tunnelStarting', value: tunnel };
+  else if (settings.tunnelStatus === 'error') away = { tone: 'fail', key: 'tunnelError', value: tunnel };
+  else if (settings.externalEnabled) away = { tone: settings.externalReady ? 'ok' : 'warn', key: settings.externalReady ? 'router' : 'routerNotReady', value: externalEndpoint({ ...settings, externalEnabled: true }) ?? '' };
+  else away = { tone: 'idle', key: 'awayOff', value: '' };
+  return { home, away };
+}

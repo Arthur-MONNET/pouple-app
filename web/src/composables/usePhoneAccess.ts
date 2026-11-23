@@ -162,6 +162,7 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
 
   async function cancelPairing(): Promise<void> {
     const wasOpen = phase.value === 'open' || phase.value === 'opening';
+    pairingError.value = null;
     endPairing('idle');
     offer.value = null;
     pairedName.value = null;
@@ -175,6 +176,7 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
 
   /** Leaves the finished state (expired or paired) to go back to the button. */
   function dismissPairing(): void {
+    pairingError.value = null;
     if (phase.value === 'expired' || phase.value === 'paired') {
       endPairing('idle');
       offer.value = null;

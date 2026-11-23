@@ -12,6 +12,7 @@ import {
   isValidPort,
   localAddress,
   parseExternalPort,
+  reachability,
   secondsLeft,
   toggleInterface,
   tunnelPatch,
@@ -228,5 +229,27 @@ describe('tunnel patch', () => {
     expect(tunnelPatch({ ...base, domain: 'nope', enable: true })).toEqual({ ok: false, reason: 'invalid' });
     expect(tunnelPatch({ ...base, domain: 'nope' })).toEqual({ ok: false, reason: 'invalid' });
     expect(tunnelPatch({ ...base, domain: '' })).toEqual({ ok: true, patch: { tunnelDomain: '' } });
+  });
+});
+
+describe('reachability', () => {
+  const base = { interfaces: [], listening: ['192.168.1.24:47821'], port: 47821, externalEnabled: false, externalHost: '', externalPort: 0, externalDetected: '', externalReady: false, tunnelStatus: 'off' as const, tunnelDomain: '' };
+
+  it('says at home from the listener: automatic, chosen, or no network', () => {
+    expect(reachability(base).home).toEqual({ tone: 'ok', key: 'homeAuto', value: '' });
+    expect(reachability({ ...base, interfaces: ['en0'] }).home.key).toBe('homeChosen');
+    expect(reachability({ ...base, listening: [] }).home).toEqual({ tone: 'warn', key: 'homeNone', value: '' });
+  });
+
+  it('says away from home from the tunnel first, then the router, else not set up', () => {
+    expect(reachability(base).away).toEqual({ tone: 'idle', key: 'awayOff', value: '' });
+    expect(reachability({ ...base, tunnelStatus: 'running', tunnelDomain: 'a.ngrok-free.app' }).away).toEqual({ tone: 'ok', key: 'tunnelRunning', value: 'a.ngrok-free.app' });
+    expect(reachability({ ...base, tunnelStatus: 'starting', tunnelDomain: 'a.ngrok-free.app' }).away.tone).toBe('warn');
+    expect(reachability({ ...base, tunnelStatus: 'error', tunnelDomain: 'a.ngrok-free.app' }).away.tone).toBe('fail');
+    const router = { ...base, externalEnabled: true, externalHost: 'home.example.net' };
+    expect(reachability({ ...router, externalReady: true }).away).toEqual({ tone: 'ok', key: 'router', value: 'home.example.net:47821' });
+    expect(reachability(router).away).toMatchObject({ tone: 'warn', key: 'routerNotReady' });
+    // The tunnel wins over the router.
+    expect(reachability({ ...router, externalReady: true, tunnelStatus: 'running', tunnelDomain: 'a.ngrok-free.app' }).away.key).toBe('tunnelRunning');
   });
 });

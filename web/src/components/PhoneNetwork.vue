@@ -4,13 +4,12 @@ import type { PhoneAccess } from '../composables/usePhoneAccess';
 import { MAX_PORT, MIN_PORT, interfaceChoices, isValidPort, toggleInterface } from '../lib/phonePairing';
 import InlineError from './InlineError.vue';
 import SettingsRow from './SettingsRow.vue';
-import SettingsSection from './SettingsSection.vue';
 
 const props = defineProps<{ access: PhoneAccess }>();
 const { settings, saving } = props.access;
 
 const choices = computed(() => (settings.value ? interfaceChoices(settings.value) : []));
-const enabled = computed(() => settings.value?.enabled === true);
+/** No network chosen means automatic: the core listens on every network that is up with a private address. */
 const automatic = computed(() => (settings.value?.interfaces.length ?? 0) === 0);
 const portText = ref('');
 const portError = ref(false);
@@ -32,12 +31,18 @@ async function savePort(): Promise<void> {
 </script>
 
 <template>
-  <SettingsSection v-if="settings" :title="$t('phone.network.title')">
-    <SettingsRow :label="$t('phone.network.label')" :description="automatic ? $t('phone.network.automatic') : $t('phone.network.chosen')" stacked>
-      <p v-if="choices.length === 0" class="text-sm text-ink-muted" data-testid="phone-no-network">{{ $t('phone.network.none') }}</p>
-      <ul v-else class="flex flex-col gap-2" role="group" :aria-label="$t('phone.network.label')">
+  <div v-if="settings" class="flex flex-col divide-y divide-line border-t border-line" data-testid="phone-network">
+    <SettingsRow :label="$t('phone.network.label')" :description="$t('phone.network.help')" stacked>
+      <ul class="flex flex-col gap-2 min-[560px]:w-72" role="group" :aria-label="$t('phone.network.label')">
+        <li>
+          <!-- Ticking a network leaves automatic; unticking the last one comes back to it. Automatic itself is the state, not an action. -->
+          <label class="flex items-center gap-2.5 rounded-xl border px-3 py-2 text-sm text-ink" :class="automatic ? 'border-accent bg-accent/10' : 'border-line-strong text-ink-muted'">
+            <input type="checkbox" class="size-4 shrink-0 accent-accent" :checked="automatic" :disabled="saving || automatic" data-testid="phone-interface-auto" @change="props.access.save({ interfaces: [] })" />
+            {{ $t('phone.network.automatic') }}
+          </label>
+        </li>
         <li v-for="item in choices" :key="item.name">
-          <label class="flex items-start gap-2.5 rounded-lg border border-line px-3 py-2 text-sm text-ink" :class="{ 'opacity-60': saving }">
+          <label class="flex items-start gap-2.5 rounded-xl border border-line-strong px-3 py-2 text-sm text-ink-muted" :class="{ 'opacity-60': saving }">
             <input
               type="checkbox"
               class="mt-0.5 size-4 shrink-0 accent-accent"
@@ -47,17 +52,18 @@ async function savePort(): Promise<void> {
               @change="setInterface(item.name, ($event.target as HTMLInputElement).checked)"
             />
             <span class="min-w-0">
-              <span class="font-medium">{{ item.name }}</span>
-              <span v-if="item.loopback" class="ml-2 text-xs text-ink-muted">{{ $t('phone.network.loopback') }}</span>
+              <span>{{ item.name }}</span>
+              <span v-if="item.loopback" class="ml-2 text-xs text-ink-dim">{{ $t('phone.network.loopback') }}</span>
               <span v-if="item.missing" class="ml-2 text-xs text-warn">{{ $t('phone.network.missing') }}</span>
-              <span v-if="item.addresses.length > 0" class="block break-all font-mono text-xs text-ink-muted">{{ item.addresses.join(', ') }}</span>
+              <span v-if="item.addresses.length > 0" class="block break-all font-mono text-xs text-ink-dim">{{ item.addresses.join(', ') }}</span>
             </span>
           </label>
         </li>
       </ul>
+      <p v-if="choices.length === 0" class="text-sm text-ink-muted" data-testid="phone-no-network">{{ $t('phone.network.none') }}</p>
     </SettingsRow>
 
-    <SettingsRow :label="$t('phone.port.label')" :description="$t('phone.port.help', { min: MIN_PORT, max: MAX_PORT })" label-for="phone-port">
+    <SettingsRow :label="$t('phone.port.label')" :description="$t('phone.port.help')" label-for="phone-port">
       <input
         id="phone-port"
         v-model="portText"
@@ -68,15 +74,11 @@ async function savePort(): Promise<void> {
         step="1"
         :disabled="saving"
         :aria-invalid="portError"
-        class="h-10 w-28 rounded-lg border border-line-strong bg-canvas px-3 text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
+        class="h-10 w-28 rounded-lg border border-line-strong bg-canvas px-3 font-mono text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
         data-testid="phone-port"
         @change="savePort"
       />
       <InlineError v-if="portError" data-testid="phone-port-error">{{ $t('phone.port.invalid', { min: MIN_PORT, max: MAX_PORT }) }}</InlineError>
     </SettingsRow>
-
-    <template #footer>
-      <p v-if="enabled && settings.listening.length > 0" class="break-all py-3 text-xs text-ink-muted" data-testid="phone-listening">{{ $t('phone.network.listening', { addresses: settings.listening.join(', ') }) }}</p>
-    </template>
-  </SettingsSection>
+  </div>
 </template>
