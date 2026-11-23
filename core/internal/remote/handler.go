@@ -117,10 +117,12 @@ func (h *Handler) failed(source netip.Addr) {
 	}
 }
 
-// tooManyAttempts answers a locked-out source.
-func tooManyAttempts(w http.ResponseWriter, wait time.Duration) {
+// tooManyAttempts answers a locked-out source that did not authenticate, and counts it toward the flood threshold
+// that drops its connections at accept time.
+func (h *Handler) tooManyAttempts(w http.ResponseWriter, source netip.Addr, wait time.Duration) {
+	h.throttle.Refused(source)
 	w.Header().Set("Retry-After", strconv.Itoa(max(1, int((wait+time.Second-1)/time.Second))))
-	refuse(w, http.StatusTooManyRequests, "too-many-attempts")
+	refuseAndClose(w, http.StatusTooManyRequests, "too-many-attempts")
 }
 
 type apiError struct {
@@ -137,37 +139,51 @@ func refuse(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, apiError{Error: code})
 }
 
+// refuseAndClose refuses a request of a client that did not authenticate, and ends its connection: a scanner or a
+// guesser never keeps one open (and counted against the connection caps) by waiting between refusals.
+func refuseAndClose(w http.ResponseWriter, status int, code string) {
+	w.Header().Set("Connection", "close")
+	refuse(w, status, code)
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	// The phone is not a browser: a request a web page made (any origin, any fetch metadata) is never served.
 	if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
-		refuse(w, http.StatusForbidden, "forbidden-origin")
+		refuseAndClose(w, http.StatusForbidden, "forbidden-origin")
 		return
 	}
 	if r.Context().Err() != nil {
-		refuse(w, http.StatusServiceUnavailable, "unavailable")
+		refuseAndClose(w, http.StatusServiceUnavailable, "unavailable")
 		return
 	}
 	source := sourceOf(r.RemoteAddr)
-	// A source that keeps failing waits, whatever it sends: a valid token does not get it past a lockout.
-	if wait, blocked := h.throttle.Blocked(source); blocked {
-		tooManyAttempts(w, wait)
-		return
-	}
 	if r.URL.Path == "/remote/v1/pair" {
+		// Pairing is an unauthenticated attempt: a locked-out source waits.
+		if wait, blocked := h.throttle.Blocked(source); blocked {
+			h.tooManyAttempts(w, source, wait)
+			return
+		}
 		if r.Method != http.MethodPost {
-			refuse(w, http.StatusMethodNotAllowed, "method-not-allowed")
+			refuseAndClose(w, http.StatusMethodNotAllowed, "method-not-allowed")
 			return
 		}
 		h.pair(w, r, source)
 		return
 	}
+	// The lockout is for the sources that fail: a request that carries a valid, non-revoked device token is served
+	// whatever its source, because the owner may share a public address with someone who locked it out. A request
+	// without one (missing, wrong or revoked token) waits while its source is locked out and is counted otherwise.
 	device, err := h.authenticate(r)
 	if err != nil {
+		if wait, blocked := h.throttle.Blocked(source); blocked {
+			h.tooManyAttempts(w, source, wait)
+			return
+		}
 		h.failed(source)
-		refuse(w, http.StatusUnauthorized, "unauthorized")
+		refuseAndClose(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	h.noteExternal(source)
@@ -220,36 +236,36 @@ func (h *Handler) pair(w http.ResponseWriter, r *http.Request, source netip.Addr
 		StepUpPublicKey string `json:"stepUpPublicKey"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body); err != nil {
-		refuse(w, http.StatusBadRequest, "bad-request")
+		refuseAndClose(w, http.StatusBadRequest, "bad-request")
 		return
 	}
 	name, ok := deviceName(body.DeviceName)
 	if !ok {
-		refuse(w, http.StatusUnprocessableEntity, "bad-device-name")
+		refuseAndClose(w, http.StatusUnprocessableEntity, "bad-device-name")
 		return
 	}
 	if _, err := ParsePublicKey(body.StepUpPublicKey); err != nil {
-		refuse(w, http.StatusUnprocessableEntity, "bad-key")
+		refuseAndClose(w, http.StatusUnprocessableEntity, "bad-key")
 		return
 	}
-	switch err := h.opts.Pairing.Consume(body.Code); {
+	switch err := h.opts.Pairing.ConsumeFrom(body.Code, h.local(source)); {
 	case errors.Is(err, ErrPairingClosed):
 		h.failed(source)
-		refuse(w, http.StatusForbidden, "pairing-closed")
+		refuseAndClose(w, http.StatusForbidden, "pairing-closed")
 		return
 	case err != nil:
 		h.failed(source)
-		refuse(w, http.StatusForbidden, "pairing-refused")
+		refuseAndClose(w, http.StatusForbidden, "pairing-refused")
 		return
 	}
 	device, token, err := h.opts.Devices.Add(name, body.StepUpPublicKey)
 	switch {
 	case errors.Is(err, ErrTooManyDevices):
-		refuse(w, http.StatusConflict, "too-many-devices")
+		refuseAndClose(w, http.StatusConflict, "too-many-devices")
 		return
 	case err != nil:
 		log.Printf("remote access: a device could not be paired: %v", err)
-		refuse(w, http.StatusInternalServerError, "internal")
+		refuseAndClose(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	h.throttle.Succeed(source)
@@ -361,7 +377,14 @@ func (h *Handler) serveAllowed(w http.ResponseWriter, r *http.Request, device De
 		if rule.needsStepUp(facts) {
 			if code, ok := h.verifyStepUp(r, device, pattern, requestID, fields, body); !ok {
 				if code == "step-up-refused" {
+					// A wrong signature is a failed attempt: while the source is locked out it gets the lockout's
+					// answer (the token alone does not let it keep guessing), else it is counted.
+					wait, blocked := h.throttle.Blocked(source)
 					h.failed(source)
+					if blocked {
+						h.tooManyAttempts(w, source, wait)
+						return
+					}
 				}
 				refuse(w, http.StatusForbidden, code)
 				return
@@ -372,7 +395,7 @@ func (h *Handler) serveAllowed(w http.ResponseWriter, r *http.Request, device De
 	defer cancel()
 	untrack, active := h.opts.Devices.track(device.ID, cancel)
 	if !active {
-		refuse(w, http.StatusUnauthorized, "unauthorized")
+		refuseAndClose(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	defer untrack()

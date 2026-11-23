@@ -133,9 +133,6 @@ func (l *sourceFilter) Accept() (net.Conn, error) {
 		if source := sourceOf(conn.RemoteAddr().String()); source.IsValid() && l.allow(source) {
 			return conn, nil
 		}
-		if tcp, ok := conn.(*net.TCPConn); ok {
-			_ = tcp.SetLinger(0) // reset at once: nothing is left waiting on this side
-		}
-		_ = conn.Close()
+		dropConn(conn)
 	}
 }

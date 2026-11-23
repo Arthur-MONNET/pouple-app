@@ -25,6 +25,11 @@ var (
 const (
 	// defaultThrottleEntries bounds the memory of the throttle: one entry per source (per /64 for IPv6).
 	defaultThrottleEntries = 4096
+	// floodRefusals is how many requests a locked-out source must still send, and be refused, before its connections
+	// are dropped at accept time (before the TLS handshake) until its lockout ends. A lockout alone never drops a
+	// connection: the owner behind the same public address may hold a valid token, which is served whatever the
+	// lockout says (see Handler.ServeHTTP). Only a source that ignores its 429 answers this many times is a flood.
+	floodRefusals = 100
 	// forgetAfter is how long a source that failed nothing since stays remembered: its lockouts start from the
 	// shortest again after that.
 	forgetAfter = 6 * time.Hour
@@ -36,6 +41,8 @@ type throttleEntry struct {
 	strikes     int
 	lockedUntil time.Time
 	lastFail    time.Time
+	// refused counts the unauthenticated requests refused during the current lockout.
+	refused int
 }
 
 // ThrottleOptions configure a Throttle.
@@ -104,6 +111,26 @@ func (t *Throttle) Blocked(source netip.Addr) (time.Duration, bool) {
 	return 0, false
 }
 
+// Refused counts a request of a locked-out source that was refused without being served (the 429 answers): a source
+// that keeps sending them is flooding.
+func (t *Throttle) Refused(source netip.Addr) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if entry := t.entries[throttleKey(source)]; entry != nil && t.now().Before(entry.lockedUntil) {
+		entry.refused++
+	}
+}
+
+// Flooding says whether a source is locked out now and has kept sending requests that were refused (floodRefusals of
+// them): its connections can be dropped before the handshake. A source that merely failed to authenticate is not
+// flooding, so a valid token behind a shared address still gets in.
+func (t *Throttle) Flooding(source netip.Addr) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry := t.entries[throttleKey(source)]
+	return entry != nil && t.now().Before(entry.lockedUntil) && entry.refused >= floodRefusals
+}
+
 // Fail counts a failed authentication and returns the lockout it started, or 0.
 func (t *Throttle) Fail(source netip.Addr) time.Duration {
 	now, key, lim := t.now(), throttleKey(source), t.limitsOf(source)
@@ -137,7 +164,7 @@ func (t *Throttle) Fail(source netip.Addr) time.Duration {
 	}
 	lock = min(lock, lim.maxLock)
 	entry.lockedUntil = now.Add(lock)
-	entry.failures = 0
+	entry.failures, entry.refused = 0, 0
 	return lock
 }
 
