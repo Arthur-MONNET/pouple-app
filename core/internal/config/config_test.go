@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +102,36 @@ func TestSettingsWrittenBeforeProvidersExistedStillLoad(t *testing.T) {
 	settings, err := Open(path).Load()
 	if err != nil || settings.Models == nil || settings.Provider != "" || settings.ActiveProvider() != providers.Codex {
 		t.Fatalf("%+v %v", settings, err)
+	}
+}
+
+func TestRemoteExternalSettingsRoundTripAndOldConfigsReadAsOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	// A configuration written before the external access existed.
+	if err := os.WriteFile(path, []byte(`{"remote":{"enabled":true,"interfaces":["en0"],"port":50000}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file := Open(path)
+	old, err := file.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !old.Remote.Enabled || old.Remote.Port != 50000 || old.Remote.ExternalEnabled || old.Remote.ExternalHost != "" || old.Remote.ExternalPort != 0 {
+		t.Fatalf("an old remote block must keep working with the external access off: %+v", old.Remote)
+	}
+	if _, err := file.Update(func(s *Settings) {
+		s.Remote.ExternalEnabled, s.Remote.ExternalHost, s.Remote.ExternalPort = true, "home.example.net", 8443
+	}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(path).Load()
+	if err != nil || again.Remote.Port != 50000 || !again.Remote.ExternalEnabled || again.Remote.ExternalHost != "home.example.net" || again.Remote.ExternalPort != 8443 {
+		t.Fatalf("round trip: %+v %v", again.Remote, err)
+	}
+	raw, _ := os.ReadFile(path)
+	for _, field := range []string{`"externalEnabled": true`, `"externalHost": "home.example.net"`, `"externalPort": 8443`} {
+		if !strings.Contains(string(raw), field) {
+			t.Errorf("the file must name %s: %s", field, raw)
+		}
 	}
 }

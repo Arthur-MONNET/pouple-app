@@ -14,6 +14,7 @@ import (
 // RemoteAdmin is what the settings need to manage the access from the phones.
 type RemoteAdmin interface {
 	OpenPairing() (remote.PairingOffer, error)
+	AddressOffer() (remote.AddressOffer, error)
 	CancelPairing()
 	Devices() []remote.DeviceInfo
 	RevokeDevice(id string) error
@@ -32,6 +33,14 @@ func MountRemoteAdmin(admin RemoteAdmin) func(mux *http.ServeMux) {
 				return
 			}
 			writeJSON(w, http.StatusCreated, offer)
+		})
+		mux.HandleFunc("GET /api/remote/address", func(w http.ResponseWriter, r *http.Request) {
+			offer, err := admin.AddressOffer()
+			if err != nil {
+				writeRemoteError(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, offer)
 		})
 		mux.HandleFunc("DELETE /api/remote/pairing", func(w http.ResponseWriter, r *http.Request) {
 			admin.CancelPairing()
@@ -76,7 +85,7 @@ func writeRemoteError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, remote.ErrUnknownDevice):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": i18n.T(lang, "This device is not paired.")})
-	case errors.Is(err, remote.ErrDisabled):
+	case errors.Is(err, remote.ErrDisabled), errors.Is(err, remote.ErrNoExternalAddress):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": i18n.ErrorText(lang, err)})
 	case errors.Is(err, remote.ErrInvalidSettings):
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": i18n.ErrorText(lang, err)})

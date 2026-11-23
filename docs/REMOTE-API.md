@@ -3,8 +3,9 @@
 This is the contract between the Pouple core on the Mac and the paired phone app. It is off unless the user turns
 it on in the settings. The loopback API and the local assistant socket are not changed by it.
 
-Version 1 works on the local network only (or over USB with `adb reverse tcp:<port> tcp:<port>` during development).
-There is no cloud relay and no push service.
+Version 1 works on the local network (or over USB with `adb reverse tcp:<port> tcp:<port>` during development), and,
+when the user turns it on, from outside the home network through a TCP port the user forwards on the router to the
+Mac (see [Access from outside](#access-from-outside)). There is no cloud relay, no tunnel service and no push service.
 
 ## Transport
 
@@ -16,6 +17,10 @@ There is no cloud relay and no push service.
 - The listener binds the addresses of the network interfaces the user chose (for example `en0`), never `0.0.0.0` or
   `::`. It restarts when the settings change or when those addresses change. It closes when the access is turned off
   or the core stops.
+- While the access from outside is **off** (the default), the listener drops, before the TLS handshake, every
+  connection whose source address is not local: loopback, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`),
+  link-local (`169.254/16`, `fe80::/10`), or a global IPv6 address inside a network the Mac is attached to. While it is
+  **on**, any source is accepted: the pinned certificate, the tokens and the throttle below are the protection.
 - The phone is not a browser. A request with an `Origin` or `Sec-Fetch-Site` header is refused with 403
   `forbidden-origin`. No web interface is served, and no CORS header is ever sent.
 - Every response has `Cache-Control: no-store`.
@@ -35,6 +40,7 @@ Errors from the remote layer are JSON: `{"error":"<code>"}`. Errors from the ass
 | 403 | `pairing-refused` | Wrong pairing code. |
 | 409 | `too-many-devices` | 10 devices are already paired. Revoke one on the Mac. |
 | 413 | `body-too-large` | JSON bodies are limited to 1 MiB. |
+| 429 | `too-many-attempts` | This source address failed to authenticate too many times. Wait `Retry-After` seconds. |
 | 422 | `bad-device-name`, `bad-key` | Invalid pairing fields. |
 
 ## Pairing
@@ -46,13 +52,18 @@ Errors from the remote layer are JSON: `{"error":"<code>"}`. Errors from the ass
    query string:
 
    ```text
-   pouple-pair:v1?hosts=<host>,<host>…&port=<port>&fp=<sha256 hex>&code=<32 hex>&name=<mac name>
+   pouple-pair:v1?hosts=<host>,<host>…&port=<port>&fp=<sha256 hex>&code=<32 hex>&name=<mac name>[&ext=<host>:<port>]
    ```
 
    - `hosts`: the bound IP addresses, then `<mac name>.local` when the listener is on a network (not loopback only).
      Try them in order. An IPv6 address goes in brackets in a URL.
    - `fp`: SHA-256 of the certificate DER, 64 lowercase hex characters. Pin it.
    - `name`: the Mac's name, for display.
+   - `ext` (optional, always last): where to reach the Mac from outside the home network, `<host>:<port>`, present only
+     while the access from outside is on and an address is known. `host` is a DNS name, an IPv4 address, or an IPv6
+     address in brackets (`[2001:db8::1]:47821`). `port` is the port the router exposes, which may differ from `port`.
+     Try it after `hosts`. Older readers ignore unknown parameters. Example, as written in the payload (the value is
+     percent-encoded like the others): `…&name=Studio&ext=home.example.net%3A47821`.
 3. The phone creates a P-256 key in the Android Keystore that requires user authentication, with
    `setUserAuthenticationRequired(true)` and biometric authentication. It then sends:
 
@@ -77,6 +88,30 @@ The user can revoke a device on the Mac at any time. Revoking it closes its open
 | GET | `/remote/v1/device` | `{"id":"…","name":"…"}`, to check that the pairing still works. |
 | DELETE | `/remote/v1/device` | 204. Unpairs this device: its token stops working. |
 | POST | `/remote/v1/challenge` | `{"nonce":"<64 hex>","expiresAt":"<RFC 3339>"}`, for a step-up. |
+| GET | `/remote/v1/endpoint` | `{"ext":"<host>:<port>"}`, or `{"ext":null}` when there is no external address. See below. |
+
+### Current address
+
+`GET /remote/v1/endpoint` (any paired device, read only) returns the external address as the Mac knows it now, in the
+same format as the payload's `ext`: `{"ext":"203.0.113.7:47821"}`, `{"ext":"[2001:db8::1]:8443"}` or `{"ext":null}`
+(the access from outside is off, or the address is not known yet). The phone calls it after each successful connection
+and keeps the answer, so an address that changed (a dynamic public IP) is learned without pairing again. Like every route
+of this table it answers 401 without a valid token, 403 `forbidden-origin` to a browser request, and 405 to a method
+other than GET.
+
+### Address update payload
+
+When a phone can no longer reach the Mac because the address changed and it could not learn the new one, the Mac's
+settings show a second QR code, with no secret and no pairing window:
+
+```text
+pouple-address:v1?ext=<host>:<port>&fp=<sha256 hex>
+```
+
+`ext` has the format above and `fp` is the certificate's SHA-256 (64 lowercase hex characters), both percent-encoded.
+The phone connects to `ext`, checks that the certificate there has that fingerprint **and** the one it pinned when it
+paired, and only then replaces the address it knows. A wrong address can therefore never connect it to anything else
+than its own Mac. The payload is read from the loopback API (`GET /api/remote/address`).
 
 ## Routes and scopes
 
@@ -188,15 +223,59 @@ serves them.
 
 | Method | Path | Body / answer |
 |---|---|---|
-| GET | `/api/remote/settings` | `{enabled, interfaces[], port, available[{name, addresses[], loopback}], listening[], problem, fingerprint}` |
-| PUT | `/api/remote/settings` | `{enabled?, interfaces?, port?}`. Turning the access on requires at least one interface. The port must be in 1024–65535. Invalid settings return 422. The listener restarts. |
+| GET | `/api/remote/settings` | `{enabled, interfaces[], port, available[{name, addresses[], loopback}], listening[], problem, fingerprint, externalEnabled, externalHost, externalPort, externalDetected, externalDetectedAt, externalReady}` |
+| PUT | `/api/remote/settings` | `{enabled?, interfaces?, port?, externalEnabled?, externalHost?, externalPort?}`. Turning the access on requires at least one interface. The port must be in 1024–65535. Turning the access from outside on requires a valid `externalHost`. Invalid settings return 422. The listener restarts. |
+| GET | `/api/remote/address` | `{payload}`: the address update payload. Returns 409 when the access is off or no external address is known. |
 | POST | `/api/remote/pairing` | 201 `{payload, expiresAt}`. Returns 409 when the access is off or not listening. |
 | DELETE | `/api/remote/pairing` | 204. Closes the window. |
 | GET | `/api/remote/devices` | `{devices:[{id, name, createdAt, lastSeen, revoked, expired}]}`. Never returns token hashes or keys. |
 | DELETE | `/api/remote/devices/{id}` | 204. Revokes the device and closes its streams. Returns 404 for an unknown id. |
 
-The configuration key is `remote` in `config.json`: `{"enabled":false,"interfaces":[],"port":0}`, where `0` means
-the default port.
+The configuration key is `remote` in `config.json`:
+`{"enabled":false,"interfaces":[],"port":0,"externalEnabled":false,"externalHost":"","externalPort":0}`, where `0` means
+the default port. A configuration written before the `external…` fields existed reads as off.
+
+## Access from outside
+
+Off by default. There is no tunnel service: the user forwards a TCP port on the router to the Mac and gives a stable
+public name, and the end-to-end TLS with the pinned certificate stays the protection.
+
+Settings (`PUT /api/remote/settings`, echoed by `GET`):
+
+| Field | Meaning |
+|---|---|
+| `externalEnabled` | Boolean, `false` by default. Accepts connections from any source and adds `ext` to the pairing payload. |
+| `externalHost` | The public name or address: a DNS name (letters, digits and hyphens, labels up to 63 characters, 253 in all), an IPv4 address, an IPv6 address **without** brackets, or `auto`. No scheme, path, port, space or zone; names are lowercased. Required when `externalEnabled` is true; it can be empty while it is false. |
+| `externalPort` | `0` (the default) means the same as `port`; otherwise 1–65535: the port the router exposes. |
+| `externalDetected`, `externalDetectedAt` | Read only. The public IPv4 address found for `auto` (empty while unknown) and when it was last confirmed (RFC 3339, empty while unknown). |
+| `externalReady` | Read only. The Mac's side is in place: the access from outside is on, an address is known and the listener is bound to a network address (not loopback only). It does **not** test the router or the internet: nothing is called to check a port forward. |
+
+The three steps for the user: reserve a fixed local address for the Mac in the router, forward the TCP port to that
+address, enter the public name or address in the settings. With a DDNS name the address never needs updating; with a
+changing public IP, use `auto` (below) or the address update payload.
+
+### Automatic public address (`auto`)
+
+With `externalHost` set to `auto`, the core detects its public IPv4 address with a minimal STUN Binding request
+(RFC 5389) sent over UDP to `stun.l.google.com:19302`, then `stun1.l.google.com:19302` if the first does not answer. It
+does so only while the access and the access from outside are both on, when the settings change and every 5 minutes,
+with a few seconds of timeout. **This is the only outbound call of the phone access**: one 20-byte UDP packet, which
+discloses to the server only the public IP address it already sees. A detection that fails keeps the last address. While
+the address is unknown, `ext` is left out of the pairing payload and `GET /remote/v1/endpoint` answers `null`.
+
+### Defenses for a port on the internet
+
+- **Source filter**: with the access from outside off, non-local sources are dropped before the handshake (see
+  Transport).
+- **Throttle**: each source address (a whole `/64` for IPv6) that fails to authenticate (unknown or revoked token, wrong
+  or closed pairing window, wrong step-up signature) is counted. A source on a local network is locked out after 30
+  failures in 10 minutes, for 30 seconds; any other source after 6 failures in 10 minutes, for one minute. Each new
+  lockout of the same source doubles the previous one, up to 10 minutes (local) or one hour (other). A locked-out source
+  gets 429 `too-many-attempts` with `Retry-After` for every request, even with a valid token. The table is bounded
+  (4096 sources) and forgets a source after 6 hours without failure. A missing step-up, a malformed body or a browser
+  request is not counted.
+- **Log**: each pairing from a non-local source, and the first authenticated or pairing request from each new non-local
+  source address, is logged once with the address, never with a token or content. A lockout is logged too.
 
 ## Threat model
 
@@ -212,7 +291,9 @@ Asana, Slite), and the secrets of connected services.
 | Replay of a captured step-up | The nonce is single use, expires after 60 s, and is bound to the device. The signature binds the route, conversation, ids, actions and the SHA-256 of the whole body. |
 | Phone reaching what it should not | Explicit allowlist enforced by the remote handler, on a mux of its own. Connectors, secrets, settings, providers, GitLab access, terminal, updates, memory, style and the remote administration are never reachable. |
 | "Apply every change" setting | When it is on, text from the phone (new conversation, message, answer) needs a step-up, because it could be applied without anyone reading it. |
+| A scanner or a guesser on the internet (external access on) | The listener answers TLS 1.3 with a certificate that is not tied to any name; every route except pairing needs a 256-bit token and pairing needs the 128-bit code of an open window. A per-source throttle answers 429 with a growing lockout. Turning the external access off drops non-local sources before the handshake. |
+| A wrong address (typo, a stale DDNS entry, someone else behind the forwarded port) | The phone pins the certificate: it never sends a token to a Mac whose certificate does not match, and the address update payload is accepted only after that check. |
 | Lost Keychain key | A new certificate is made, its fingerprint changes, and pinned phones refuse it until they pair again. Nothing falls back to an unpinned connection. |
 
-Out of scope for v1: access away from the local network, push notifications (the phone polls locally), and a
-compromised Mac user account. That account can already read everything through the local socket.
+Out of scope: a relay or tunnel service, push notifications (the phone polls), opening the router's port automatically
+(UPnP), and a compromised Mac user account. That account can already read everything through the local socket.

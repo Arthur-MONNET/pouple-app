@@ -1,14 +1,18 @@
 import { ApiError, type PoupleApi } from './client';
+import { checkExternalHost, EXTERNAL_AUTO, externalEndpoint, localAddress } from '../lib/phonePairing';
 import type { RemoteDevice, RemoteInterface, RemoteSettings } from './types';
 
 /** The part of the API that manages the phone access, in memory. */
 export type MockRemote = Pick<
   PoupleApi,
-  'getRemoteSettings' | 'updateRemoteSettings' | 'openPairing' | 'cancelPairing' | 'listRemoteDevices' | 'revokeRemoteDevice'
+  'getRemoteSettings' | 'updateRemoteSettings' | 'getRemoteAddress' | 'openPairing' | 'cancelPairing' | 'listRemoteDevices' | 'revokeRemoteDevice'
 >;
 
 const WINDOW_MS = 2 * 60_000;
 const DEFAULT_PORT = 47821;
+/** What the mock "detects" for an `auto` host. */
+const DETECTED_ADDRESS = '203.0.113.50';
+const FINGERPRINT = '9f2c4b1a0d3e5f6791a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708';
 
 const INTERFACES: RemoteInterface[] = [
   { name: 'en0', addresses: ['192.168.1.24', 'fe80::1c2a:3bff:fe4d:5e6f'], loopback: false },
@@ -28,6 +32,10 @@ export function createMockRemote({ wait, pairAfterMs }: MockRemoteOptions): Mock
   let enabled = false;
   let interfaces: string[] = [];
   let port = 0;
+  let externalEnabled = false;
+  let externalHost = '';
+  let externalPort = 0;
+  let detectedAt = '';
   let windowEndsAt = 0;
   let pairTimer: ReturnType<typeof setTimeout> | undefined;
   let devices: RemoteDevice[] = [
@@ -49,15 +57,27 @@ export function createMockRemote({ wait, pairAfterMs }: MockRemoteOptions): Mock
     },
   ];
 
-  const view = (): RemoteSettings => ({
-    enabled,
-    interfaces: [...interfaces],
-    port: port === 0 ? DEFAULT_PORT : port,
-    available: structuredClone(INTERFACES),
-    listening: enabled ? interfaces.flatMap((name) => (INTERFACES.find((item) => item.name === name)?.addresses ?? []).map((address) => `${address.includes(':') ? `[${address}]` : address}:${port === 0 ? DEFAULT_PORT : port}`)) : [],
-    problem: '',
-    fingerprint: enabled ? '9f2c4b1a0d3e5f6791a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708' : '',
-  });
+  /** The core detects the public address only for an `auto` host while both accesses are on. */
+  const detects = (): boolean => enabled && externalEnabled && externalHost === EXTERNAL_AUTO;
+
+  const view = (): RemoteSettings => {
+    const listening = enabled ? interfaces.flatMap((name) => (INTERFACES.find((item) => item.name === name)?.addresses ?? []).map((address) => `${address.includes(':') ? `[${address}]` : address}:${port === 0 ? DEFAULT_PORT : port}`)) : [];
+    const next = {
+      enabled,
+      interfaces: [...interfaces],
+      port: port === 0 ? DEFAULT_PORT : port,
+      available: structuredClone(INTERFACES),
+      listening,
+      problem: '',
+      fingerprint: enabled ? FINGERPRINT : '',
+      externalEnabled,
+      externalHost,
+      externalPort,
+      externalDetected: detects() ? DETECTED_ADDRESS : '',
+      externalDetectedAt: detects() ? detectedAt : '',
+    };
+    return { ...next, externalReady: enabled && externalEndpoint(next) !== null && localAddress(listening) !== null };
+  };
 
   const close = (): void => {
     windowEndsAt = 0;
@@ -77,12 +97,33 @@ export function createMockRemote({ wait, pairAfterMs }: MockRemoteOptions): Mock
       if (patch.port !== undefined && patch.port !== 0 && (patch.port < 1024 || patch.port > 65535)) throw new ApiError(422, 'The port must be between 1024 and 65535.');
       const nextEnabled = patch.enabled ?? enabled;
       if (nextEnabled && nextInterfaces.length === 0) throw new ApiError(422, 'Choose the network the phone uses: Pouple never listens on every network at once.');
+      let nextHost = externalHost;
+      if (patch.externalHost !== undefined) {
+        const checked = checkExternalHost(patch.externalHost);
+        if (!checked.ok && checked.reason === 'invalid') throw new ApiError(422, `“${patch.externalHost.slice(0, 64)}” is not a valid public name or address: use a host name such as home.example.net, or an IP address, with no http://, port, path or space.`);
+        nextHost = checked.ok ? checked.host : '';
+      }
+      if (patch.externalPort !== undefined && (!Number.isInteger(patch.externalPort) || patch.externalPort < 0 || patch.externalPort > 65535)) throw new ApiError(422, 'The external port must be 0 (the same as the port above) or between 1 and 65535.');
+      const nextExternal = patch.externalEnabled ?? externalEnabled;
+      if (nextExternal && nextHost === '') throw new ApiError(422, 'Enter the public name or address of your home network to reach the Mac from outside.');
       enabled = nextEnabled;
       interfaces = [...nextInterfaces];
       port = patch.port ?? port;
+      externalEnabled = nextExternal;
+      externalHost = nextHost;
+      externalPort = patch.externalPort ?? externalPort;
+      detectedAt = new Date().toISOString();
       // The listener restarts: an open window does not survive it.
       close();
       return view();
+    },
+    async getRemoteAddress() {
+      await wait();
+      const next = view();
+      if (!enabled) throw new ApiError(409, 'Turn on access from the phone, on a network that is connected, before pairing one.');
+      const ext = externalEndpoint(next);
+      if (ext === null) throw new ApiError(409, 'Turn on access from outside and enter an address, or wait for Pouple to detect it, before sharing it with the phone.');
+      return { payload: `pouple-address:v1?ext=${encodeURIComponent(ext)}&fp=${next.fingerprint}` };
     },
     async openPairing() {
       await wait();
@@ -91,6 +132,8 @@ export function createMockRemote({ wait, pairAfterMs }: MockRemoteOptions): Mock
       const code = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
       const host = view().listening[0]?.replace(/:\d+$/, '') ?? '127.0.0.1';
       const payload = `pouple-pair:v1?hosts=${encodeURIComponent(host)}%2CMy-Mac.local&port=${port === 0 ? DEFAULT_PORT : port}&fp=${view().fingerprint}&code=${code}&name=My-Mac`;
+      const ext = externalEndpoint(view());
+      const payloadWithExt = ext === null ? payload : `${payload}&ext=${encodeURIComponent(ext)}`;
       clearTimeout(pairTimer);
       if (pairAfterMs !== null) {
         pairTimer = setTimeout(() => {
@@ -100,7 +143,7 @@ export function createMockRemote({ wait, pairAfterMs }: MockRemoteOptions): Mock
           close();
         }, pairAfterMs);
       }
-      return { payload, expiresAt: new Date(windowEndsAt).toISOString() };
+      return { payload: payloadWithExt, expiresAt: new Date(windowEndsAt).toISOString() };
     },
     async cancelPairing() {
       await wait();

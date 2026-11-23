@@ -272,6 +272,18 @@ describe('http api, phone access', () => {
     expect(calls[0]?.init.body).toBe('{"enabled":true,"interfaces":["en0"]}');
   });
 
+  it('reads the address update payload from the loopback route', async () => {
+    const { fetch, calls } = recorder(() => json(200, { payload: 'pouple-address:v1?ext=a%3A1&fp=ab' }));
+    expect(await createHttpApi(fetch).getRemoteAddress()).toEqual({ payload: 'pouple-address:v1?ext=a%3A1&fp=ab' });
+    expect(`${calls[0]?.init.method ?? 'GET'} ${calls[0]?.path}`).toMatch(/^(GET )?\/api\/remote\/address$/);
+  });
+
+  it('sends the external fields of the settings as the core names them', async () => {
+    const { fetch, calls } = recorder(() => json(200, {}));
+    await createHttpApi(fetch).updateRemoteSettings({ externalEnabled: true, externalHost: 'home.example.net', externalPort: 8443 });
+    expect(calls[0]?.init.body).toBe('{"externalEnabled":true,"externalHost":"home.example.net","externalPort":8443}');
+  });
+
   it('reads the message of a refused setting (the core sends it as `message`)', async () => {
     const { fetch } = recorder(() => json(422, { message: 'The port must be between 1024 and 65535.' }));
     await expect(createHttpApi(fetch).updateRemoteSettings({ port: 80 })).rejects.toMatchObject({ status: 422, message: 'The port must be between 1024 and 65535.' });

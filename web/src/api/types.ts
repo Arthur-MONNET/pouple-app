@@ -706,6 +706,18 @@ export interface RemoteSettings {
   problem: string;
   /** SHA-256 of the certificate, once it exists. */
   fingerprint: string;
+  /** The access from outside the home network (a port forwarded on the router). Off by default. */
+  externalEnabled: boolean;
+  /** The public name or IP address the phone uses from outside, `auto` to detect it, empty until entered. */
+  externalHost: string;
+  /** The port the router exposes; 0 is the same as `port`. */
+  externalPort: number;
+  /** The public IPv4 address found for `auto`; empty while unknown. */
+  externalDetected: string;
+  /** When `externalDetected` was last confirmed (RFC 3339); empty while unknown. */
+  externalDetectedAt: string;
+  /** The Mac's side is in place (on, an address is known, listening on a network). The router is never tested. */
+  externalReady: boolean;
 }
 
 /** Only the given fields change. */
@@ -713,6 +725,14 @@ export interface RemoteSettingsPatch {
   enabled?: boolean;
   interfaces?: string[];
   port?: number;
+  externalEnabled?: boolean;
+  externalHost?: string;
+  externalPort?: number;
+}
+
+/** The lightweight address update payload (`pouple-address:v1?ext=…&fp=…`): it holds no secret. */
+export interface AddressOffer {
+  payload: string;
 }
 
 /** An open pairing window: the payload the phone reads and the moment it closes (RFC 3339). */
