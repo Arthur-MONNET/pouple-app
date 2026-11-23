@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/net/cert_pinning.dart';
 import '../data/net/remote_client.dart';
 import '../data/net/remote_failure.dart';
+import '../data/pairing/address_payload.dart';
 import '../data/pairing/pairing_payload.dart';
 import '../data/stepup/step_up_signer.dart';
 import '../data/storage/credentials.dart';
@@ -16,7 +18,9 @@ class SessionController extends ChangeNotifier {
     required this.signer,
     RemoteClient Function(Endpoint endpoint, String? token)? clientFactory,
   }) : _clientFactory =
-           clientFactory ?? ((endpoint, token) => RemoteClient(endpoint: endpoint, token: token));
+           clientFactory ??
+           ((endpoint, token) =>
+               RemoteClient(endpoint: endpoint, token: token, routeMemory: const PrefsRouteMemory()));
 
   final CredentialStore store;
   final StepUpSigner signer;
@@ -44,7 +48,12 @@ class SessionController extends ChangeNotifier {
   Future<void> pair(PairingPayload payload) async {
     final publicKey = await signer.createKey();
     final client = _clientFactory(
-      Endpoint(hosts: payload.hosts, port: payload.port, fingerprint: payload.fingerprint),
+      Endpoint(
+        hosts: payload.hosts,
+        port: payload.port,
+        fingerprint: payload.fingerprint,
+        external: payload.external,
+      ),
       null,
     );
     try {
@@ -57,6 +66,7 @@ class SessionController extends ChangeNotifier {
         fingerprint: payload.fingerprint,
         deviceId: paired.deviceId,
         token: paired.token,
+        external: payload.external,
       );
       await store.save(credentials);
       _credentials = credentials;
@@ -67,8 +77,35 @@ class SessionController extends ChangeNotifier {
       await signer.deleteKey();
       rethrow;
     } finally {
-      client.close();
+      client.dispose();
     }
+  }
+
+  /// Keeps a new external address (the Mac announced it, or an address code carried it). Only the address changes.
+  Future<void> updateExternal(ExternalAddress address) async {
+    final current = _credentials;
+    if (current == null || current.external == address) return;
+    final updated = current.withExternal(address);
+    await store.save(updated);
+    _credentials = updated;
+    notifyListeners();
+  }
+
+  /// Applies an address update code. It is accepted only when it carries the fingerprint of the paired Mac.
+  /// Throws an [AddressUpdateException] otherwise.
+  Future<void> applyAddress(AddressPayload payload) async {
+    final current = _credentials;
+    if (current == null) {
+      throw const AddressUpdateException(
+        'Pair this phone with the Mac first: an address code only updates a pairing.',
+      );
+    }
+    if (!hexEqual(payload.fingerprint, current.fingerprint)) {
+      throw const AddressUpdateException(
+        'This address code is from another Mac (its certificate is different). Nothing was changed.',
+      );
+    }
+    await updateExternal(payload.external);
   }
 
   /// Unpairs: tells the Mac when it can be reached, then forgets the token and the key either way.
@@ -81,7 +118,7 @@ class SessionController extends ChangeNotifier {
       } on RemoteFailure {
         // The Mac may be away: the token is dropped here, and can be revoked on the Mac later.
       } finally {
-        client.close();
+        client.dispose();
       }
     }
     await forget(null);
@@ -106,4 +143,14 @@ String sanitizeDeviceName(String name) {
   final cleaned = name.replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}\p{P} ]', unicode: true), '').trim();
   if (cleaned.isEmpty) return 'Android phone';
   return cleaned.length > 64 ? cleaned.substring(0, 64).trim() : cleaned;
+}
+
+/// An address update code that was not applied, with a reason that can be shown.
+class AddressUpdateException implements Exception {
+  const AddressUpdateException(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'AddressUpdateException: $reason';
 }

@@ -7,9 +7,12 @@ import 'package:crypto/crypto.dart';
 String certificateFingerprint(Uint8List der) => sha256.convert(der).toString();
 
 /// Whether [der] is the pinned certificate. The comparison does not stop at the first different character.
-bool fingerprintMatches(Uint8List der, String pinnedHex) {
-  final actual = certificateFingerprint(der);
-  final expected = pinnedHex.toLowerCase();
+bool fingerprintMatches(Uint8List der, String pinnedHex) => hexEqual(certificateFingerprint(der), pinnedHex);
+
+/// Case-insensitive comparison of two hex strings that does not stop at the first different character.
+bool hexEqual(String a, String b) {
+  final actual = a.toLowerCase();
+  final expected = b.toLowerCase();
   if (actual.length != expected.length) return false;
   var difference = 0;
   for (var i = 0; i < actual.length; i++) {
@@ -23,7 +26,7 @@ bool fingerprintMatches(Uint8List der, String pinnedHex) {
 HttpClient createPinnedHttpClient(String pinnedHex) {
   final client = HttpClient(context: SecurityContext(withTrustedRoots: false));
   client.badCertificateCallback = (certificate, host, port) => fingerprintMatches(certificate.der, pinnedHex);
-  client.connectionTimeout = const Duration(seconds: 6);
+  client.connectionTimeout = const Duration(seconds: 10);
   client.idleTimeout = const Duration(seconds: 30);
   return client;
 }

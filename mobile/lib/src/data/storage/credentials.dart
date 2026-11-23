@@ -14,6 +14,7 @@ class Credentials {
     required this.fingerprint,
     required this.deviceId,
     required this.token,
+    this.external,
   });
 
   factory Credentials.fromJson(Object? value) {
@@ -25,6 +26,8 @@ class Credentials {
       fingerprint: json.string('fingerprint'),
       deviceId: json.string('deviceId'),
       token: json.string('token'),
+      // Pairings made before the external address existed have none; a damaged value counts as none.
+      external: ExternalAddress.tryParse(json.optString('external')),
     );
   }
 
@@ -37,7 +40,21 @@ class Credentials {
   /// The bearer token. Never printed, never logged, never backed up.
   final String token;
 
-  Endpoint get endpoint => Endpoint(hosts: hosts, port: port, fingerprint: fingerprint);
+  /// Where the Mac is reachable from outside the home network, when it is.
+  final ExternalAddress? external;
+
+  Endpoint get endpoint => Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: external);
+
+  /// The same pairing with another external address: the token, the keys and the home addresses stay.
+  Credentials withExternal(ExternalAddress address) => Credentials(
+    macName: macName,
+    hosts: hosts,
+    port: port,
+    fingerprint: fingerprint,
+    deviceId: deviceId,
+    token: token,
+    external: address,
+  );
 
   Map<String, Object?> toJson() => {
     'macName': macName,
@@ -46,11 +63,31 @@ class Credentials {
     'fingerprint': fingerprint,
     'deviceId': deviceId,
     'token': token,
+    if (external != null) 'external': external.toString(),
   };
 
   /// A description without the token.
   @override
   String toString() => 'Credentials(device: $deviceId, mac: $macName)';
+}
+
+/// The one way to build the client of a paired phone, used by the foreground, the stream and the background check:
+/// same candidate order, same route memory, same pinning.
+RemoteClient createPairedClient(
+  Credentials credentials, {
+  Future<void> Function(ExternalAddress address)? onExternalChanged,
+}) => RemoteClient(
+  endpoint: credentials.endpoint,
+  token: credentials.token,
+  routeMemory: const PrefsRouteMemory(),
+  onExternalChanged: onExternalChanged,
+);
+
+/// Stores a new external address in the saved pairing, and nothing else.
+Future<void> saveExternal(CredentialStore store, ExternalAddress address) async {
+  final current = await store.load();
+  if (current == null || current.external == address) return;
+  await store.save(current.withExternal(address));
 }
 
 /// Where the credentials live.

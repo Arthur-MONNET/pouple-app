@@ -133,6 +133,22 @@ void main() {
     expect(find.textContaining('Mac unreachable since'), findsOneWidget);
   });
 
+  testWidgets('an unreachable Mac says its address may have changed and offers the update', (tester) async {
+    final harness = _Harness(snapshotOf([]), failure: const RemoteFailure(FailureKind.unreachable));
+    await harness.pump(tester);
+    expect(find.textContaining('address may have changed'), findsOneWidget);
+    await tester.tap(find.text('Update address'));
+    await tester.pumpAndSettle();
+    expect(find.text('Scan the address code'), findsOneWidget);
+    expect(find.text("Update the Mac's address"), findsOneWidget);
+  });
+
+  testWidgets('a changed certificate does not offer the address update', (tester) async {
+    final harness = _Harness(snapshotOf([]), failure: const RemoteFailure(FailureKind.certificateMismatch));
+    await harness.pump(tester);
+    expect(find.text('Update address'), findsNothing);
+  });
+
   testWidgets('a changed certificate is not presented as a sleeping Mac', (tester) async {
     final harness = _Harness(snapshotOf([]), failure: const RemoteFailure(FailureKind.certificateMismatch));
     await harness.pump(tester);

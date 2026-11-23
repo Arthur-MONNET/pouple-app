@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
 import '../data/net/remote_failure.dart';
+import '../data/pairing/address_payload.dart';
 import '../data/pairing/pairing_payload.dart';
 import '../data/stepup/step_up_signer.dart';
 import '../domain/session.dart';
@@ -29,6 +30,13 @@ class _PairingScreenState extends State<PairingScreen> {
 
   Future<void> _pair(String text) async {
     if (_pairing) return;
+    if (payloadKind(text) == PayloadKind.address) {
+      setState(() {
+        _error = 'This is an address update code. Pair this phone with a pairing code first.';
+        _scanning = false;
+      });
+      return;
+    }
     final PairingPayload payload;
     try {
       payload = PairingPayload.parse(text);
@@ -73,7 +81,7 @@ class _PairingScreenState extends State<PairingScreen> {
           onDetect: (capture) {
             for (final barcode in capture.barcodes) {
               final value = barcode.rawValue;
-              if (value != null && value.startsWith('pouple-pair:')) {
+              if (value != null && payloadKind(value) != PayloadKind.unknown) {
                 _pair(value);
                 return;
               }
@@ -97,7 +105,7 @@ class _PairingScreenState extends State<PairingScreen> {
         children: [
           Text(
             'On your Mac, open Pouple settings, turn on remote access, choose the network and pair a phone. '
-            'Both devices must be on the same network.',
+            'Pair while both devices are on the same network.',
             style: theme.textTheme.bodyLarge,
           ),
           if (notice != null) ...[const SizedBox(height: 16), _Message(text: notice, error: false)],
