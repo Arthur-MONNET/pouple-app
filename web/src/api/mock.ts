@@ -4,6 +4,7 @@ import { codexConnector, codexProfile, createAlerts, createFixtures, createMemor
 import { checkExtraValues, extraConnectors, extraProfile, isExtraId } from './mockExtras';
 import { mockText } from './mockText';
 import { mockProviderModels, mockProviderTest, mockProviders } from './mockProviders';
+import { createMockRemote } from './mockRemote';
 import { mockCheckResult, mockUpdateInfo, type UpdateScenario } from './mockUpdate';
 import type {
   ActionEvent,
@@ -105,6 +106,8 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
   const channel = (): UpdateChannel => (settings.betaUpdates ? 'beta' : 'stable');
 
   const wait = (): Promise<void> => sleep(latency);
+  // A phone pairs by itself a few seconds after the window opens, so the live list can be seen working.
+  const remote = createMockRemote({ wait, pairAfterMs: latency === 0 ? null : 8000 });
   /** With no latency (tests) nothing waits; otherwise the pauses of slow operations keep their real feel. */
   const slow = (ms: number): number => (latency === 0 ? 0 : ms);
 
@@ -283,6 +286,8 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
       if (patch.uiLanguage && patch.uiLanguage !== lang) switchLanguage(patch.uiLanguage);
       return structuredClone(settings);
     },
+
+    ...remote,
 
     async getProviders() {
       await wait();

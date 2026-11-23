@@ -10,6 +10,7 @@ import InlineError from '../components/InlineError.vue';
 import SettingsRow from '../components/SettingsRow.vue';
 import SettingsSection from '../components/SettingsSection.vue';
 import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
+import PhoneSettings from '../components/PhoneSettings.vue';
 import UpdateSection from '../components/UpdateSection.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { useAutoSave } from '../composables/useAutoSave';
@@ -24,7 +25,7 @@ const language = useLanguage();
 const route = useRoute();
 
 /** The categories of the menu, in order, then those of the connected connectors that have settings. */
-const CATEGORIES = ['general', 'projects', 'ai', 'assistant', 'updates'] as const;
+const CATEGORIES = ['general', 'projects', 'ai', 'assistant', 'phone', 'updates'] as const;
 const connectors = useConnectorsStore();
 onMounted(() => void connectors.refresh());
 const connectorCategories = computed(() => connectors.connectors.value.filter((item) => item.connected && hasSettings(item.descriptor.id)));
@@ -171,6 +172,9 @@ function onInterfaceLanguage(event: Event): void {
         </SettingsSection>
 
         <div v-show="category === 'assistant'" class="flex flex-col gap-6"><StyleSettings /><MemorySettings /></div>
+
+        <!-- v-if, not v-show: the screen polls while a pairing window is open, and must stop when it is left. -->
+        <PhoneSettings v-if="category === 'phone'" />
 
         <div v-show="category === 'updates'"><UpdateSection /></div>
 

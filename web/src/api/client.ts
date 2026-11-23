@@ -25,6 +25,10 @@ import type {
   ProviderModels,
   ProviderTestResult,
   ProvidersInfo,
+  PairingOffer,
+  RemoteDevice,
+  RemoteSettings,
+  RemoteSettingsPatch,
   Settings,
   SettingsPatch,
   StyleInfo,
@@ -67,6 +71,17 @@ export interface PoupleApi {
   getProviderModels(id: string): Promise<ProviderModels>;
   /** Runs one minimal turn with the AI (and the model, when given): it counts as one turn of the daily limit. */
   testProvider(id: string, model?: string): Promise<ProviderTestResult>;
+
+  getRemoteSettings(): Promise<RemoteSettings>;
+  /** Changes only the given fields and restarts the listener; rejects with a 422 ApiError when a value is refused. */
+  updateRemoteSettings(patch: RemoteSettingsPatch): Promise<RemoteSettings>;
+  /** Opens a pairing window (2 minutes). Rejects with 409 when the access is off or not listening. */
+  openPairing(): Promise<PairingOffer>;
+  cancelPairing(): Promise<void>;
+  /** The paired phones, newest first. */
+  listRemoteDevices(): Promise<RemoteDevice[]>;
+  /** Ends a phone's access for good; rejects with 404 for an unknown id. */
+  revokeRemoteDevice(id: string): Promise<void>;
 
   /** The last known update state; never waits for a check. */
   getUpdate(): Promise<UpdateInfo>;
@@ -208,6 +223,13 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
 
     getSettings: () => read<Settings>('/api/settings'),
     updateSettings: (patch) => read<Settings>('/api/settings', { method: 'PUT' }, patch),
+
+    getRemoteSettings: () => read<RemoteSettings>('/api/remote/settings'),
+    updateRemoteSettings: (patch) => read<RemoteSettings>('/api/remote/settings', { method: 'PUT' }, patch),
+    openPairing: () => read<PairingOffer>('/api/remote/pairing', { method: 'POST' }, {}),
+    cancelPairing: async () => void (await send('/api/remote/pairing', { method: 'DELETE' })),
+    listRemoteDevices: async () => (await read<{ devices: RemoteDevice[] | null }>('/api/remote/devices')).devices ?? [],
+    revokeRemoteDevice: async (id) => void (await send(`/api/remote/devices/${enc(id)}`, { method: 'DELETE' })),
 
     getProviders: () => read<ProvidersInfo>('/api/providers'),
     getProviderModels: (id) => read<ProviderModels>(`/api/providers/${enc(id)}/models`),

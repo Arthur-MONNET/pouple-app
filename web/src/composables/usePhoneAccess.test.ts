@@ -1,0 +1,217 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { effectScope } from 'vue';
+import { ApiError, type PoupleApi } from '../api/client';
+import type { PairingOffer, RemoteDevice, RemoteSettings } from '../api/types';
+import { DEVICE_POLL_MS, usePhoneAccess } from './usePhoneAccess';
+
+const settingsOf = (patch: Partial<RemoteSettings> = {}): RemoteSettings => ({
+  enabled: true,
+  interfaces: ['en0'],
+  port: 47821,
+  available: [{ name: 'en0', addresses: ['192.168.1.24'], loopback: false }],
+  listening: ['192.168.1.24:47821'],
+  problem: '',
+  fingerprint: 'ab',
+  ...patch,
+});
+
+const phone = (id: string, patch: Partial<RemoteDevice> = {}): RemoteDevice => ({ id, name: `Phone ${id}`, createdAt: '2026-11-01T10:00:00Z', lastSeen: '2026-11-01T10:00:00Z', revoked: false, expired: false, ...patch });
+
+type Remote = Pick<PoupleApi, 'getRemoteSettings' | 'updateRemoteSettings' | 'openPairing' | 'cancelPairing' | 'listRemoteDevices' | 'revokeRemoteDevice'>;
+
+function setup(overrides: Partial<Remote> = {}) {
+  let devices: RemoteDevice[] = [phone('old')];
+  let nextSettings = settingsOf();
+  const api = {
+    getRemoteSettings: vi.fn(() => Promise.resolve(nextSettings)),
+    updateRemoteSettings: vi.fn((patch) => Promise.resolve((nextSettings = { ...nextSettings, ...patch }))),
+    openPairing: vi.fn((): Promise<PairingOffer> => Promise.resolve({ payload: 'pouple-pair:v1?code=1', expiresAt: new Date(Date.now() + 120_000).toISOString() })),
+    cancelPairing: vi.fn(() => Promise.resolve()),
+    listRemoteDevices: vi.fn(() => Promise.resolve(structuredClone(devices))),
+    revokeRemoteDevice: vi.fn(() => Promise.resolve()),
+    ...overrides,
+  } satisfies Remote;
+  const scope = effectScope();
+  const access = scope.run(() => usePhoneAccess(api as unknown as PoupleApi))!;
+  return { api, access, scope, setDevices: (next: RemoteDevice[]) => (devices = next) };
+}
+
+describe('phone access', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('loads the settings and the devices, and says why when it cannot', async () => {
+    const { access } = setup();
+    await access.load();
+    expect(access.loading.value).toBe(false);
+    expect(access.settings.value?.port).toBe(47821);
+    expect(access.devices.value).toHaveLength(1);
+    expect(access.canPair.value).toBe(true);
+
+    const failing = setup({ getRemoteSettings: vi.fn(() => Promise.reject(new ApiError(500, 'Something went wrong'))) });
+    await failing.access.load();
+    expect(failing.access.loadError.value).toBe('Something went wrong');
+    expect(failing.access.settings.value).toBeNull();
+  });
+
+  it('cannot pair while the access is off or not listening', async () => {
+    const { access, api } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(settingsOf({ enabled: false, listening: [] }))) });
+    await access.load();
+    expect(access.canPair.value).toBe(false);
+    await access.startPairing();
+    expect(api.openPairing).not.toHaveBeenCalled();
+    expect(access.phase.value).toBe('idle');
+  });
+
+  it('opens a window, counts down, and expires by itself', async () => {
+    const { access, api } = setup();
+    await access.load();
+    await access.startPairing();
+    expect(access.phase.value).toBe('open');
+    expect(access.remaining.value).toBe(120);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(access.remaining.value).toBe(90);
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(access.phase.value).toBe('expired');
+    expect(access.remaining.value).toBe(0);
+    const calls = vi.mocked(api.listRemoteDevices).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20_000);
+    // The poll stopped with the window.
+    expect(vi.mocked(api.listRemoteDevices).mock.calls.length).toBe(calls);
+  });
+
+  it('ignores a second click while the window is opening or open', async () => {
+    const { access, api } = setup();
+    await access.load();
+    const first = access.startPairing();
+    await access.startPairing();
+    await first;
+    await access.startPairing();
+    expect(api.openPairing).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the core message when the window cannot open', async () => {
+    const { access } = setup({ openPairing: vi.fn(() => Promise.reject(new ApiError(409, 'Remote access is off.'))) });
+    await access.load();
+    await access.startPairing();
+    expect(access.phase.value).toBe('idle');
+    expect(access.pairingError.value).toBe('Remote access is off.');
+    expect(access.offer.value).toBeNull();
+  });
+
+  it('refreshes the devices while the window is open and notices the phone that paired', async () => {
+    const { access, setDevices } = setup();
+    await access.load();
+    await access.startPairing();
+    setDevices([phone('new'), phone('old')]);
+    await vi.advanceTimersByTimeAsync(DEVICE_POLL_MS);
+    expect(access.phase.value).toBe('paired');
+    expect(access.pairedName.value).toBe('Phone new');
+    expect(access.devices.value?.map((item) => item.id)).toEqual(['new', 'old']);
+  });
+
+  it('cancels the window on the Mac and stops the timers', async () => {
+    const { access, api } = setup();
+    await access.load();
+    await access.startPairing();
+    await access.cancelPairing();
+    expect(api.cancelPairing).toHaveBeenCalledTimes(1);
+    expect(access.phase.value).toBe('idle');
+    const calls = vi.mocked(api.listRemoteDevices).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(vi.mocked(api.listRemoteDevices).mock.calls.length).toBe(calls);
+  });
+
+  it('closes a window whose opening finished after the cancel', async () => {
+    let release: (offer: PairingOffer) => void = () => undefined;
+    const { access, api } = setup({ openPairing: vi.fn(() => new Promise<PairingOffer>((resolve) => (release = resolve))) });
+    await access.load();
+    const starting = access.startPairing();
+    await vi.advanceTimersByTimeAsync(0);
+    await access.cancelPairing();
+    release({ payload: 'p', expiresAt: new Date(Date.now() + 120_000).toISOString() });
+    await starting;
+    expect(access.phase.value).toBe('idle');
+    expect(access.offer.value).toBeNull();
+    // Once for the cancel, once for the window that opened late.
+    expect(api.cancelPairing).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops everything and closes the window when the screen goes away', async () => {
+    const { access, api, scope } = setup();
+    await access.load();
+    await access.startPairing();
+    scope.stop();
+    expect(api.cancelPairing).toHaveBeenCalledTimes(1);
+    const calls = vi.mocked(api.listRemoteDevices).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(vi.mocked(api.listRemoteDevices).mock.calls.length).toBe(calls);
+  });
+
+  it('keeps the newest list when an older answer comes back late', async () => {
+    const resolvers: ((devices: RemoteDevice[]) => void)[] = [];
+    const { access } = setup({ listRemoteDevices: vi.fn(() => new Promise<RemoteDevice[]>((resolve) => resolvers.push(resolve))) });
+    const first = access.refreshDevices();
+    const second = access.refreshDevices();
+    resolvers[1]?.([phone('fresh')]);
+    await second;
+    resolvers[0]?.([phone('stale')]);
+    await first;
+    expect(access.devices.value?.map((item) => item.id)).toEqual(['fresh']);
+  });
+
+  it('picks the usual network when the access is turned on with none chosen', async () => {
+    const off = settingsOf({ enabled: false, interfaces: [], listening: [], available: [{ name: 'lo0', addresses: ['127.0.0.1'], loopback: true }, { name: 'en0', addresses: ['192.168.1.24'], loopback: false }] });
+    const { access, api } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(off)) });
+    await access.load();
+    await access.save({ enabled: true });
+    expect(api.updateRemoteSettings).toHaveBeenCalledWith({ enabled: true, interfaces: ['en0'] });
+  });
+
+  it('sends one save at a time and keeps the core message of a refusal', async () => {
+    let fail = true;
+    const update = vi.fn(() => (fail ? Promise.reject(new ApiError(422, 'The port must be between 1024 and 65535.')) : Promise.resolve(settingsOf({ port: 5000 }))));
+    const { access } = setup({ updateRemoteSettings: update });
+    await access.load();
+    const first = access.save({ port: 80 });
+    expect(await access.save({ port: 81 })).toBe(false);
+    expect(await first).toBe(false);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(access.saveError.value).toBe('The port must be between 1024 and 65535.');
+    fail = false;
+    expect(await access.save({ port: 5000 })).toBe(true);
+    expect(access.saveError.value).toBeNull();
+    expect(access.settings.value?.port).toBe(5000);
+  });
+
+  it('drops the open window when a setting changes: the listener restarted', async () => {
+    const { access } = setup();
+    await access.load();
+    await access.startPairing();
+    await access.save({ port: 5000 });
+    expect(access.phase.value).toBe('idle');
+    expect(access.offer.value).toBeNull();
+  });
+
+  it('revokes a device once, refreshes the list, and reports a refusal', async () => {
+    let release: () => void = () => undefined;
+    const revoke = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    const { access } = setup({ revokeRemoteDevice: revoke });
+    await access.load();
+    const running = access.revoke('old');
+    expect(access.revoking.value.has('old')).toBe(true);
+    expect(await access.revoke('old')).toBe(false);
+    release();
+    expect(await running).toBe(true);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(access.revoking.value.has('old')).toBe(false);
+
+    const refused = setup({ revokeRemoteDevice: vi.fn(() => Promise.reject(new ApiError(404, 'This device is not paired.'))) });
+    await refused.access.load();
+    expect(await refused.access.revoke('ghost')).toBe(false);
+    expect(refused.access.revokeError.value).toBe('This device is not paired.');
+  });
+});

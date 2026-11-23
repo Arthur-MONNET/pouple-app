@@ -248,3 +248,32 @@ describe('http api, memory', () => {
     expect(error).toMatchObject({ status: 409, message: 'the memory is off' });
   });
 });
+
+describe('http api, phone access', () => {
+  it('reads the devices, and an empty list sent as null', async () => {
+    const { fetch, calls } = recorder(() => json(200, { devices: null }));
+    expect(await createHttpApi(fetch).listRemoteDevices()).toEqual([]);
+    expect(calls[0]?.path).toBe('/api/remote/devices');
+  });
+
+  it('uses the routes of the core for the settings, the pairing window and a revocation', async () => {
+    const { fetch, calls } = recorder((path, init) => (init.method === 'DELETE' ? new Response(null, { status: 204 }) : json(path.endsWith('/pairing') ? 201 : 200, { payload: 'p', expiresAt: 'x' })));
+    const api = createHttpApi(fetch);
+    await api.updateRemoteSettings({ enabled: true, interfaces: ['en0'] });
+    await api.openPairing();
+    await api.cancelPairing();
+    await api.revokeRemoteDevice('a/b');
+    expect(calls.map((call) => `${call.init.method} ${call.path}`)).toEqual([
+      'PUT /api/remote/settings',
+      'POST /api/remote/pairing',
+      'DELETE /api/remote/pairing',
+      'DELETE /api/remote/devices/a%2Fb',
+    ]);
+    expect(calls[0]?.init.body).toBe('{"enabled":true,"interfaces":["en0"]}');
+  });
+
+  it('reads the message of a refused setting (the core sends it as `message`)', async () => {
+    const { fetch } = recorder(() => json(422, { message: 'The port must be between 1024 and 65535.' }));
+    await expect(createHttpApi(fetch).updateRemoteSettings({ port: 80 })).rejects.toMatchObject({ status: 422, message: 'The port must be between 1024 and 65535.' });
+  });
+});
