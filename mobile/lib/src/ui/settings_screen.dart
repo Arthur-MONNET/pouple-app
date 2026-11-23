@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../data/net/remote_client.dart';
 import '../data/storage/credentials.dart';
 import '../domain/app_lock.dart';
 import '../domain/session.dart';
 import '../notifications/attention_notifier.dart';
 import '../notifications/background_check.dart';
+import 'scoped_route.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -40,6 +42,13 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         children: [
           if (credentials != null) _Mac(credentials: credentials),
+          if (credentials != null) _Connection(external: credentials.external),
+          ListTile(
+            leading: const Icon(Icons.qr_code_scanner),
+            title: const Text("Update the Mac's address"),
+            subtitle: const Text('Scan the address code the Mac shows when its Internet address changed.'),
+            onTap: () => openAddressUpdate(context),
+          ),
           const Divider(),
           SwitchListTile(
             title: const Text('App lock'),
@@ -86,9 +95,36 @@ class _Mac extends StatelessWidget {
       leading: const Icon(Icons.laptop_mac),
       title: Text(credentials.macName),
       subtitle: Text(
-        'Certificate ${fingerprint.substring(0, 16)}…\n${credentials.hosts.join(', ')}:${credentials.port}',
+        'Certificate ${fingerprint.substring(0, 16)}…\nHome network: ${credentials.hosts.join(', ')}:${credentials.port}',
       ),
       isThreeLine: true,
+    );
+  }
+}
+
+/// Which route the last connection took, and the external address when there is one.
+class _Connection extends StatelessWidget {
+  const _Connection({required this.external});
+
+  final ExternalAddress? external;
+
+  @override
+  Widget build(BuildContext context) {
+    final client = Provider.of<RemoteClient?>(context, listen: false);
+    final externalLine = external == null ? 'No outside address set.' : 'Outside address: $external';
+    Widget tile(NetworkRoute? route) {
+      final (icon, title) = switch (route) {
+        NetworkRoute.home => (Icons.home_outlined, 'Connected through your home network'),
+        NetworkRoute.outside => (Icons.public, 'Connected from outside, through the Internet'),
+        null => (Icons.sync_alt, 'Not connected yet'),
+      };
+      return ListTile(leading: Icon(icon), title: Text(title), subtitle: Text(externalLine));
+    }
+
+    if (client == null) return tile(null);
+    return ValueListenableBuilder<NetworkRoute?>(
+      valueListenable: client.route,
+      builder: (context, route, _) => tile(route),
     );
   }
 }

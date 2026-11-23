@@ -24,6 +24,9 @@ class FakeMac {
   final HttpServer _server;
   final List<Seen> seen = [];
 
+  /// Requests for the external address (the app asks after each connection), kept apart from [seen].
+  final List<Seen> endpointChecks = [];
+
   /// Answers by "METHOD path"; the default is 204.
   final Map<String, (int, Object?)> answers = {};
 
@@ -50,7 +53,8 @@ class FakeMac {
   Future<void> _handle(HttpRequest request) async {
     final body = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
     final key = '${request.method} ${request.uri.path}';
-    seen.add(Seen(request.method, request.uri.path, request.headers, body));
+    final entry = Seen(request.method, request.uri.path, request.headers, body);
+    (request.uri.path == '/remote/v1/endpoint' ? endpointChecks : seen).add(entry);
     final answer = answers[key];
     if (answer == null && request.uri.path == '/remote/v1/challenge') {
       request.response

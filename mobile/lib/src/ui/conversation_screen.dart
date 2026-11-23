@@ -6,6 +6,7 @@ import '../domain/conversation_actions.dart';
 import '../domain/conversations_controller.dart';
 import '../domain/decisions.dart';
 import 'decision_cards.dart';
+import 'scoped_route.dart';
 import 'status_banner.dart';
 import 'status_chip.dart';
 
@@ -101,7 +102,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ),
       body: Column(
         children: [
-          LinkBanner(controller: controller),
+          LinkBanner(controller: controller, onUpdateAddress: () => openAddressUpdate(context)),
           Expanded(
             child: ListView(
               controller: _scroll,

@@ -3,20 +3,42 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/assistant.dart';
 import '../models/json_reader.dart';
 import 'cert_pinning.dart';
+import 'external_address.dart';
 import 'remote_failure.dart';
+import 'route_memory.dart';
 import 'sse_parser.dart';
+
+export 'external_address.dart';
+export 'route_memory.dart';
 
 /// Where the Mac listens and the certificate to pin.
 class Endpoint {
-  const Endpoint({required this.hosts, required this.port, required this.fingerprint});
+  const Endpoint({required this.hosts, required this.port, required this.fingerprint, this.external});
 
-  /// Addresses to try in order. An IPv6 address has no brackets here.
+  /// Home network addresses to try in order. An IPv6 address has no brackets here.
   final List<String> hosts;
   final int port;
   final String fingerprint;
+
+  /// Where the router exposes the Mac to the Internet, if it does.
+  final ExternalAddress? external;
+
+  Endpoint withExternal(ExternalAddress? address) =>
+      Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: address);
+}
+
+/// One address to try, and which way it goes. The pinned fingerprint is the same for every candidate.
+class Candidate {
+  const Candidate(this.host, this.port, this.route);
+
+  final String host;
+  final int port;
+  final NetworkRoute route;
 }
 
 /// A fingerprint step-up that goes with one request.
@@ -41,28 +63,57 @@ class RemoteResponse {
 
 /// The Mac's phone API over TLS with a pinned certificate.
 ///
-/// Never logs a token, a body or an answer.
+/// Tries the home network addresses first (with a short timeout), then the external address, and remembers which
+/// route worked. A certificate that is not the pinned one is a hard failure on any of them: it never falls back to
+/// another address. Never logs a token, a body, an answer or an address.
 class RemoteClient {
   RemoteClient({
-    required this.endpoint,
+    required this._endpoint,
     this.token,
     HttpClient Function(String fingerprint)? clientFactory,
     this.scheme = 'https',
     this.requestTimeout = const Duration(seconds: 20),
+    this.homeConnectTimeout = const Duration(milliseconds: 2500),
+    this.outsideConnectTimeout = const Duration(seconds: 8),
+    this.routeMemory,
+    this.onExternalChanged,
   }) : _factory = clientFactory ?? createPinnedHttpClient;
 
-  final Endpoint endpoint;
   final String? token;
 
   /// Always `https`; tests with a plain loopback server use `http`.
   final String scheme;
   final Duration requestTimeout;
+
+  /// How long a home network address gets to answer before the next candidate is tried.
+  final Duration homeConnectTimeout;
+  final Duration outsideConnectTimeout;
+  final RouteMemory? routeMemory;
+
+  /// Called after the Mac told, over an authenticated pinned connection, that its external address changed.
+  final Future<void> Function(ExternalAddress address)? onExternalChanged;
   final HttpClient Function(String fingerprint) _factory;
 
+  Endpoint _endpoint;
   HttpClient? _client;
   String? _lastGoodHost;
+  NetworkRoute? _lastRoute;
+  bool _memoryLoaded = false;
+  bool _needsSync = true;
+  Future<void>? _pendingSync;
 
-  HttpClient get _http => _client ??= _factory(endpoint.fingerprint);
+  /// The route of the last successful connection; null until one worked.
+  final ValueNotifier<NetworkRoute?> route = ValueNotifier(null);
+
+  Endpoint get endpoint => _endpoint;
+
+  /// Uses a new external address (from an address update code) without touching anything else.
+  void useExternal(ExternalAddress? address) {
+    if (address == null || address == _endpoint.external) return;
+    _endpoint = _endpoint.withExternal(address);
+  }
+
+  HttpClient get _http => _client ??= _factory(_endpoint.fingerprint);
 
   /// Closes open connections, streams included.
   void close() {
@@ -70,16 +121,73 @@ class RemoteClient {
     _client = null;
   }
 
-  List<String> get _hostsInOrder {
-    final good = _lastGoodHost;
-    if (good == null || !endpoint.hosts.contains(good)) return endpoint.hosts;
-    return [good, ...endpoint.hosts.where((host) => host != good)];
+  /// Releases what the screens listen to. Call once, when the client is thrown away.
+  void dispose() {
+    close();
+    route.dispose();
   }
 
-  Uri _uri(String host, String path, Map<String, String>? query) =>
-      Uri(scheme: scheme, host: host, port: endpoint.port, path: path, queryParameters: query);
+  /// Waits for the address check that follows a successful connection (the background check awaits it before it
+  /// closes the client).
+  Future<void> settle() => _pendingSync ?? Future<void>.value();
 
-  /// Sends one request, trying each address until one answers.
+  /// Home addresses first, then the external one; the route that worked last goes first.
+  @visibleForTesting
+  List<Candidate> candidates() {
+    final good = _lastGoodHost;
+    final hosts = good == null || !_endpoint.hosts.contains(good)
+        ? _endpoint.hosts
+        : [good, ..._endpoint.hosts.where((host) => host != good)];
+    final home = [for (final host in hosts) Candidate(host, _endpoint.port, NetworkRoute.home)];
+    final external = _endpoint.external;
+    final outside = [if (external != null) Candidate(external.host, external.port, NetworkRoute.outside)];
+    return _lastRoute == NetworkRoute.outside ? [...outside, ...home] : [...home, ...outside];
+  }
+
+  Future<void> _loadMemory() async {
+    if (_memoryLoaded) return;
+    _memoryLoaded = true;
+    _lastRoute ??= await routeMemory?.read();
+  }
+
+  Future<void> _succeeded(Candidate candidate) async {
+    if (candidate.route == NetworkRoute.home) _lastGoodHost = candidate.host;
+    final changed = _lastRoute != candidate.route;
+    _lastRoute = candidate.route;
+    route.value = candidate.route;
+    if (changed) await routeMemory?.write(candidate.route);
+  }
+
+  Duration _connectTimeout(Candidate candidate) =>
+      candidate.route == NetworkRoute.home ? homeConnectTimeout : outsideConnectTimeout;
+
+  Uri _uri(Candidate candidate, String path, Map<String, String>? query) =>
+      Uri(scheme: scheme, host: candidate.host, port: candidate.port, path: path, queryParameters: query);
+
+  /// After a (re)connection, asks the Mac for its current external address and keeps it when it is a valid,
+  /// different one. A failed or malformed answer changes nothing.
+  void _learnExternal() {
+    if (!_needsSync || token == null || _pendingSync != null) return;
+    _needsSync = false;
+    final done = _askExternal();
+    _pendingSync = done;
+    unawaited(done.whenComplete(() => _pendingSync = null));
+  }
+
+  Future<void> _askExternal() async {
+    try {
+      final response = await request('GET', '/remote/v1/endpoint', learn: false);
+      final text = JsonObject.of(response.json).optString('ext');
+      final learned = ExternalAddress.tryParse(text);
+      if (learned == null || learned == _endpoint.external) return;
+      _endpoint = _endpoint.withExternal(learned);
+      await onExternalChanged?.call(learned);
+    } on Object {
+      // An older Mac, a bad answer or a lost link: the stored address stays.
+    }
+  }
+
+  /// Sends one request, trying each candidate address until one answers.
   Future<RemoteResponse> request(
     String method,
     String path, {
@@ -87,34 +195,37 @@ class RemoteClient {
     Map<String, String>? query,
     StepUpHeaders? stepUp,
     bool authenticated = true,
+    bool learn = true,
   }) async {
-    Object? lastError;
-    for (final host in _hostsInOrder) {
+    await _loadMemory();
+    for (final candidate in candidates()) {
       try {
-        final request = await _http.openUrl(method, _uri(host, path, query)).timeout(requestTimeout);
+        final request = await _http
+            .openUrl(method, _uri(candidate, path, query))
+            .timeout(_connectTimeout(candidate));
         _decorate(request, authenticated: authenticated, stepUp: stepUp, hasBody: body != null);
         if (body != null) request.add(body);
         final response = await request.close().timeout(requestTimeout);
         _checkCertificate(response);
         final bytes = await _readAll(response).timeout(requestTimeout);
-        _lastGoodHost = host;
+        await _succeeded(candidate);
+        if (learn && authenticated) _learnExternal();
         return _checked(RemoteResponse(response.statusCode, bytes));
       } on RemoteFailure {
         rethrow;
-      } on HandshakeException {
-        lastError = const RemoteFailure(FailureKind.certificateMismatch);
       } on TlsException {
-        lastError = const RemoteFailure(FailureKind.certificateMismatch);
+        // Not the pinned certificate (or not a Mac at all): never try another address after that.
+        throw const RemoteFailure(FailureKind.certificateMismatch);
       } on SocketException {
-        lastError = const RemoteFailure(FailureKind.unreachable);
+        continue;
       } on TimeoutException {
-        lastError = const RemoteFailure(FailureKind.unreachable);
+        continue;
       } on HttpException {
-        lastError = const RemoteFailure(FailureKind.unreachable);
+        continue;
       }
     }
-    // A pinned-certificate refusal on the last address is the more useful reason to give.
-    throw lastError is RemoteFailure ? lastError : const RemoteFailure(FailureKind.unreachable);
+    _needsSync = true;
+    throw const RemoteFailure(FailureKind.unreachable);
   }
 
   void _decorate(
@@ -139,7 +250,7 @@ class RemoteClient {
   void _checkCertificate(HttpClientResponse response) {
     if (scheme != 'https') return;
     final certificate = response.certificate;
-    if (certificate == null || !fingerprintMatches(certificate.der, endpoint.fingerprint)) {
+    if (certificate == null || !fingerprintMatches(certificate.der, _endpoint.fingerprint)) {
       throw const RemoteFailure(FailureKind.certificateMismatch);
     }
   }
@@ -216,13 +327,13 @@ class RemoteClient {
   /// Opens the snapshot stream. Ends when the connection closes; fails with a [RemoteFailure] when it cannot open.
   /// Each event is a full snapshot.
   Stream<AssistantSnapshot> snapshots() async* {
-    Object? lastError;
-    for (final host in _hostsInOrder) {
+    await _loadMemory();
+    for (final candidate in candidates()) {
       HttpClientResponse response;
       try {
         final request = await _http
-            .openUrl('GET', _uri(host, '/api/assistant/stream', null))
-            .timeout(requestTimeout);
+            .openUrl('GET', _uri(candidate, '/api/assistant/stream', null))
+            .timeout(_connectTimeout(candidate));
         _decorate(request, authenticated: true, stepUp: null, hasBody: false);
         request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
         response = await request.close().timeout(requestTimeout);
@@ -230,19 +341,16 @@ class RemoteClient {
       } on RemoteFailure {
         rethrow;
       } on TlsException {
-        lastError = const RemoteFailure(FailureKind.certificateMismatch);
-        continue;
+        throw const RemoteFailure(FailureKind.certificateMismatch);
       } on SocketException {
-        lastError = const RemoteFailure(FailureKind.unreachable);
         continue;
       } on TimeoutException {
-        lastError = const RemoteFailure(FailureKind.unreachable);
         continue;
       } on HttpException {
-        lastError = const RemoteFailure(FailureKind.unreachable);
         continue;
       }
-      _lastGoodHost = host;
+      await _succeeded(candidate);
+      _learnExternal();
       if (response.statusCode != 200) {
         final bytes = await _readAll(response);
         throw failureOf(response.statusCode, bytes);
@@ -270,7 +378,8 @@ class RemoteClient {
       }
       return;
     }
-    throw lastError is RemoteFailure ? lastError : const RemoteFailure(FailureKind.unreachable);
+    _needsSync = true;
+    throw const RemoteFailure(FailureKind.unreachable);
   }
 
   // Remote layer -----------------------------------------------------------------------------------------------
@@ -305,7 +414,7 @@ class RemoteClient {
 
   /// DELETE /remote/v1/device: unpairs this phone.
   Future<void> unpairSelf() async {
-    await request('DELETE', '/remote/v1/device');
+    await request('DELETE', '/remote/v1/device', learn: false);
   }
 
   /// POST /remote/v1/challenge: a nonce for a step-up, valid for 60 seconds.

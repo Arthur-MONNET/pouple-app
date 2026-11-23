@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pouple_companion/src/data/net/remote_failure.dart';
+import 'package:pouple_companion/src/data/net/remote_client.dart';
+import 'package:pouple_companion/src/data/pairing/address_payload.dart';
 import 'package:pouple_companion/src/data/pairing/pairing_payload.dart';
 import 'package:pouple_companion/src/data/storage/credentials.dart';
 import 'package:pouple_companion/src/domain/session.dart';
@@ -106,5 +108,62 @@ void main() {
     expect(sanitizeDeviceName('Arthur’s phone 📱'), 'Arthur’s phone');
     expect(sanitizeDeviceName('📱'), 'Android phone');
     expect(sanitizeDeviceName('x' * 100).length, 64);
+  });
+
+  group('address update', () {
+    AddressPayload address({String? fp, String ext = 'new.example.org:9000'}) =>
+        AddressPayload.parse('pouple-address:v1?ext=$ext&fp=${fp ?? 'a' * 64}');
+
+    Future<void> pairWithExternal() async {
+      mac.answers['POST /remote/v1/pair'] = (201, {'deviceId': 'dev1', 'token': 'secret-token'});
+      await session.pair(
+        PairingPayload.parse(
+          'pouple-pair:v1?hosts=127.0.0.1&port=${mac.port}&fp=${'a' * 64}&code=${'b' * 32}&name=Studio'
+          '&ext=old.example.org:8000',
+        ),
+      );
+    }
+
+    test('pairing keeps the external address of the code', () async {
+      await pairWithExternal();
+      expect(store.saved!.external.toString(), 'old.example.org:8000');
+    });
+
+    test('replaces only the external address, never the token, the device or the home addresses', () async {
+      await pairWithExternal();
+      final before = store.saved!;
+      await session.applyAddress(address(fp: ('A' * 64)));
+      final after = store.saved!;
+      expect(after.external.toString(), 'new.example.org:9000');
+      expect(session.credentials!.external, after.external);
+      expect(after.token, before.token);
+      expect(after.deviceId, before.deviceId);
+      expect(after.hosts, before.hosts);
+      expect(after.port, before.port);
+      expect(after.fingerprint, before.fingerprint);
+      expect(signer.keyDeleted, isFalse);
+    });
+
+    test('refuses a code from another Mac and changes nothing', () async {
+      await pairWithExternal();
+      await expectLater(
+        session.applyAddress(address(fp: 'c' * 64)),
+        throwsA(isA<AddressUpdateException>().having((e) => e.reason, 'reason', contains('another Mac'))),
+      );
+      expect(store.saved!.external.toString(), 'old.example.org:8000');
+    });
+
+    test('is refused politely when the phone is not paired', () async {
+      await session.restore();
+      await expectLater(session.applyAddress(address()), throwsA(isA<AddressUpdateException>()));
+      expect(store.saved, isNull);
+    });
+
+    test('an address learned from the Mac is stored the same way', () async {
+      await pairWithExternal();
+      await session.updateExternal(ExternalAddress.parse('learned.example.org:7000'));
+      expect(store.saved!.external.toString(), 'learned.example.org:7000');
+      expect(store.saved!.token, 'secret-token');
+    });
   });
 }

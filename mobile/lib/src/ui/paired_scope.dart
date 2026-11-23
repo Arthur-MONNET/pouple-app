@@ -40,7 +40,7 @@ class _PairedScopeState extends State<PairedScope> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final session = context.read<SessionController>();
-    _client = RemoteClient(endpoint: widget.credentials.endpoint, token: widget.credentials.token);
+    _client = createPairedClient(widget.credentials, onExternalChanged: session.updateExternal);
     _notifier = AttentionNotifier();
     _conversations = ConversationsController(
       openStream: _client.snapshots,
@@ -60,6 +60,21 @@ class _PairedScopeState extends State<PairedScope> with WidgetsBindingObserver {
       _conversations.start();
       const BackgroundCheck().schedule();
       _notifier.requestPermission();
+    }
+  }
+
+  @override
+  void didUpdateWidget(PairedScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final external = widget.credentials.external;
+    if (external != null && external != _client.endpoint.external) {
+      // An address code was applied: use it now and reconnect.
+      _client.useExternal(external);
+      if (widget.autoStart) {
+        _conversations
+          ..stop()
+          ..start();
+      }
     }
   }
 
@@ -97,7 +112,7 @@ class _PairedScopeState extends State<PairedScope> with WidgetsBindingObserver {
       ..removeListener(_onSnapshot)
       ..dispose();
     _actions.dispose();
-    _client.close();
+    _client.dispose();
     super.dispose();
   }
 

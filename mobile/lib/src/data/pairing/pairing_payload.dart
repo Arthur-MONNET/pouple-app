@@ -1,6 +1,8 @@
 /// What the QR code on the Mac carries: where to reach it and the certificate to pin.
 library;
 
+import '../net/external_address.dart';
+
 /// The pairing text could not be understood.
 class PairingPayloadException implements Exception {
   const PairingPayloadException(this.reason);
@@ -16,7 +18,7 @@ final _hex64 = RegExp(r'^[0-9a-f]{64}$');
 final _hex32 = RegExp(r'^[0-9a-f]{32}$');
 final _hostChars = RegExp(r'^[A-Za-z0-9._:\-\[\]]+$');
 
-/// The content of `pouple-pair:v1?hosts=...&port=...&fp=...&code=...&name=...`.
+/// The content of `pouple-pair:v1?hosts=...&port=...&fp=...&code=...&name=...&ext=...`.
 class PairingPayload {
   const PairingPayload({
     required this.hosts,
@@ -24,6 +26,7 @@ class PairingPayload {
     required this.fingerprint,
     required this.code,
     required this.macName,
+    this.external,
   });
 
   /// Reads the pairing text of the QR code, or of a manual paste.
@@ -64,12 +67,21 @@ class PairingPayload {
       throw const PairingPayloadException('The pairing code is invalid.');
     }
     final name = (query['name'] ?? '').trim();
+    ExternalAddress? external;
+    if (query.containsKey('ext')) {
+      try {
+        external = ExternalAddress.parse(query['ext']!);
+      } on FormatException {
+        throw const PairingPayloadException('The pairing code has an invalid external address.');
+      }
+    }
     return PairingPayload(
       hosts: List.unmodifiable(hosts),
       port: port,
       fingerprint: fingerprint,
       code: code,
       macName: name.isEmpty ? 'Mac' : name,
+      external: external,
     );
   }
 
@@ -85,4 +97,7 @@ class PairingPayload {
 
   /// The Mac's name, for display.
   final String macName;
+
+  /// Where the Mac is reachable from outside the home network, when the QR code says so.
+  final ExternalAddress? external;
 }

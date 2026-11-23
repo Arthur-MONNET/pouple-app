@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 
-import '../data/net/remote_client.dart';
 import '../data/net/remote_failure.dart';
 import '../data/storage/credentials.dart';
 import '../domain/decisions.dart';
@@ -16,16 +15,21 @@ const _uniqueName = 'pouple-attention-check';
 void backgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     if (task != _taskName) return true;
-    final credentials = await SecureCredentialStore().load();
+    final store = SecureCredentialStore();
+    final credentials = await store.load();
     if (credentials == null) return true;
-    final client = RemoteClient(endpoint: credentials.endpoint, token: credentials.token);
+    final client = createPairedClient(
+      credentials,
+      onExternalChanged: (address) => saveExternal(store, address),
+    );
     try {
       final snapshot = await client.snapshot();
+      await client.settle();
       await AttentionNotifier().notifyIfNew(attentionKeys(snapshot.requests));
     } on RemoteFailure {
       // Unreachable, or no longer paired: nothing to say from the background.
     } finally {
-      client.close();
+      client.dispose();
     }
     return true;
   });

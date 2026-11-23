@@ -8,6 +8,7 @@ import '../domain/session.dart';
 import 'conversation_screen.dart';
 import 'new_conversation_screen.dart';
 import 'settings_screen.dart';
+import 'scoped_route.dart';
 import 'status_banner.dart';
 import 'status_chip.dart';
 
@@ -36,13 +37,17 @@ class ConversationListScreen extends StatelessWidget {
             tooltip: 'Settings',
             icon: const Icon(Icons.settings_outlined),
             onPressed: () =>
-                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
+                Navigator.of(context).push(scopedRoute<void>(context, (_) => const SettingsScreen())),
           ),
         ],
       ),
       body: Column(
         children: [
-          LinkBanner(controller: controller, onRepair: () => context.read<SessionController>().unpair()),
+          LinkBanner(
+            controller: controller,
+            onRepair: () => context.read<SessionController>().unpair(),
+            onUpdateAddress: () => openAddressUpdate(context),
+          ),
           Expanded(
             child: _Body(controller: controller, conversations: conversations),
           ),
@@ -50,8 +55,7 @@ class ConversationListScreen extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () =>
-            Navigator.of(context)
-                .push(MaterialPageRoute<void>(builder: (_) => const NewConversationScreen())),
+            Navigator.of(context).push(scopedRoute<void>(context, (_) => const NewConversationScreen())),
         icon: const Icon(Icons.add),
         label: const Text('New'),
       ),
@@ -114,7 +118,7 @@ class ConversationTile extends StatelessWidget {
       trailing: StatusChip(status: request.status),
       onTap: () =>
           Navigator.of(context)
-              .push(MaterialPageRoute<void>(builder: (_) => ConversationScreen(requestId: request.id))),
+              .push(scopedRoute<void>(context, (_) => ConversationScreen(requestId: request.id))),
     );
   }
 }
