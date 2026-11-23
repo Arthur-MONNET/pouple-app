@@ -290,8 +290,9 @@ export const fr: MessageTree = {
     listening: 'À l’écoute sur {addresses}',
     problem: "Pouple n'écoute pas comme demandé : {problem}",
     pairing: {
+      qrLabel: "QR code d'appairage : scanne-le avec l'app Pouple sur le téléphone",
       title: 'Associer un téléphone',
-      intro: "Ouvre une fenêtre d'association, puis saisis ce code dans l'app Pouple du téléphone. La fenêtre se ferme après 2 minutes, et le code ne marche qu'une fois.",
+      intro: "Ouvre une fenêtre d'association, puis scanne le QR code avec l'app Pouple du téléphone, ou colle le texte ci-dessous. La fenêtre se ferme après 2 minutes, et le code ne marche qu'une fois.",
       unavailable: "Active d'abord l'accès et choisis un réseau : l'association demande que Pouple soit à l'écoute.",
       start: 'Associer un téléphone',
       opening: "Ouverture de la fenêtre d'association…",
