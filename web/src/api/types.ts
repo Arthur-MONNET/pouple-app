@@ -682,3 +682,51 @@ export interface GitLabAccessUpdate {
   token?: string;
   verify?: boolean;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Phone access (core/internal/remote, served on the loopback API under /api/remote)
+
+/** A network interface of the Mac the phone listener can bind. `loopback` ones only reach this Mac (USB debugging). */
+export interface RemoteInterface {
+  name: string;
+  addresses: string[];
+  loopback: boolean;
+}
+
+export interface RemoteSettings {
+  enabled: boolean;
+  /** The names of the chosen interfaces. */
+  interfaces: string[];
+  /** The port in use: the default one when none was chosen. */
+  port: number;
+  available: RemoteInterface[];
+  /** The `host:port` addresses the listener is bound to now. */
+  listening: string[];
+  /** Why it does not listen as asked; empty when it does. */
+  problem: string;
+  /** SHA-256 of the certificate, once it exists. */
+  fingerprint: string;
+}
+
+/** Only the given fields change. */
+export interface RemoteSettingsPatch {
+  enabled?: boolean;
+  interfaces?: string[];
+  port?: number;
+}
+
+/** An open pairing window: the payload the phone reads and the moment it closes (RFC 3339). */
+export interface PairingOffer {
+  payload: string;
+  expiresAt: string;
+}
+
+export interface RemoteDevice {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastSeen: string;
+  revoked: boolean;
+  /** The token went unused for 30 days. */
+  expired: boolean;
+}
