@@ -1,4 +1,4 @@
-import type { RemoteDevice, RemoteInterface, RemoteSettings } from '../api/types';
+import type { RemoteDevice, RemoteInterface, RemoteSettings, RemoteSettingsPatch } from '../api/types';
 
 /** How long the core keeps a pairing window open (docs/REMOTE-API.md, Pairing). */
 export const PAIRING_WINDOW_SECONDS = 120;
@@ -38,12 +38,6 @@ export type DeviceStatus = 'active' | 'revoked' | 'expired';
 export function deviceStatus(device: Pick<RemoteDevice, 'revoked' | 'expired'>): DeviceStatus {
   if (device.revoked) return 'revoked';
   return device.expired ? 'expired' : 'active';
-}
-
-/** The network a phone would use by default: the first interface that is not the loopback one. */
-export function defaultInterfaces(available: readonly RemoteInterface[]): string[] {
-  const first = available.find((item) => !item.loopback && item.addresses.length > 0);
-  return first ? [first.name] : [];
 }
 
 export interface InterfaceChoice extends RemoteInterface {
@@ -146,4 +140,68 @@ export function externalEndpoint(settings: Pick<RemoteSettings, 'port' | 'extern
   const host = settings.externalHost === EXTERNAL_AUTO ? settings.externalDetected : settings.externalHost;
   if (host === '') return null;
   return `${host.includes(':') ? `[${host}]` : host}:${forwardedPort(settings)}`;
+}
+
+export type TunnelDomainCheck = { ok: true; domain: string } | { ok: false; reason: 'required' | 'invalid' };
+
+/**
+ * Checks the static ngrok domain the way the core does: trimmed, lower-cased, a strict DNS name with at least two
+ * labels (`name.ngrok-free.app`), no scheme, port, path, space or IP address, at most 253 characters.
+ */
+export function checkTunnelDomain(text: string): TunnelDomainCheck {
+  const domain = text.trim().toLowerCase();
+  if (domain === '') return { ok: false, reason: 'required' };
+  const labels = domain.split('.');
+  const valid = domain.length <= MAX_HOST_LENGTH && labels.length >= 2 && labels.every((label) => DNS_LABEL.test(label)) && !/^\d+$/.test(labels[labels.length - 1] ?? '');
+  return valid ? { ok: true, domain } : { ok: false, reason: 'invalid' };
+}
+
+export type TunnelPatchResult = { ok: true; patch: RemoteSettingsPatch } | { ok: false; reason: 'required' | 'invalid' | 'token' };
+
+/**
+ * The patch that saves the tunnel fields. The authtoken is write-only: it goes out only when the person typed one,
+ * never as an empty string, so saving the domain never erases or resends the stored token. Turning the tunnel on
+ * needs a valid domain and a token, stored already (`tokenStored`) or typed now.
+ */
+export function tunnelPatch(input: { domain: string; token: string; tokenStored: boolean; enable?: boolean }): TunnelPatchResult {
+  const checked = checkTunnelDomain(input.domain);
+  const token = input.token.trim();
+  if (!checked.ok) {
+    // An empty domain is only a problem when turning the tunnel on.
+    if (checked.reason === 'required' && input.enable !== true) return { ok: true, patch: { tunnelDomain: '', ...(token === '' ? {} : { tunnelAuthtoken: token }) } };
+    return checked;
+  }
+  if (input.enable === true && token === '' && !input.tokenStored) return { ok: false, reason: 'token' };
+  const patch: RemoteSettingsPatch = { tunnelDomain: checked.domain };
+  if (token !== '') patch.tunnelAuthtoken = token;
+  if (input.enable !== undefined) patch.tunnelEnabled = input.enable;
+  return { ok: true, patch };
+}
+
+export type ReachTone = 'ok' | 'warn' | 'fail' | 'idle';
+export interface Reach {
+  tone: ReachTone;
+  /** The key under `phone.reach.` that says it. */
+  key: 'homeAuto' | 'homeChosen' | 'homeNone' | 'tunnelRunning' | 'tunnelStarting' | 'tunnelError' | 'router' | 'routerNotReady' | 'awayOff';
+  /** A technical value shown next to it (the tunnel domain, the public address); empty when none. */
+  value: string;
+}
+
+/**
+ * Where the phone can reach this Mac from, read off the settings: at home (the listener runs on a network) and away
+ * from home (the tunnel first, else the router port forward). The tunnel wins because it needs no router.
+ */
+export function reachability(settings: Pick<RemoteSettings, 'interfaces' | 'listening' | 'port' | 'externalEnabled' | 'externalHost' | 'externalPort' | 'externalDetected' | 'externalReady' | 'tunnelStatus' | 'tunnelDomain'>): { home: Reach; away: Reach } {
+  const home: Reach =
+    settings.listening.length === 0
+      ? { tone: 'warn', key: 'homeNone', value: '' }
+      : { tone: 'ok', key: settings.interfaces.length === 0 ? 'homeAuto' : 'homeChosen', value: '' };
+  const tunnel = settings.tunnelDomain;
+  let away: Reach;
+  if (settings.tunnelStatus === 'running') away = { tone: 'ok', key: 'tunnelRunning', value: tunnel };
+  else if (settings.tunnelStatus === 'starting') away = { tone: 'warn', key: 'tunnelStarting', value: tunnel };
+  else if (settings.tunnelStatus === 'error') away = { tone: 'fail', key: 'tunnelError', value: tunnel };
+  else if (settings.externalEnabled) away = { tone: settings.externalReady ? 'ok' : 'warn', key: settings.externalReady ? 'router' : 'routerNotReady', value: externalEndpoint({ ...settings, externalEnabled: true }) ?? '' };
+  else away = { tone: 'idle', key: 'awayOff', value: '' };
+  return { home, away };
 }

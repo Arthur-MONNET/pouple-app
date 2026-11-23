@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RemoteDevice } from '../api/types';
 import {
   checkExternalHost,
-  defaultInterfaces,
+  checkTunnelDomain,
   deviceStatus,
   externalEndpoint,
   forwardedPort,
@@ -12,8 +12,10 @@ import {
   isValidPort,
   localAddress,
   parseExternalPort,
+  reachability,
   secondsLeft,
   toggleInterface,
+  tunnelPatch,
   windowShare,
 } from './phonePairing';
 
@@ -77,11 +79,6 @@ describe('networks', () => {
     { name: 'awdl0', addresses: [], loopback: false },
     { name: 'en0', addresses: ['192.168.1.24'], loopback: false },
   ];
-
-  it('defaults to the first real network with an address, never the loopback', () => {
-    expect(defaultInterfaces(available)).toEqual(['en0']);
-    expect(defaultInterfaces([available[0]!])).toEqual([]);
-  });
 
   it('keeps a chosen network that went away visible, marked missing', () => {
     const choices = interfaceChoices({ available, interfaces: ['en0', 'en7'] });
@@ -195,5 +192,64 @@ describe('local address to forward to', () => {
     expect(localAddress(['[2001:db8::7]:47821'])).toBe('2001:db8::7');
     expect(localAddress(['127.0.0.1:47821', '[::1]:47821'])).toBeNull();
     expect(localAddress([])).toBeNull();
+  });
+});
+
+describe('tunnel domain', () => {
+  it('accepts a static ngrok domain, trimmed and lower-cased', () => {
+    expect(checkTunnelDomain('  My-Name.ngrok-free.app ')).toEqual({ ok: true, domain: 'my-name.ngrok-free.app' });
+    expect(checkTunnelDomain('pouple.example.net')).toEqual({ ok: true, domain: 'pouple.example.net' });
+  });
+
+  it('says required for an empty field and invalid for anything that is not a plain DNS name', () => {
+    expect(checkTunnelDomain('   ')).toEqual({ ok: false, reason: 'required' });
+    for (const bad of ['https://a.ngrok-free.app', 'a.ngrok-free.app:443', 'a.ngrok-free.app/tunnel', 'a b.ngrok-free.app', 'localhost', '203.0.113.7', '-a.ngrok-free.app', 'a..app', 'a_b.ngrok-free.app', `${'a'.repeat(64)}.app`, `${'a.'.repeat(130)}app`]) {
+      expect(checkTunnelDomain(bad), bad).toEqual({ ok: false, reason: 'invalid' });
+    }
+  });
+});
+
+describe('tunnel patch', () => {
+  const base = { domain: 'pouple.ngrok-free.app', token: '', tokenStored: true };
+
+  it('never sends the authtoken unless one was typed', () => {
+    expect(tunnelPatch(base)).toEqual({ ok: true, patch: { tunnelDomain: 'pouple.ngrok-free.app' } });
+    expect(tunnelPatch({ ...base, token: '   ' })).toEqual({ ok: true, patch: { tunnelDomain: 'pouple.ngrok-free.app' } });
+    expect(tunnelPatch({ ...base, token: ' abc123 ' })).toEqual({ ok: true, patch: { tunnelDomain: 'pouple.ngrok-free.app', tunnelAuthtoken: 'abc123' } });
+  });
+
+  it('turns the tunnel on with the stored token, or needs one typed', () => {
+    expect(tunnelPatch({ ...base, enable: true })).toEqual({ ok: true, patch: { tunnelDomain: 'pouple.ngrok-free.app', tunnelEnabled: true } });
+    expect(tunnelPatch({ ...base, tokenStored: false, enable: true })).toEqual({ ok: false, reason: 'token' });
+    expect(tunnelPatch({ ...base, tokenStored: false, token: 'abc', enable: true })).toEqual({ ok: true, patch: { tunnelDomain: 'pouple.ngrok-free.app', tunnelAuthtoken: 'abc', tunnelEnabled: true } });
+  });
+
+  it('refuses an empty or bad domain when turning on, and allows clearing it otherwise', () => {
+    expect(tunnelPatch({ ...base, domain: '', enable: true })).toEqual({ ok: false, reason: 'required' });
+    expect(tunnelPatch({ ...base, domain: 'nope', enable: true })).toEqual({ ok: false, reason: 'invalid' });
+    expect(tunnelPatch({ ...base, domain: 'nope' })).toEqual({ ok: false, reason: 'invalid' });
+    expect(tunnelPatch({ ...base, domain: '' })).toEqual({ ok: true, patch: { tunnelDomain: '' } });
+  });
+});
+
+describe('reachability', () => {
+  const base = { interfaces: [], listening: ['192.168.1.24:47821'], port: 47821, externalEnabled: false, externalHost: '', externalPort: 0, externalDetected: '', externalReady: false, tunnelStatus: 'off' as const, tunnelDomain: '' };
+
+  it('says at home from the listener: automatic, chosen, or no network', () => {
+    expect(reachability(base).home).toEqual({ tone: 'ok', key: 'homeAuto', value: '' });
+    expect(reachability({ ...base, interfaces: ['en0'] }).home.key).toBe('homeChosen');
+    expect(reachability({ ...base, listening: [] }).home).toEqual({ tone: 'warn', key: 'homeNone', value: '' });
+  });
+
+  it('says away from home from the tunnel first, then the router, else not set up', () => {
+    expect(reachability(base).away).toEqual({ tone: 'idle', key: 'awayOff', value: '' });
+    expect(reachability({ ...base, tunnelStatus: 'running', tunnelDomain: 'a.ngrok-free.app' }).away).toEqual({ tone: 'ok', key: 'tunnelRunning', value: 'a.ngrok-free.app' });
+    expect(reachability({ ...base, tunnelStatus: 'starting', tunnelDomain: 'a.ngrok-free.app' }).away.tone).toBe('warn');
+    expect(reachability({ ...base, tunnelStatus: 'error', tunnelDomain: 'a.ngrok-free.app' }).away.tone).toBe('fail');
+    const router = { ...base, externalEnabled: true, externalHost: 'home.example.net' };
+    expect(reachability({ ...router, externalReady: true }).away).toEqual({ tone: 'ok', key: 'router', value: 'home.example.net:47821' });
+    expect(reachability(router).away).toMatchObject({ tone: 'warn', key: 'routerNotReady' });
+    // The tunnel wins over the router.
+    expect(reachability({ ...router, externalReady: true, tunnelStatus: 'running', tunnelDomain: 'a.ngrok-free.app' }).away.key).toBe('tunnelRunning');
   });
 });

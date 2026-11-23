@@ -1,14 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from './client';
-import { createMockRemote } from './mockRemote';
+import { createMockRemote, MOCK_BAD_TOKEN } from './mockRemote';
 
 const mock = () => createMockRemote({ wait: () => Promise.resolve(), pairAfterMs: null });
 
 describe('mock phone access', () => {
-  it('refuses to turn on with no network and a port out of range, like the core', async () => {
+  it('turns on with no network chosen (automatic: every private address that is up) and refuses a port out of range, like the core', async () => {
     const remote = mock();
-    await expect(remote.updateRemoteSettings({ enabled: true })).rejects.toBeInstanceOf(ApiError);
     await expect(remote.updateRemoteSettings({ port: 80 })).rejects.toMatchObject({ status: 422 });
+    const auto = await remote.updateRemoteSettings({ enabled: true, interfaces: [] });
+    expect(auto).toMatchObject({ enabled: true, interfaces: [], port: 47821 });
+    expect(auto.listening).toEqual(['192.168.1.24:47821', '192.168.64.1:47821']);
+    await remote.updateRemoteSettings({ enabled: false });
     const on = await remote.updateRemoteSettings({ enabled: true, interfaces: ['en0'] });
     expect(on.listening[0]).toBe('192.168.1.24:47821');
   });
@@ -69,5 +72,37 @@ describe('mock phone access', () => {
     await expect(remote.getRemoteAddress()).rejects.toMatchObject({ status: 409 });
     await remote.updateRemoteSettings({ externalEnabled: true, externalHost: 'home.example.net', externalPort: 443 });
     expect((await remote.getRemoteAddress()).payload).toMatch(/^pouple-address:v1\?ext=home\.example\.net%3A443&fp=[0-9a-f]{64}$/);
+  });
+
+  it('validates the tunnel like the core, keeps the authtoken write-only, and goes from starting to running', async () => {
+    vi.useFakeTimers();
+    try {
+      const remote = mock();
+      expect(await remote.getRemoteSettings()).toMatchObject({ tunnelEnabled: false, tunnelDomain: '', tunnelAuthtokenSet: false, tunnelStatus: 'off', tunnelProblem: '' });
+      await expect(remote.updateRemoteSettings({ tunnelDomain: 'https://a.ngrok-free.app' })).rejects.toMatchObject({ status: 422 });
+      await expect(remote.updateRemoteSettings({ tunnelEnabled: true })).rejects.toMatchObject({ status: 422 });
+      await expect(remote.updateRemoteSettings({ tunnelEnabled: true, tunnelDomain: 'pouple.ngrok-free.app' })).rejects.toMatchObject({ status: 422 });
+      const on = await remote.updateRemoteSettings({ tunnelEnabled: true, tunnelDomain: ' Pouple.ngrok-free.app ', tunnelAuthtoken: 'secret-token' });
+      expect(on).toMatchObject({ tunnelEnabled: true, tunnelDomain: 'pouple.ngrok-free.app', tunnelAuthtokenSet: true, tunnelStatus: 'starting' });
+      expect(JSON.stringify(on)).not.toContain('secret-token');
+      vi.advanceTimersByTime(2000);
+      expect((await remote.getRemoteSettings()).tunnelStatus).toBe('running');
+      // Saving only the domain keeps the stored token.
+      expect(await remote.updateRemoteSettings({ tunnelDomain: 'other.ngrok-free.app' })).toMatchObject({ tunnelAuthtokenSet: true, tunnelEnabled: true });
+      expect((await remote.updateRemoteSettings({ tunnelEnabled: false })).tunnelStatus).toBe('off');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows an error state with a message for a refused token, and adds tun last to the pairing payload', async () => {
+    const remote = mock();
+    await remote.updateRemoteSettings({ enabled: true, interfaces: [] });
+    const bad = await remote.updateRemoteSettings({ tunnelEnabled: true, tunnelDomain: 'pouple.ngrok-free.app', tunnelAuthtoken: MOCK_BAD_TOKEN });
+    expect(bad.tunnelStatus).toBe('error');
+    expect(bad.tunnelProblem).not.toBe('');
+    expect((await remote.openPairing()).payload.endsWith('&tun=pouple.ngrok-free.app')).toBe(true);
+    await remote.updateRemoteSettings({ tunnelEnabled: false });
+    expect((await remote.openPairing()).payload).not.toContain('tun=');
   });
 });

@@ -14,7 +14,10 @@ const descriptionId = useId();
 <template>
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0">
-      <span :id="labelId" class="text-sm font-medium text-ink">{{ label }}</span>
+      <span class="flex flex-wrap items-center gap-2.5">
+        <span :id="labelId" class="text-sm font-medium text-ink">{{ label }}</span>
+        <slot name="badge" />
+      </span>
       <span v-if="description" :id="descriptionId" class="mt-0.5 block text-xs leading-relaxed text-ink-muted">{{ description }}</span>
     </div>
     <button

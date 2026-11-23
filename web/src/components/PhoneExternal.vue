@@ -4,7 +4,6 @@ import type { PhoneAccess } from '../composables/usePhoneAccess';
 import { EXTERNAL_AUTO, MAX_HOST_LENGTH, checkExternalHost, forwardedPort, localAddress, parseExternalPort } from '../lib/phonePairing';
 import InlineError from './InlineError.vue';
 import SettingsRow from './SettingsRow.vue';
-import SettingsSection from './SettingsSection.vue';
 import ToggleSwitch from './ToggleSwitch.vue';
 
 const props = defineProps<{ access: PhoneAccess }>();
@@ -78,7 +77,7 @@ async function savePort(): Promise<void> {
 </script>
 
 <template>
-  <SettingsSection v-if="settings" :title="$t('phone.external.title')" :description="$t('phone.external.intro')">
+  <div v-if="settings" class="flex flex-col divide-y divide-line" data-testid="phone-external">
     <div class="py-4">
       <ToggleSwitch :model-value="enabled" :label="$t('phone.external.enable')" :description="$t('phone.external.enableHelp')" :disabled="saving" data-testid="external-enable" @update:model-value="setEnabled" />
     </div>
@@ -137,16 +136,12 @@ async function savePort(): Promise<void> {
         <li data-testid="external-step-2">{{ $t('phone.external.step2', { externalPort: forward, port: settings.port }) }}</li>
         <li data-testid="external-step-3">{{ $t('phone.external.step3') }}</li>
       </ol>
-      <p class="text-xs leading-relaxed text-ink-muted" data-testid="external-ddns">{{ $t('phone.external.ddns') }}</p>
-      <p class="text-xs leading-relaxed text-ink-muted" data-testid="external-secure">{{ $t('phone.external.secure') }}</p>
     </div>
 
-    <template #footer>
-      <div class="flex min-h-5 flex-col gap-1 py-3" aria-live="polite">
-        <p v-if="enabled && !settings.enabled" role="status" class="text-xs text-warn" data-testid="external-needs-access">{{ $t('phone.external.needsAccess') }}</p>
-        <p v-else-if="enabled && settings.externalReady" role="status" class="text-xs text-ok" data-testid="external-ready">{{ $t('phone.external.ready') }}</p>
-        <p v-else-if="enabled" role="status" class="text-xs text-warn" data-testid="external-not-ready">{{ $t('phone.external.notReady') }}</p>
-      </div>
-    </template>
-  </SettingsSection>
+    <div class="flex min-h-5 flex-col gap-1 py-3" aria-live="polite">
+      <p v-if="enabled && !settings.enabled" role="status" class="text-xs text-warn" data-testid="external-needs-access">{{ $t('phone.external.needsAccess') }}</p>
+      <p v-else-if="enabled && settings.externalReady" role="status" class="text-xs text-ok" data-testid="external-ready">{{ $t('phone.external.ready') }}</p>
+      <p v-else-if="enabled" role="status" class="text-xs text-warn" data-testid="external-not-ready">{{ $t('phone.external.notReady') }}</p>
+    </div>
+  </div>
 </template>

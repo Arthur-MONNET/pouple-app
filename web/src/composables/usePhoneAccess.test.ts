@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { effectScope } from 'vue';
+import { effectScope, nextTick } from 'vue';
 import { ApiError, type PoupleApi } from '../api/client';
-import type { PairingOffer, RemoteDevice, RemoteSettings } from '../api/types';
-import { DEVICE_POLL_MS, usePhoneAccess } from './usePhoneAccess';
+import type { PairingOffer, RemoteDevice, RemoteSettings, RemoteSettingsPatch } from '../api/types';
+import { DEVICE_POLL_MS, TUNNEL_POLL_MS, usePhoneAccess } from './usePhoneAccess';
 
 const settingsOf = (patch: Partial<RemoteSettings> = {}): RemoteSettings => ({
   enabled: true,
@@ -18,6 +18,11 @@ const settingsOf = (patch: Partial<RemoteSettings> = {}): RemoteSettings => ({
   externalDetected: '',
   externalDetectedAt: '',
   externalReady: false,
+  tunnelEnabled: false,
+  tunnelDomain: '',
+  tunnelAuthtokenSet: false,
+  tunnelStatus: 'off',
+  tunnelProblem: '',
   ...patch,
 });
 
@@ -170,12 +175,39 @@ describe('phone access', () => {
     expect(access.devices.value?.map((item) => item.id)).toEqual(['fresh']);
   });
 
-  it('picks the usual network when the access is turned on with none chosen', async () => {
-    const off = settingsOf({ enabled: false, interfaces: [], listening: [], available: [{ name: 'lo0', addresses: ['127.0.0.1'], loopback: true }, { name: 'en0', addresses: ['192.168.1.24'], loopback: false }] });
+  it('turns the access on with no network chosen: an empty list means automatic, and the port is not sent', async () => {
+    const off = settingsOf({ enabled: false, interfaces: [], listening: [], port: 5000 });
+    const update = vi.fn((patch: RemoteSettingsPatch) => Promise.resolve({ ...off, ...patch }));
+    const { access } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(off)), updateRemoteSettings: update });
+    await access.load();
+    expect(await access.setAccess(true)).toBe(true);
+    expect(update).toHaveBeenCalledWith({ enabled: true, interfaces: [] });
+    expect(update.mock.calls[0]?.[0]).not.toHaveProperty('port');
+  });
+
+  it('keeps the networks chosen in the advanced section when the access is turned on again, and only sends enabled=false to turn it off', async () => {
+    const off = settingsOf({ enabled: false, interfaces: ['en0'], listening: [] });
     const { access, api } = setup({ getRemoteSettings: vi.fn(() => Promise.resolve(off)) });
     await access.load();
-    await access.save({ enabled: true });
-    expect(api.updateRemoteSettings).toHaveBeenCalledWith({ enabled: true, interfaces: ['en0'] });
+    await access.setAccess(true);
+    expect(api.updateRemoteSettings).toHaveBeenLastCalledWith({ enabled: true, interfaces: ['en0'] });
+    await access.setAccess(false);
+    expect(api.updateRemoteSettings).toHaveBeenLastCalledWith({ enabled: false });
+  });
+
+  it('asks the settings again while the tunnel is starting, and stops once it runs', async () => {
+    const answers = [settingsOf({ tunnelEnabled: true, tunnelStatus: 'starting' }), settingsOf({ tunnelEnabled: true, tunnelStatus: 'running' })];
+    const read = vi.fn(() => Promise.resolve(answers[Math.min(read.mock.calls.length - 1, answers.length - 1)]!));
+    const { access, scope } = setup({ getRemoteSettings: read });
+    await access.load();
+    await nextTick();
+    expect(access.settings.value?.tunnelStatus).toBe('starting');
+    await vi.advanceTimersByTimeAsync(TUNNEL_POLL_MS);
+    expect(access.settings.value?.tunnelStatus).toBe('running');
+    const reads = read.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(TUNNEL_POLL_MS * 3);
+    expect(read.mock.calls.length).toBe(reads);
+    scope.stop();
   });
 
   it('sends one save at a time and keeps the core message of a refusal', async () => {

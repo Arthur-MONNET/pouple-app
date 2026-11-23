@@ -4,6 +4,7 @@ import type { RemoteDevice } from '../api/types';
 import { deviceStatus } from '../lib/phonePairing';
 import { formatDay, relativeTime } from '../lib/format';
 import AppButton from './AppButton.vue';
+import AppIcon from './AppIcon.vue';
 import AppSpinner from './AppSpinner.vue';
 import InlineError from './InlineError.vue';
 
@@ -40,9 +41,10 @@ function confirm(id: string): void {
       <InlineError v-if="error">{{ $t('phone.devices.refreshError', { error }) }}</InlineError>
       <InlineError v-if="revokeError" data-testid="revoke-error">{{ $t('phone.devices.revokeError', { error: revokeError }) }}</InlineError>
       <ul class="flex flex-col divide-y divide-line">
-        <li v-for="device in devices" :key="device.id" class="flex flex-col gap-2 py-3" :data-testid="`device-${device.id}`">
-          <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-            <div class="min-w-0">
+        <li v-for="device in devices" :key="device.id" class="flex flex-col gap-2 py-4" :data-testid="`device-${device.id}`">
+          <div class="flex items-center gap-3.5">
+            <span class="grid size-10 shrink-0 place-items-center rounded-xl border border-line-strong bg-raised text-ink-muted" aria-hidden="true"><AppIcon name="phone" /></span>
+            <div class="min-w-0 flex-1">
               <p class="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
                 <span class="min-w-0 break-words" :class="{ 'text-ink-muted line-through': deviceStatus(device) === 'revoked' }">{{ device.name }}</span>
                 <span
