@@ -164,4 +164,38 @@ void main() {
       expect(PairingPayload.parse(withTun('${'a' * 63}.example')).tunnel, '${'a' * 63}.example');
     });
   });
+
+  group('hosts', () {
+    test('accepts a DNS name, IPv4, and IPv6 with or without brackets, lowercased', () {
+      final payload = PairingPayload.parse(
+        _payload(hosts: '192.168.1.20%2CMyMac.local%2Cfd00%3A%3A1%2C%5BFD00%3A%3A2%5D'),
+      );
+      expect(payload.hosts, ['192.168.1.20', 'mymac.local', 'fd00::1', 'fd00::2']);
+    });
+
+    for (final bad in [
+      'a..b',
+      '-bad.local',
+      'bad-.local',
+      '999.1.1.1',
+      '1.2.3',
+      'fd00%3A%3A1%3A%3A2',
+      '%5Bfd00%3A%3Azz%5D',
+      'host%3A80',
+      'a_b.local',
+      '%5B%5D',
+      '${'a' * 64}.local',
+    ]) {
+      test('refuses the host "$bad" with a PairingPayloadException, never a FormatException', () {
+        expect(() => PairingPayload.parse(_payload(hosts: bad)), throwsA(isA<PairingPayloadException>()));
+      });
+    }
+
+    test('one bad host among good ones refuses the whole code', () {
+      expect(
+        () => PairingPayload.parse(_payload(hosts: '192.168.1.20%2Ca..b')),
+        throwsA(isA<PairingPayloadException>()),
+      );
+    });
+  });
 }

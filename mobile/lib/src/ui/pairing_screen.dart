@@ -153,6 +153,7 @@ class _PairingScreenState extends State<PairingScreen> {
                         maxLines: 4,
                         autocorrect: false,
                         enableSuggestions: false,
+                        enableIMEPersonalizedLearning: false,
                         decoration: const InputDecoration(hintText: 'pouple-pair:v1?hosts=…'),
                       ),
                       const SizedBox(height: 8),

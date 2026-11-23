@@ -1,30 +1,65 @@
 import 'dart:async';
 import 'dart:io';
 
-/// A loopback TCP listener that carries each connection, byte for byte, inside one binary WebSocket to
-/// `wss://<domain>/tunnel/v1`.
+/// A listener on a Unix domain socket, in a private directory, that carries each connection, byte for byte, inside
+/// one binary WebSocket to `wss://<domain>/tunnel/v1`.
+///
+/// There is no TCP port: another app on the phone cannot reach it, scan for it or use it. The directory is created
+/// by the system with owner-only permissions, has a random name, and is removed when the forwarder closes.
 ///
 /// It adds no cryptography: what travels through is the TLS session between the pinned HTTP client and the Mac, so
 /// the tunnel (ngrok) only ever sees ciphertext. The outer `wss` connection is validated with the system roots.
 /// Nothing is logged.
 class TunnelForwarder {
-  TunnelForwarder._(this._server, this._uri, this._client, this._connectTimeout, this._pingInterval) {
+  TunnelForwarder._(
+    this._server,
+    this._directory,
+    this._uri,
+    this._client,
+    this._connectTimeout,
+    this._pingInterval,
+  ) {
     _server.listen(_accept, onError: (_) {}, cancelOnError: false);
   }
 
   static const path = '/tunnel/v1';
+  static const _prefix = 'pouple-tun-';
 
-  /// Binds `127.0.0.1` on an ephemeral port. [upstream] replaces `wss://<domain>/tunnel/v1` (tests only).
+  /// The largest message accepted from the tunnel; a longer one closes the connection.
+  static const maxMessageBytes = 1024 * 1024;
+
+  /// Binds a Unix socket in a new private directory under [parent] (the app's temporary directory by default).
+  /// [upstream] replaces `wss://<domain>/tunnel/v1` (tests only).
   static Future<TunnelForwarder> start(
     String domain, {
     Uri? upstream,
+    Directory? parent,
     Duration connectTimeout = const Duration(seconds: 10),
     Duration pingInterval = const Duration(seconds: 20),
   }) async {
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final base = parent ?? Directory.systemTemp;
+    await _removeStale(base);
+    // createTemp makes a directory with a random name that only this user can enter.
+    final directory = await base.createTemp(_prefix);
+    try {
+      await Process.run('chmod', ['700', directory.path]);
+    } on Object {
+      // The directory is already private; this only makes it explicit.
+    }
+    final ServerSocket server;
+    try {
+      server = await ServerSocket.bind(
+        InternetAddress('${directory.path}/s', type: InternetAddressType.unix),
+        0,
+      );
+    } on Object {
+      await _delete(directory);
+      rethrow;
+    }
     final client = HttpClient()..connectionTimeout = connectTimeout;
     return TunnelForwarder._(
       server,
+      directory,
       upstream ?? Uri(scheme: 'wss', host: domain, path: path),
       client,
       connectTimeout,
@@ -32,21 +67,43 @@ class TunnelForwarder {
     );
   }
 
+  /// Directories of a forwarder that was not closed (the app was killed) are removed after this long.
+  static const _staleAfter = Duration(hours: 1);
+
+  static Future<void> _removeStale(Directory base) async {
+    try {
+      await for (final entity in base.list(followLinks: false)) {
+        if (entity is! Directory ||
+            !entity.uri.pathSegments.where((s) => s.isNotEmpty).last.startsWith(_prefix)) {
+          continue;
+        }
+        final age = DateTime.now().difference((await entity.stat()).modified);
+        if (age > _staleAfter) await _delete(entity);
+      }
+    } on Object {
+      // Housekeeping only.
+    }
+  }
+
+  static Future<void> _delete(Directory directory) async {
+    try {
+      await directory.delete(recursive: true);
+    } on Object {
+      // Already gone.
+    }
+  }
+
   final ServerSocket _server;
+  final Directory _directory;
   final Uri _uri;
   final HttpClient _client;
   final Duration _connectTimeout;
   final Duration _pingInterval;
   final Set<_Link> _links = {};
   bool _closed = false;
-  int _upstreamFailures = 0;
 
-  /// The loopback port the HTTP client connects to.
-  int get port => _server.port;
-
-  /// How many times the WebSocket to the tunnel could not be opened. A client whose TLS handshake dies reads this
-  /// to tell "the tunnel is down" from "the certificate was refused".
-  int get upstreamFailures => _upstreamFailures;
+  /// The Unix socket the HTTP client connects to.
+  InternetAddress get address => _server.address;
 
   /// Connections currently carried.
   int get activeConnections => _links.length;
@@ -64,14 +121,12 @@ class TunnelForwarder {
 
   Future<void> _run(_Link link) async {
     try {
-      link.socket.setOption(SocketOption.tcpNoDelay, true);
       // The socket is not read until it is listened to, so the phone's first bytes (the TLS ClientHello) wait in
       // the operating system while the WebSocket opens.
       final WebSocket ws;
       try {
         ws = await _connect();
       } on Object {
-        _upstreamFailures++;
         link.close();
         return;
       }
@@ -99,8 +154,8 @@ class TunnelForwarder {
       // received is flushed before the socket is dropped.
       final down = link.socket.addStream(
         ws.map<List<int>>((message) {
-          if (message is List<int>) return message;
-          throw const FormatException('Text message in a binary tunnel.');
+          if (message is List<int> && message.length <= maxMessageBytes) return message;
+          throw const FormatException('Not a binary message within the size limit.');
         }),
       );
       unawaited(down.then((_) => link.socket.flush()).then((_) {}, onError: (_) {}).whenComplete(link.close));
@@ -133,6 +188,7 @@ class TunnelForwarder {
     }
     _client.close(force: true);
     await _server.close();
+    await _delete(_directory);
   }
 }
 

@@ -17,7 +17,9 @@ class SessionController extends ChangeNotifier {
     required this.store,
     required this.signer,
     RemoteClient Function(Endpoint endpoint, String? token)? clientFactory,
-  }) : _clientFactory =
+    RemoteClient Function(Endpoint endpoint, String? token)? probeFactory,
+  }) : _probeFactory = probeFactory ?? ((endpoint, token) => RemoteClient(endpoint: endpoint, token: token)),
+       _clientFactory =
            clientFactory ??
            ((endpoint, token) =>
                RemoteClient(endpoint: endpoint, token: token, routeMemory: const PrefsRouteMemory()));
@@ -25,6 +27,9 @@ class SessionController extends ChangeNotifier {
   final CredentialStore store;
   final StepUpSigner signer;
   final RemoteClient Function(Endpoint endpoint, String? token) _clientFactory;
+
+  /// Builds the throwaway clients that check a new address (no route memory, nothing learned).
+  final RemoteClient Function(Endpoint endpoint, String? token) _probeFactory;
 
   SessionPhase _phase = SessionPhase.loading;
   Credentials? _credentials;
@@ -84,7 +89,7 @@ class SessionController extends ChangeNotifier {
   }
 
   /// Keeps a new external address (the Mac announced it, or an address code carried it). Only the address changes.
-  Future<void> updateExternal(ExternalAddress address) async {
+  Future<void> updateExternal(ExternalAddress? address) async {
     final current = _credentials;
     if (current == null || current.external == address) return;
     final updated = current.withExternal(address);
@@ -94,7 +99,7 @@ class SessionController extends ChangeNotifier {
   }
 
   /// Keeps a new tunnel domain (the Mac announced it, or an address code carried it). Only the domain changes.
-  Future<void> updateTunnel(String domain) async {
+  Future<void> updateTunnel(String? domain) async {
     final current = _credentials;
     if (current == null || current.tunnel == domain) return;
     final updated = current.withTunnel(domain);
@@ -117,9 +122,35 @@ class SessionController extends ChangeNotifier {
         'This address code is from another Mac (its certificate is different). Nothing was changed.',
       );
     }
-    await updateExternal(payload.external);
+    // The documented check: the new address must answer, with the pinned certificate, an authenticated request. A
+    // code that is wrong, outdated or forged is refused before anything is stored.
     final tunnel = payload.tunnel;
+    await _verify(
+      current,
+      Endpoint(hosts: const [], port: 0, fingerprint: current.fingerprint, external: payload.external),
+    );
+    if (tunnel != null) {
+      await _verify(
+        current,
+        Endpoint(hosts: const [], port: 0, fingerprint: current.fingerprint, tunnel: tunnel),
+      );
+    }
+    await updateExternal(payload.external);
     if (tunnel != null) await updateTunnel(tunnel);
+  }
+
+  Future<void> _verify(Credentials current, Endpoint only) async {
+    final probe = _probeFactory(only, current.token);
+    try {
+      await probe.verify();
+    } on RemoteFailure {
+      throw const AddressUpdateException(
+        'The Mac did not answer at this new address with its own certificate, so nothing was changed. '
+        'Check that the address is reachable, then scan the code again.',
+      );
+    } finally {
+      probe.dispose();
+    }
   }
 
   /// Unpairs: tells the Mac when it can be reached, then forgets the token and the key either way.

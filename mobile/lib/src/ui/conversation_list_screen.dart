@@ -28,7 +28,7 @@ class ConversationListScreen extends StatelessWidget {
             const _Header(),
             LinkBanner(
               controller: controller,
-              onRepair: () => context.read<SessionController>().unpair(),
+              onRepair: () => _confirmRepair(context),
               onUpdateAddress: () => openAddressUpdate(context),
             ),
             Expanded(
@@ -53,6 +53,26 @@ class ConversationListScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Pair again" deletes the token and the key of this phone: ask first.
+Future<void> _confirmRepair(BuildContext context) async {
+  final session = context.read<SessionController>();
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Pair again?'),
+      content: const Text(
+        'This phone will forget this Mac: its token and fingerprint key are deleted, and you will have to pair '
+        'it again with a new code. Do this only if you know the Mac was reinstalled or reset.',
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Forget this Mac')),
+      ],
+    ),
+  );
+  if (confirmed == true) await session.unpair();
 }
 
 /// The wordmark and the connection chip: the Mac's name and whether it is reached at home or away.

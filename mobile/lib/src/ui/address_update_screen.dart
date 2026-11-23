@@ -128,6 +128,7 @@ class _AddressUpdateScreenState extends State<AddressUpdateScreen> {
             maxLines: 4,
             autocorrect: false,
             enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
             decoration: const InputDecoration(hintText: 'pouple-address:v1?ext=…'),
           ),
           const SizedBox(height: 8),

@@ -26,15 +26,21 @@ void main() {
   late MemoryStore store;
   late FakeSigner signer;
   late SessionController session;
+  late List<Endpoint> probed;
 
   setUp(() async {
     mac = await FakeMac.start();
     store = MemoryStore();
+    probed = [];
     signer = FakeSigner();
     session = SessionController(
       store: store,
       signer: signer,
       clientFactory: (endpoint, token) => mac.client(token: token),
+      probeFactory: (endpoint, token) {
+        probed.add(endpoint);
+        return mac.client(token: token);
+      },
     );
   });
   tearDown(() => mac.close());
@@ -144,6 +150,47 @@ void main() {
       expect(signer.keyDeleted, isFalse);
     });
 
+    test(
+      'checks the new address first: only the new external address is tried, with the stored token',
+      () async {
+        await pairWithExternal();
+        await session.applyAddress(address(fp: 'a' * 64));
+        expect(probed, hasLength(1));
+        expect(probed.single.external.toString(), 'new.example.org:9000');
+        expect(probed.single.hosts, isEmpty);
+        expect(probed.single.tunnel, isNull);
+        expect(mac.endpointChecks.single.headers.value('authorization'), 'Bearer secret-token');
+      },
+    );
+
+    test('a new address that does not answer with the pinned certificate changes nothing', () async {
+      await pairWithExternal();
+      mac.answers['GET /remote/v1/endpoint'] = (401, {'error': 'unauthorized'});
+      await expectLater(
+        session.applyAddress(address(fp: 'a' * 64)),
+        throwsA(
+          isA<AddressUpdateException>().having((e) => e.reason, 'reason', contains('nothing was changed')),
+        ),
+      );
+      expect(store.saved!.external.toString(), 'old.example.org:8000');
+      expect(session.credentials!.external.toString(), 'old.example.org:8000');
+    });
+
+    test('an address code with a tunnel checks both, and a failing tunnel saves neither', () async {
+      await pairWithExternal();
+      mac.answers['GET /remote/v1/endpoint'] = (500, null);
+      await expectLater(
+        session.applyAddress(
+          AddressPayload.parse(
+            'pouple-address:v1?ext=new.example.org:9000&fp=${'a' * 64}&tun=new.ngrok-free.app',
+          ),
+        ),
+        throwsA(isA<AddressUpdateException>()),
+      );
+      expect(store.saved!.external.toString(), 'old.example.org:8000');
+      expect(store.saved!.tunnel, isNull);
+    });
+
     test('refuses a code from another Mac and changes nothing', () async {
       await pairWithExternal();
       await expectLater(
@@ -185,11 +232,16 @@ void main() {
 
     test('an address code with a tunnel replaces it, and keeps the external address', () async {
       await pairWithTunnel(extra: '&tun=old.ngrok-free.app');
+      probed.clear();
       await session.applyAddress(
         AddressPayload.parse(
           'pouple-address:v1?ext=new.example.org:9000&fp=${'a' * 64}&tun=new.ngrok-free.app',
         ),
       );
+      expect(probed.map((e) => (e.external?.toString(), e.tunnel)), [
+        ('new.example.org:9000', null),
+        (null, 'new.ngrok-free.app'),
+      ]);
       expect(store.saved!.tunnel, 'new.ngrok-free.app');
       expect(store.saved!.external.toString(), 'new.example.org:9000');
       expect(store.saved!.token, 'secret-token');

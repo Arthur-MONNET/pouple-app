@@ -30,6 +30,15 @@ class _EmptyStore implements CredentialStore {
   Future<void> clear() async {}
 }
 
+class _SpySession extends SessionController {
+  _SpySession({required super.store, required super.signer});
+
+  int unpaired = 0;
+
+  @override
+  Future<void> unpair() async => unpaired++;
+}
+
 class _Harness {
   _Harness(this.snapshot, {this.failure}) {
     controller = ConversationsController(
@@ -48,12 +57,14 @@ class _Harness {
   final AssistantSnapshot snapshot;
   final RemoteFailure? failure;
   final stream = StreamController<AssistantSnapshot>();
+  late final _SpySession session;
   final api = FakeApi();
   late final ConversationsController controller;
   late final ConversationActions actions;
 
   Future<void> pump(WidgetTester tester, {RemoteClient? client}) async {
     final signer = FakeSigner();
+    session = _SpySession(store: _EmptyStore(), signer: signer);
     addTearDown(() {
       controller.dispose();
       actions.dispose();
@@ -63,9 +74,7 @@ class _Harness {
       MultiProvider(
         providers: [
           if (client != null) Provider<RemoteClient>.value(value: client),
-          ChangeNotifierProvider<SessionController>(
-            create: (_) => SessionController(store: _EmptyStore(), signer: signer),
-          ),
+          ChangeNotifierProvider<SessionController>.value(value: session),
           ChangeNotifierProvider<AppLock>(create: (_) => AppLock(signer: signer)),
           ChangeNotifierProvider<ConversationsController>.value(value: controller),
           ChangeNotifierProvider<ConversationActions>.value(value: actions),
@@ -185,6 +194,29 @@ void main() {
     await harness.pump(tester);
     expect(find.textContaining('certificate changed'), findsOneWidget);
     expect(find.text('Pair again'), findsOneWidget);
+  });
+
+  testWidgets('Pair again asks first, and Cancel keeps the pairing', (tester) async {
+    final harness = _Harness(snapshotOf([]), failure: const RemoteFailure(FailureKind.certificateMismatch));
+    await harness.pump(tester);
+    await tester.tap(find.text('Pair again'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pair again?'), findsOneWidget);
+    expect(find.textContaining('token and fingerprint key are deleted'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pair again?'), findsNothing);
+    expect(harness.session.unpaired, 0);
+  });
+
+  testWidgets('confirming Pair again unpairs', (tester) async {
+    final harness = _Harness(snapshotOf([]), failure: const RemoteFailure(FailureKind.certificateMismatch));
+    await harness.pump(tester);
+    await tester.tap(find.text('Pair again'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Forget this Mac'));
+    await tester.pumpAndSettle();
+    expect(harness.session.unpaired, 1);
   });
 
   group('conversation', () {

@@ -52,9 +52,23 @@ android {
 
     buildTypes {
         release {
-            // Without key.properties the release is signed with the debug key, so it still builds on a fresh clone.
-            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            // Never the debug key: a release without android/key.properties does not build (see the check below).
+            signingConfig = signingConfigs.findByName("release")
         }
+    }
+}
+
+// A release build must be signed with the real key. Debug builds do not need key.properties.
+gradle.taskGraph.whenReady {
+    val releaseBuild = allTasks.any { task ->
+        task.name.contains("Release") &&
+            listOf("assemble", "bundle", "package", "install").any { task.name.startsWith(it) }
+    }
+    if (releaseBuild && keyProperties.getProperty("storeFile") == null) {
+        throw GradleException(
+            "A release build needs android/key.properties (storeFile, storePassword, keyAlias, keyPassword). " +
+                "It is missing, and the release is never signed with the debug key."
+        )
     }
 }
 

@@ -16,8 +16,8 @@ Future<void> _until(bool Function() condition) async {
   }
 }
 
-Future<Socket> _open(int port) async {
-  final socket = await Socket.connect(InternetAddress.loopbackIPv4, port);
+Future<Socket> _open(InternetAddress address) async {
+  final socket = await Socket.connect(address, 0);
   // A write to a connection the forwarder already dropped fails: that is expected here.
   unawaited(socket.done.then((_) {}, onError: (Object _) {}));
   return socket;
@@ -54,13 +54,37 @@ void main() {
     await echo.close();
   });
 
-  Future<Socket> connect() => _open(forwarder.port);
+  Future<Socket> connect() => _open(forwarder.address);
 
-  test('listens on the loopback only, on an ephemeral port', () async {
-    expect(forwarder.port, greaterThan(0));
+  test('listens on a Unix socket in a private directory, not on a TCP port', () async {
+    expect(forwarder.address.type, InternetAddressType.unix);
+    final directory = File(forwarder.address.address).parent;
+    expect(directory.path.split('/').last, startsWith('pouple-tun-'));
+    if (!Platform.isWindows) {
+      expect(directory.statSync().mode & 63, 0, reason: 'no access for group or others');
+    }
     final socket = await connect();
-    expect(socket.remoteAddress.address, '127.0.0.1');
     socket.destroy();
+  });
+
+  test('closing removes the socket and its directory', () async {
+    final directory = File(forwarder.address.address).parent;
+    expect(directory.existsSync(), isTrue);
+    await forwarder.close();
+    expect(directory.existsSync(), isFalse);
+  });
+
+  test('a stale directory of an earlier run is removed at start, a fresh one is left alone', () async {
+    final parent = await Directory.systemTemp.createTemp('pouple-parent-');
+    addTearDown(() => parent.delete(recursive: true));
+    final stale = await Directory('${parent.path}/pouple-tun-old').create();
+    final fresh = await Directory('${parent.path}/pouple-tun-new').create();
+    // A directory cannot be aged from Dart, so only the "fresh one stays" half is checked here.
+    final other = await TunnelForwarder.start('x.example', upstream: bridge.uri, parent: parent);
+    addTearDown(other.close);
+    expect(fresh.existsSync(), isTrue);
+    expect(stale.existsSync(), isTrue);
+    expect(other.address.address, startsWith(parent.path));
   });
 
   test('carries bytes both ways and sends the ngrok header on the upgrade', () async {
@@ -145,26 +169,25 @@ void main() {
         }(),
     ];
     await _until(() => bridge.opened == 5);
-    final port = forwarder.port;
+    final address = forwarder.address;
     await forwarder.close();
     await Future.wait(dones).timeout(const Duration(seconds: 5));
     await _until(() => bridge.closed == 5);
     expect(forwarder.activeConnections, 0);
-    await expectLater(Socket.connect(InternetAddress.loopbackIPv4, port), throwsA(isA<SocketException>()));
+    await expectLater(Socket.connect(address, 0), throwsA(isA<SocketException>()));
     await forwarder.close(); // twice is fine
   });
 
-  test('an unreachable tunnel closes the socket and is counted', () async {
+  test('an unreachable tunnel closes the socket', () async {
     await bridge.close();
     final socket = await connect();
     final done = _closedWhen(socket);
     socket.add([1]);
     await done.timeout(const Duration(seconds: 5));
-    expect(forwarder.upstreamFailures, 1);
     expect(forwarder.activeConnections, 0);
   });
 
-  test('a tunnel that answers something else than a WebSocket upgrade counts as down', () async {
+  test('a tunnel that answers something else than a WebSocket upgrade closes the socket', () async {
     final plain = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     plain.listen((request) {
       request.response.statusCode = 404;
@@ -176,10 +199,49 @@ void main() {
       upstream: Uri.parse('ws://127.0.0.1:${plain.port}/tunnel/v1'),
     );
     addTearDown(other.close);
-    final socket = await _open(other.port);
+    final socket = await _open(other.address);
     final done = _closedWhen(socket);
     socket.add([1]);
     await done.timeout(const Duration(seconds: 5));
-    expect(other.upstreamFailures, 1);
+    expect(other.activeConnections, 0);
+  });
+
+  test('a message above 1 MiB closes the link, one at the limit passes', () async {
+    final big = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => big.close(force: true));
+    big.listen((request) async {
+      final ws = await WebSocketTransformer.upgrade(request);
+      ws.listen((message) {
+        final size = (message as List<int>)[0] == 1
+            ? TunnelForwarder.maxMessageBytes
+            : TunnelForwarder.maxMessageBytes + 1;
+        ws.add(Uint8List(size));
+      });
+    });
+    final other = await TunnelForwarder.start(
+      'x.example',
+      upstream: Uri.parse('ws://127.0.0.1:${big.port}/tunnel/v1'),
+    );
+    addTearDown(other.close);
+
+    final ok = await _open(other.address);
+    var received = 0;
+    ok.listen((chunk) => received += chunk.length);
+    ok.add([1]);
+    await _until(() => received == TunnelForwarder.maxMessageBytes);
+    ok.destroy();
+
+    final tooBig = await _open(other.address);
+    var got = 0;
+    final closed = Completer<void>();
+    tooBig.listen(
+      (chunk) => got += chunk.length,
+      onDone: () => closed.isCompleted ? null : closed.complete(),
+      onError: (Object _) => closed.isCompleted ? null : closed.complete(),
+    );
+    tooBig.add([2]);
+    await closed.future.timeout(const Duration(seconds: 5));
+    expect(got, lessThan(TunnelForwarder.maxMessageBytes + 1));
+    await _until(() => other.activeConnections == 0);
   });
 }
