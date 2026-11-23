@@ -137,8 +137,6 @@ async function savePort(): Promise<void> {
         <li data-testid="external-step-2">{{ $t('phone.external.step2', { externalPort: forward, port: settings.port }) }}</li>
         <li data-testid="external-step-3">{{ $t('phone.external.step3') }}</li>
       </ol>
-      <p class="text-xs leading-relaxed text-ink-muted" data-testid="external-ddns">{{ $t('phone.external.ddns') }}</p>
-      <p class="text-xs leading-relaxed text-ink-muted" data-testid="external-secure">{{ $t('phone.external.secure') }}</p>
     </div>
 
     <template #footer>

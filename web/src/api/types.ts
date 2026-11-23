@@ -695,7 +695,7 @@ export interface RemoteInterface {
 
 export interface RemoteSettings {
   enabled: boolean;
-  /** The names of the chosen interfaces. */
+  /** The names of the chosen interfaces. Empty means automatic: every interface that is up with a private address. */
   interfaces: string[];
   /** The port in use: the default one when none was chosen. */
   port: number;
@@ -718,7 +718,18 @@ export interface RemoteSettings {
   externalDetectedAt: string;
   /** The Mac's side is in place (on, an address is known, listening on a network). The router is never tested. */
   externalReady: boolean;
+  /** The ngrok tunnel (access from outside with no router setting). Off by default. */
+  tunnelEnabled: boolean;
+  /** The user's static ngrok domain; empty until entered. */
+  tunnelDomain: string;
+  /** An authtoken is stored. The token itself is write-only: the core never returns it. */
+  tunnelAuthtokenSet: boolean;
+  tunnelStatus: TunnelStatus;
+  /** A human sentence on why the tunnel is not running as asked; empty when fine. */
+  tunnelProblem: string;
 }
+
+export type TunnelStatus = 'off' | 'starting' | 'running' | 'error';
 
 /** Only the given fields change. */
 export interface RemoteSettingsPatch {
@@ -728,6 +739,10 @@ export interface RemoteSettingsPatch {
   externalEnabled?: boolean;
   externalHost?: string;
   externalPort?: number;
+  tunnelEnabled?: boolean;
+  tunnelDomain?: string;
+  /** Write-only: sent only when the person typed a new one. */
+  tunnelAuthtoken?: string;
 }
 
 /** The lightweight address update payload (`pouple-address:v1?ext=…&fp=…`): it holds no secret. */

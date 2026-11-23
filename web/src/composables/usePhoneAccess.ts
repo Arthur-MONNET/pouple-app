@@ -1,11 +1,13 @@
-import { computed, onScopeDispose, ref } from 'vue';
+import { computed, onScopeDispose, ref, watch } from 'vue';
 import { errorMessage, type PoupleApi } from '../api/client';
 import type { AddressOffer, PairingOffer, RemoteDevice, RemoteSettings, RemoteSettingsPatch } from '../api/types';
-import { defaultInterfaces, externalEndpoint, freshDevices, secondsLeft } from '../lib/phonePairing';
+import { externalEndpoint, freshDevices, secondsLeft } from '../lib/phonePairing';
 
 /** How often the clock of the countdown ticks, and how often the device list is asked while a window is open. */
 export const TICK_MS = 1000;
 export const DEVICE_POLL_MS = 3000;
+/** How often the settings are asked again while the tunnel is starting, to see it come up or fail. */
+export const TUNNEL_POLL_MS = 2000;
 
 /** `open`: waiting for a phone. `expired`: the window closed by itself. `paired`: a new phone showed up in the list. */
 export type PairingPhase = 'idle' | 'opening' | 'open' | 'expired' | 'paired';
@@ -185,15 +187,9 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
     saving.value = true;
     saveError.value = null;
     try {
-      const patched: RemoteSettingsPatch = { ...patch };
-      // The core refuses to turn the access on with no network chosen: pick the usual one for the person.
-      if (patch.enabled === true && patch.interfaces === undefined && (settings.value?.interfaces.length ?? 0) === 0) {
-        const chosen = defaultInterfaces(settings.value?.available ?? []);
-        if (chosen.length > 0) patched.interfaces = chosen;
-      }
       // Answers of an older refresh must not come back over what was just saved.
       settingsTicket++;
-      const next = await api.updateRemoteSettings(patched);
+      const next = await api.updateRemoteSettings(patch);
       if (disposed) return true;
       settings.value = next;
       // What the address says may have changed with the settings: it is asked again on demand.
@@ -210,6 +206,15 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
     } finally {
       if (!disposed) saving.value = false;
     }
+  }
+
+  /**
+   * Turns the access on or off with no other choice to make. On: an empty network list means "automatic" for the
+   * core (every interface that is up with a private address); a list the person chose in the advanced section is kept.
+   * The port is never sent, so the stored one stays.
+   */
+  function setAccess(on: boolean): Promise<boolean> {
+    return save(on ? { enabled: true, interfaces: [...(settings.value?.interfaces ?? [])] } : { enabled: false });
   }
 
   /** Asks the core for the address update payload (no secret, no pairing window). */
@@ -258,9 +263,21 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
     }
   }
 
+  // While the tunnel starts, its state is asked again until it runs or fails.
+  let tunnelPoll: ReturnType<typeof setInterval> | undefined;
+  watch(
+    () => settings.value?.tunnelStatus === 'starting',
+    (starting) => {
+      clearInterval(tunnelPoll);
+      tunnelPoll = starting ? setInterval(() => void refreshSettings(), TUNNEL_POLL_MS) : undefined;
+    },
+    { immediate: true },
+  );
+
   onScopeDispose(() => {
     disposed = true;
     stopTimers();
+    clearInterval(tunnelPoll);
     // A window left open on the Mac for nobody would stay valid up to 2 minutes.
     if (phase.value === 'open' || phase.value === 'opening') void api.cancelPairing().catch(() => undefined);
   });
@@ -290,6 +307,7 @@ export function usePhoneAccess(api: PoupleApi, now: () => number = Date.now) {
     load,
     refreshDevices,
     save,
+    setAccess,
     startPairing,
     cancelPairing,
     dismissPairing,
