@@ -20,6 +20,7 @@ class _PairingScreenState extends State<PairingScreen> {
   final _paste = TextEditingController();
   bool _scanning = false;
   bool _pairing = false;
+  bool _pasting = false;
   String? _error;
 
   @override
@@ -98,45 +99,186 @@ class _PairingScreenState extends State<PairingScreen> {
         ),
       );
     }
+    final scheme = theme.colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Pair with your Mac')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            'On your Mac, open Pouple settings, turn on remote access, choose the network and pair a phone. '
-            'Pair while both devices are on the same network.',
-            style: theme.textTheme.bodyLarge,
-          ),
-          if (notice != null) ...[const SizedBox(height: 16), _Message(text: notice, error: false)],
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _pairing ? null : () => setState(() => _scanning = true),
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Scan the QR code'),
-          ),
-          const SizedBox(height: 32),
-          Text('Or paste the pairing text', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _paste,
-            enabled: !_pairing,
-            minLines: 2,
-            maxLines: 4,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: const InputDecoration(hintText: 'pouple-pair:v1?hosts=…'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(onPressed: _pairing ? null : () => _pair(_paste.text), child: const Text('Pair')),
-          if (_pairing) ...[
-            const SizedBox(height: 24),
-            const Center(child: CircularProgressIndicator()),
-            const SizedBox(height: 8),
-            const Center(child: Text('Pairing…')),
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Pouple',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 20, color: scheme.onSurface),
+                    ),
+                    const SizedBox(height: 32),
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        'Connect to your Mac',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 30,
+                          height: 1.1,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'On your Mac, open Settings → Phone → Add a device, then scan the code it shows. '
+                      'Pair while both devices are on the same network.',
+                      style: TextStyle(fontSize: 15, height: 1.5, color: scheme.onSurfaceVariant),
+                    ),
+                    if (notice != null) ...[const SizedBox(height: 16), _Message(text: notice, error: false)],
+                    const SizedBox(height: 24),
+                    Center(
+                      child: _Viewfinder(onTap: _pairing ? null : () => setState(() => _scanning = true)),
+                    ),
+                    const SizedBox(height: 24),
+                    OutlinedButton(
+                      onPressed: _pairing ? null : () => setState(() => _pasting = !_pasting),
+                      child: const Text('Paste the code instead'),
+                    ),
+                    if (_pasting) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _paste,
+                        enabled: !_pairing,
+                        minLines: 2,
+                        maxLines: 4,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: const InputDecoration(hintText: 'pouple-pair:v1?hosts=…'),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton(
+                        onPressed: _pairing ? null : () => _pair(_paste.text),
+                        child: const Text('Pair'),
+                      ),
+                    ],
+                    if (_pairing) ...[
+                      const SizedBox(height: 24),
+                      const Center(child: CircularProgressIndicator()),
+                      const SizedBox(height: 8),
+                      const Center(child: Text('Pairing…')),
+                    ],
+                    if (_error != null) ...[const SizedBox(height: 16), _Message(text: _error!, error: true)],
+                    const SizedBox(height: 20),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Icon(Icons.lock_outline, size: 16, color: scheme.tertiary),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Once paired, it works at home and away. Everything is encrypted between your phone '
+                            'and your Mac.',
+                            style: TextStyle(fontSize: 12.5, height: 1.5, color: scheme.onSurfaceVariant),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
-          if (_error != null) ...[const SizedBox(height: 16), _Message(text: _error!, error: true)],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The camera frame with four coral corner brackets. Tapping it opens the scanner.
+class _Viewfinder extends StatelessWidget {
+  const _Viewfinder({required this.onTap});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget corner({required bool top, required bool left}) {
+      final side = BorderSide(color: scheme.primary, width: 3);
+      const round = Radius.circular(10);
+      return Positioned(
+        top: top ? 18 : null,
+        bottom: top ? null : 18,
+        left: left ? 18 : null,
+        right: left ? null : 18,
+        child: ExcludeSemantics(
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              border: Border(
+                top: top ? side : BorderSide.none,
+                bottom: top ? BorderSide.none : side,
+                left: left ? side : BorderSide.none,
+                right: left ? BorderSide.none : side,
+              ),
+              borderRadius: BorderRadius.only(
+                topLeft: top && left ? round : Radius.zero,
+                topRight: top && !left ? round : Radius.zero,
+                bottomLeft: !top && left ? round : Radius.zero,
+                bottomRight: !top && !left ? round : Radius.zero,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: 'Scan the QR code',
+      child: Material(
+        color: scheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        child: InkWell(
+          key: const Key('scan-viewfinder'),
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: SizedBox(
+            width: 272,
+            height: 272,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                corner(top: true, left: true),
+                corner(top: true, left: false),
+                corner(top: false, left: true),
+                corner(top: false, left: false),
+                ExcludeSemantics(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.qr_code_scanner, color: scheme.onSurfaceVariant),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Point the camera at the QR code',
+                        style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 2),
+                      Text('Tap to scan', style: TextStyle(fontSize: 12, color: scheme.outline)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -155,7 +297,7 @@ class _Message extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: error ? scheme.errorContainer : scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
         text,

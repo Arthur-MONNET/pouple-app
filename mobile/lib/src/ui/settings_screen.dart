@@ -42,7 +42,7 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         children: [
           if (credentials != null) _Mac(credentials: credentials),
-          if (credentials != null) _Connection(external: credentials.external),
+          if (credentials != null) _Connection(external: credentials.external, tunnel: credentials.tunnel),
           ListTile(
             leading: const Icon(Icons.qr_code_scanner),
             title: const Text("Update the Mac's address"),
@@ -104,21 +104,29 @@ class _Mac extends StatelessWidget {
 
 /// Which route the last connection took, and the external address when there is one.
 class _Connection extends StatelessWidget {
-  const _Connection({required this.external});
+  const _Connection({required this.external, required this.tunnel});
 
   final ExternalAddress? external;
+  final String? tunnel;
 
   @override
   Widget build(BuildContext context) {
     final client = Provider.of<RemoteClient?>(context, listen: false);
     final externalLine = external == null ? 'No outside address set.' : 'Outside address: $external';
+    final subtitle = tunnel == null ? externalLine : '$externalLine\nTunnel: $tunnel';
     Widget tile(NetworkRoute? route) {
       final (icon, title) = switch (route) {
         NetworkRoute.home => (Icons.home_outlined, 'Connected through your home network'),
         NetworkRoute.outside => (Icons.public, 'Connected from outside, through the Internet'),
+        NetworkRoute.tunnel => (Icons.vpn_lock_outlined, 'Connected via tunnel'),
         null => (Icons.sync_alt, 'Not connected yet'),
       };
-      return ListTile(leading: Icon(icon), title: Text(title), subtitle: Text(externalLine));
+      return ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        isThreeLine: tunnel != null,
+      );
     }
 
     if (client == null) return tile(null);

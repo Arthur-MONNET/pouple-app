@@ -41,7 +41,16 @@ class _AddressUpdateScreenState extends State<AddressUpdateScreen> {
         case PayloadKind.address:
           final payload = AddressPayload.parse(text);
           await session.applyAddress(payload);
-          messenger.showSnackBar(SnackBar(content: Text('Address updated to ${payload.external}.')));
+          final tunnel = payload.tunnel;
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                tunnel == null
+                    ? 'Address updated to ${payload.external}.'
+                    : 'Address updated to ${payload.external}, tunnel $tunnel.',
+              ),
+            ),
+          );
           navigator.pop();
         case PayloadKind.pairing:
           setState(

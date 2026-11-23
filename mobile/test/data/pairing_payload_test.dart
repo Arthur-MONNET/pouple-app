@@ -118,4 +118,50 @@ void main() {
       expect(() => PairingPayload.parse(entry.value), throwsA(isA<PairingPayloadException>()));
     });
   }
+
+  group('tunnel domain', () {
+    String withTun(String tun) => '${_payload()}&tun=$tun';
+
+    test('is absent when the code has none', () {
+      expect(PairingPayload.parse(_payload()).tunnel, isNull);
+    });
+
+    test('reads a domain, lowercased, next to the external address', () {
+      final payload = PairingPayload.parse(
+        '${_payload(ext: 'mac.example.org:8443')}&tun=My-Mac.ngrok-free.APP',
+      );
+      expect(payload.tunnel, 'my-mac.ngrok-free.app');
+      expect(payload.external.toString(), 'mac.example.org:8443');
+    });
+
+    test('works with no external address', () {
+      expect(PairingPayload.parse(withTun('a.ngrok-free.app')).tunnel, 'a.ngrok-free.app');
+    });
+
+    for (final entry in {
+      'empty': '',
+      'a scheme': 'https%3A%2F%2Fa.ngrok-free.app',
+      'a port': 'a.ngrok-free.app%3A443',
+      'a path': 'a.ngrok-free.app%2Ftunnel%2Fv1',
+      'a query': 'a.ngrok-free.app%3Fx%3D1',
+      'a single label': 'localhost',
+      'an IPv4 address': '203.0.113.7',
+      'an IPv6 literal': '%5B2001%3Adb8%3A%3A1%5D',
+      'an underscore': 'a_b.ngrok-free.app',
+      'a leading hyphen': '-a.ngrok-free.app',
+      'a trailing dot': 'a.ngrok-free.app.',
+      'an empty label': 'a..ngrok-free.app',
+      'spaces inside': 'a%20b.ngrok-free.app',
+      'userinfo': 'user%40a.ngrok-free.app',
+      'a label of 64 characters': '${'a' * 64}.example',
+    }.entries) {
+      test('refuses ${entry.key}', () {
+        expect(() => PairingPayload.parse(withTun(entry.value)), throwsA(isA<PairingPayloadException>()));
+      });
+    }
+
+    test('accepts a label of 63 characters', () {
+      expect(PairingPayload.parse(withTun('${'a' * 63}.example')).tunnel, '${'a' * 63}.example');
+    });
+  });
 }

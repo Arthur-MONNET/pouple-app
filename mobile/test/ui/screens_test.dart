@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pouple_companion/src/data/models/assistant.dart';
+import 'package:pouple_companion/src/data/net/remote_client.dart';
 import 'package:pouple_companion/src/data/net/remote_failure.dart';
 import 'package:pouple_companion/src/data/storage/credentials.dart';
 import 'package:pouple_companion/src/domain/app_lock.dart';
@@ -51,7 +52,7 @@ class _Harness {
   late final ConversationsController controller;
   late final ConversationActions actions;
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {RemoteClient? client}) async {
     final signer = FakeSigner();
     addTearDown(() {
       controller.dispose();
@@ -61,6 +62,7 @@ class _Harness {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+          if (client != null) Provider<RemoteClient>.value(value: client),
           ChangeNotifierProvider<SessionController>(
             create: (_) => SessionController(store: _EmptyStore(), signer: signer),
           ),
@@ -113,11 +115,40 @@ void main() {
     await harness.pump(tester);
     expect(find.byKey(const Key('needs-you-badge')), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
-    expect(find.text('Your call'), findsOneWidget);
+    expect(find.text('Question'), findsOneWidget);
     expect(find.text('Failed'), findsOneWidget);
     final first = tester.getTopLeft(find.byKey(const ValueKey('conversation-new00001'))).dy;
     final second = tester.getTopLeft(find.byKey(const ValueKey('conversation-bad00001'))).dy;
     expect(first, lessThan(second));
+  });
+
+  testWidgets('the chip says home or away from the route in use, and groups follow the design', (
+    tester,
+  ) async {
+    final client = RemoteClient(
+      endpoint: Endpoint(hosts: const ['127.0.0.1'], port: 1, fingerprint: 'x'),
+      token: 't',
+    );
+    addTearDown(client.dispose);
+    final harness = _Harness(
+      snapshotOf([
+        requestJson(id: 'work0001', status: 'analyzing', text: 'Working one'),
+        requestJson(id: 'done0001', status: 'done', text: 'Finished one'),
+      ]),
+    );
+    await harness.pump(tester, client: client);
+    expect(find.text('Pouple'), findsWidgets);
+    client.route.value = NetworkRoute.home;
+    await tester.pump();
+    expect(find.text('Pouple · home'), findsOneWidget);
+    client.route.value = NetworkRoute.tunnel;
+    await tester.pump();
+    expect(find.text('Pouple · away'), findsOneWidget);
+    expect(find.text('OTHER CONVERSATIONS'), findsOneWidget);
+    expect(find.text('NEEDS YOU'), findsNothing);
+    expect(find.text('New conversation'), findsOneWidget);
+    final size = tester.getSize(find.byKey(const Key('connection-chip')));
+    expect(size.height, greaterThanOrEqualTo(44));
   });
 
   testWidgets('an empty list says so, with no badge', (tester) async {
@@ -204,19 +235,22 @@ void main() {
 
     testWidgets('a plan with several actions needs ticks, and approves only those', (tester) async {
       final harness = await open(tester, requestJson(status: 'awaiting-user', plan: planJson(actions: 2)));
-      final approve = find.widgetWithText(FilledButton, 'Approve ticked actions');
+      final approve = find.widgetWithText(FilledButton, 'Approve actions');
       expect(tester.widget<FilledButton>(approve).onPressed, isNull);
+      expect(find.text('PLAN · 2 actions'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('plan-action-1')));
       await tester.pump();
-      await tester.tap(approve);
+      final ticked = find.widgetWithText(FilledButton, 'Approve 1 action');
+      expect(ticked, findsOneWidget);
+      await tester.tap(ticked);
       await tester.pump();
       expect(harness.api.calls.single, 'plan a1b2c3d4e5f60718 plan0001 approve [1]');
     });
 
     testWidgets('a single-action plan can be declined without a fingerprint', (tester) async {
       final harness = await open(tester, requestJson(status: 'awaiting-user', plan: planJson()));
-      expect(find.text('Plan awaiting your approval'), findsOneWidget);
-      await tester.tap(find.text('No, write nothing'));
+      expect(find.text('PLAN · 1 action'), findsOneWidget);
+      await tester.tap(find.text('Decline'));
       await tester.pump();
       expect(harness.api.calls.single, 'plan a1b2c3d4e5f60718 plan0001 decline null');
     });
@@ -226,6 +260,20 @@ void main() {
       expect(find.text('Fix redirect'), findsOneWidget);
       await tester.tap(find.text('Yes, make the change'));
       await tester.pump();
+      expect(harness.api.calls.single, 'proposal a1b2c3d4e5f60718 prop0001 approve');
+    });
+
+    testWidgets('approving shows the fingerprint sheet while it runs and closes it after', (tester) async {
+      final harness = await open(tester, requestJson(status: 'awaiting-user', proposal: proposalJson()));
+      harness.api.hold();
+      await tester.tap(find.text('Yes, make the change'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Confirm with your fingerprint'), findsOneWidget);
+      harness.api.release();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Confirm with your fingerprint'), findsNothing);
       expect(harness.api.calls.single, 'proposal a1b2c3d4e5f60718 prop0001 approve');
     });
 
@@ -304,14 +352,23 @@ void main() {
 
     testWidgets('offers the scan and the paste fallback', (tester) async {
       await pumpPairing(tester);
-      expect(find.text('Scan the QR code'), findsOneWidget);
-      expect(find.text('Or paste the pairing text'), findsOneWidget);
+      expect(find.text('Connect to your Mac'), findsOneWidget);
+      expect(find.byKey(const Key('scan-viewfinder')), findsOneWidget);
+      expect(find.text('Paste the code instead'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing, reason: 'the paste field opens on demand');
+      await tester.tap(find.text('Paste the code instead'));
+      await tester.pump();
+      expect(find.byType(TextField), findsOneWidget);
     });
 
     testWidgets('a pasted text that is not a pairing code is explained', (tester) async {
       await pumpPairing(tester);
+      await tester.tap(find.text('Paste the code instead'));
+      await tester.pump();
       await tester.enterText(find.byType(TextField), 'https://example.com');
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Pair'));
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'Pair'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Pair'));
       await tester.pump();
       expect(find.text('This is not a Pouple pairing code.'), findsOneWidget);
     });

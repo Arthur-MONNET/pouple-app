@@ -1,7 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Which way the Mac was last reached.
-enum NetworkRoute { home, outside }
+/// Which way the Mac was last reached: the home network, its external address, or the tunnel.
+enum NetworkRoute { home, outside, tunnel }
 
 /// Remembers the route that last worked, nothing else: no address, no name.
 abstract interface class RouteMemory {

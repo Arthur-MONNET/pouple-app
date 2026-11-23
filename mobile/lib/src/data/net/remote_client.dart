@@ -12,13 +12,22 @@ import 'external_address.dart';
 import 'remote_failure.dart';
 import 'route_memory.dart';
 import 'sse_parser.dart';
+import 'tunnel_domain.dart';
+import 'tunnel_forwarder.dart';
 
 export 'external_address.dart';
 export 'route_memory.dart';
+export 'tunnel_domain.dart';
 
 /// Where the Mac listens and the certificate to pin.
 class Endpoint {
-  const Endpoint({required this.hosts, required this.port, required this.fingerprint, this.external});
+  const Endpoint({
+    required this.hosts,
+    required this.port,
+    required this.fingerprint,
+    this.external,
+    this.tunnel,
+  });
 
   /// Home network addresses to try in order. An IPv6 address has no brackets here.
   final List<String> hosts;
@@ -28,11 +37,18 @@ class Endpoint {
   /// Where the router exposes the Mac to the Internet, if it does.
   final ExternalAddress? external;
 
+  /// The ngrok domain the Mac is reachable through (`wss://<domain>/tunnel/v1`), if it has one.
+  final String? tunnel;
+
   Endpoint withExternal(ExternalAddress? address) =>
-      Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: address);
+      Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: address, tunnel: tunnel);
+
+  Endpoint withTunnel(String? domain) =>
+      Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: external, tunnel: domain);
 }
 
-/// One address to try, and which way it goes. The pinned fingerprint is the same for every candidate.
+/// One address to try, and which way it goes. The pinned fingerprint is the same for every candidate. For the
+/// tunnel, [host] is the ngrok domain and [port] 443: the connection really goes to the loopback forwarder.
 class Candidate {
   const Candidate(this.host, this.port, this.route);
 
@@ -85,7 +101,11 @@ class _Attempts {
   /// A wrong certificate on the external address is a real alarm. On the home network it is usually another
   /// device at the same address on a foreign network, so it only counts when nothing else could be tried.
   RemoteFailure failure() {
-    final onlyHomeAnswered = _endpoint.external == null && _homePinFailures > 0 && _homeUnreachable == 0;
+    final onlyHomeAnswered =
+        _endpoint.external == null &&
+        _endpoint.tunnel == null &&
+        _homePinFailures > 0 &&
+        _homeUnreachable == 0;
     if (_externalPinFailed || onlyHomeAnswered) return const RemoteFailure(FailureKind.certificateMismatch);
     return const RemoteFailure(FailureKind.unreachable);
   }
@@ -105,9 +125,13 @@ class RemoteClient {
     this.requestTimeout = const Duration(seconds: 20),
     this.homeConnectTimeout = const Duration(milliseconds: 2500),
     this.outsideConnectTimeout = const Duration(seconds: 8),
+    this.tunnelConnectTimeout = const Duration(seconds: 15),
     this.routeMemory,
     this.onExternalChanged,
-  }) : _factory = clientFactory ?? createPinnedHttpClient;
+    this.onTunnelChanged,
+    Future<TunnelForwarder> Function(String domain)? forwarderFactory,
+  }) : _factory = clientFactory ?? createPinnedHttpClient,
+       _forwarderFactory = forwarderFactory ?? TunnelForwarder.start;
 
   final String? token;
 
@@ -118,11 +142,18 @@ class RemoteClient {
   /// How long a home network address gets to answer before the next candidate is tried.
   final Duration homeConnectTimeout;
   final Duration outsideConnectTimeout;
+
+  /// The tunnel gets longer: the WebSocket to ngrok opens before the TLS handshake can start.
+  final Duration tunnelConnectTimeout;
   final RouteMemory? routeMemory;
 
   /// Called after the Mac told, over an authenticated pinned connection, that its external address changed.
   final Future<void> Function(ExternalAddress address)? onExternalChanged;
+
+  /// Called after the Mac told, over an authenticated pinned connection, that its tunnel domain changed.
+  final Future<void> Function(String domain)? onTunnelChanged;
   final HttpClient Function(String fingerprint) _factory;
+  final Future<TunnelForwarder> Function(String domain) _forwarderFactory;
 
   Endpoint _endpoint;
   HttpClient? _client;
@@ -131,6 +162,8 @@ class RemoteClient {
   bool _memoryLoaded = false;
   bool _needsSync = true;
   Future<void>? _pendingSync;
+  Future<TunnelForwarder>? _forwarder;
+  String? _forwarderDomain;
 
   /// The route of the last successful connection; null until one worked.
   final ValueNotifier<NetworkRoute?> route = ValueNotifier(null);
@@ -143,12 +176,45 @@ class RemoteClient {
     _endpoint = _endpoint.withExternal(address);
   }
 
+  /// Uses a new tunnel domain (from an address update code) without touching anything else.
+  void useTunnel(String? domain) {
+    if (domain == null || domain == _endpoint.tunnel) return;
+    _endpoint = _endpoint.withTunnel(domain);
+    _stopForwarder();
+  }
+
   HttpClient get _http => _client ??= _factory(_endpoint.fingerprint);
 
   /// Closes open connections, streams included.
   void close() {
     _client?.close(force: true);
     _client = null;
+    _stopForwarder();
+  }
+
+  void _stopForwarder() {
+    final forwarder = _forwarder;
+    _forwarder = null;
+    _forwarderDomain = null;
+    if (forwarder != null) unawaited(forwarder.then((f) => f.close(), onError: (_) {}));
+  }
+
+  /// The loopback forwarder of the current tunnel domain, started on first use.
+  Future<TunnelForwarder> _forwarderFor(String domain) {
+    if (_forwarderDomain != domain) _stopForwarder();
+    _forwarderDomain = domain;
+    final started = _forwarder ??= _forwarderFactory(domain);
+    // A forwarder that could not start is not kept: the next call tries again.
+    started.then(
+      (_) {},
+      onError: (_) {
+        if (identical(_forwarder, started)) {
+          _forwarder = null;
+          _forwarderDomain = null;
+        }
+      },
+    );
+    return started;
   }
 
   /// Releases what the screens listen to. Call once, when the client is thrown away.
@@ -161,7 +227,7 @@ class RemoteClient {
   /// closes the client).
   Future<void> settle() => _pendingSync ?? Future<void>.value();
 
-  /// Home addresses first, then the external one; the route that worked last goes first.
+  /// Home addresses, then the external one, then the tunnel; the route that worked last goes first.
   @visibleForTesting
   List<Candidate> candidates() {
     final good = _lastGoodHost;
@@ -170,8 +236,15 @@ class RemoteClient {
         : [good, ..._endpoint.hosts.where((host) => host != good)];
     final home = [for (final host in hosts) Candidate(host, _endpoint.port, NetworkRoute.home)];
     final external = _endpoint.external;
-    final outside = [if (external != null) Candidate(external.host, external.port, NetworkRoute.outside)];
-    return _lastRoute == NetworkRoute.outside ? [...outside, ...home] : [...home, ...outside];
+    final tunnel = _endpoint.tunnel;
+    final ordered = [
+      ...home,
+      if (external != null) Candidate(external.host, external.port, NetworkRoute.outside),
+      if (tunnel != null) Candidate(tunnel, 443, NetworkRoute.tunnel),
+    ];
+    final remembered = _lastRoute;
+    if (remembered == null || remembered == NetworkRoute.home) return ordered;
+    return [...ordered.where((c) => c.route == remembered), ...ordered.where((c) => c.route != remembered)];
   }
 
   Future<void> _loadMemory() async {
@@ -188,14 +261,49 @@ class RemoteClient {
     if (changed) await routeMemory?.write(candidate.route);
   }
 
-  Duration _connectTimeout(Candidate candidate) =>
-      candidate.route == NetworkRoute.home ? homeConnectTimeout : outsideConnectTimeout;
+  Duration _connectTimeout(Candidate candidate) => switch (candidate.route) {
+    NetworkRoute.home => homeConnectTimeout,
+    NetworkRoute.outside => outsideConnectTimeout,
+    NetworkRoute.tunnel => tunnelConnectTimeout,
+  };
 
-  Uri _uri(Candidate candidate, String path, Map<String, String>? query) =>
-      Uri(scheme: scheme, host: candidate.host, port: candidate.port, path: path, queryParameters: query);
+  /// Where to connect for [candidate]. The tunnel goes to the loopback forwarder, whose port is only known once it
+  /// is started; the pinning does not look at the host name, so the pin check is the same as everywhere.
+  Future<({Uri uri, int upstreamFailures})> _target(
+    Candidate candidate,
+    String path,
+    Map<String, String>? query,
+  ) async {
+    var host = candidate.host;
+    var port = candidate.port;
+    var failures = 0;
+    if (candidate.route == NetworkRoute.tunnel) {
+      final forwarder = await _forwarderFor(candidate.host);
+      host = InternetAddress.loopbackIPv4.address;
+      port = forwarder.port;
+      failures = forwarder.upstreamFailures;
+    }
+    return (
+      uri: Uri(scheme: scheme, host: host, port: port, path: path, queryParameters: query),
+      upstreamFailures: failures,
+    );
+  }
 
-  /// After a (re)connection, asks the Mac for its current external address and keeps it when it is a valid,
-  /// different one. A failed or malformed answer changes nothing.
+  /// A TLS error on the tunnel whose WebSocket never opened (or died) is the tunnel being down, not a refused
+  /// certificate.
+  Future<bool> _tunnelWasDown(Candidate candidate, int before) async {
+    if (candidate.route != NetworkRoute.tunnel) return false;
+    final forwarder = _forwarder;
+    if (forwarder == null) return true;
+    try {
+      return (await forwarder).upstreamFailures > before;
+    } on Object {
+      return true;
+    }
+  }
+
+  /// After a (re)connection, asks the Mac for its current external address and tunnel domain and keeps each one
+  /// that is valid and different. A failed or malformed answer (or field) changes nothing.
   void _learnExternal() {
     if (!_needsSync || token == null || _pendingSync != null) return;
     _needsSync = false;
@@ -207,13 +315,27 @@ class RemoteClient {
   Future<void> _askExternal() async {
     try {
       final response = await request('GET', '/remote/v1/endpoint', learn: false);
-      final text = JsonObject.of(response.json).optString('ext');
-      final learned = ExternalAddress.tryParse(text);
-      if (learned == null || learned == _endpoint.external) return;
-      _endpoint = _endpoint.withExternal(learned);
-      await onExternalChanged?.call(learned);
+      final json = JsonObject.of(response.json);
+      final learned = ExternalAddress.tryParse(_optText(json, 'ext'));
+      if (learned != null && learned != _endpoint.external) {
+        _endpoint = _endpoint.withExternal(learned);
+        await onExternalChanged?.call(learned);
+      }
+      final tunnel = parseTunnelDomain(_optText(json, 'tun'));
+      if (tunnel != null && tunnel != _endpoint.tunnel) {
+        useTunnel(tunnel);
+        await onTunnelChanged?.call(tunnel);
+      }
     } on Object {
       // An older Mac, a bad answer or a lost link: the stored address stays.
+    }
+  }
+
+  static String? _optText(JsonObject json, String key) {
+    try {
+      return json.optString(key);
+    } on FormatException {
+      return null;
     }
   }
 
@@ -230,10 +352,11 @@ class RemoteClient {
     await _loadMemory();
     final attempts = _Attempts(_endpoint);
     for (final candidate in candidates()) {
+      var failuresBefore = 0;
       try {
-        final request = await _http
-            .openUrl(method, _uri(candidate, path, query))
-            .timeout(_connectTimeout(candidate));
+        final target = await _target(candidate, path, query);
+        failuresBefore = target.upstreamFailures;
+        final request = await _http.openUrl(method, target.uri).timeout(_connectTimeout(candidate));
         _decorate(request, authenticated: authenticated, stepUp: stepUp, hasBody: body != null);
         if (body != null) request.add(body);
         final response = await request.close().timeout(requestTimeout);
@@ -247,7 +370,11 @@ class RemoteClient {
         attempts.pinFailed(candidate);
       } on TlsException {
         // Refused during the handshake, before anything (the token included) was sent: skip this address.
-        attempts.pinFailed(candidate);
+        if (await _tunnelWasDown(candidate, failuresBefore)) {
+          attempts.unreachable(candidate);
+        } else {
+          attempts.pinFailed(candidate);
+        }
       } on SocketException {
         attempts.unreachable(candidate);
       } on TimeoutException {
@@ -363,10 +490,11 @@ class RemoteClient {
     final attempts = _Attempts(_endpoint);
     for (final candidate in candidates()) {
       HttpClientResponse response;
+      var failuresBefore = 0;
       try {
-        final request = await _http
-            .openUrl('GET', _uri(candidate, '/api/assistant/stream', null))
-            .timeout(_connectTimeout(candidate));
+        final target = await _target(candidate, '/api/assistant/stream', null);
+        failuresBefore = target.upstreamFailures;
+        final request = await _http.openUrl('GET', target.uri).timeout(_connectTimeout(candidate));
         _decorate(request, authenticated: true, stepUp: null, hasBody: false);
         request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
         response = await request.close().timeout(requestTimeout);
@@ -376,7 +504,11 @@ class RemoteClient {
         attempts.pinFailed(candidate);
         continue;
       } on TlsException {
-        attempts.pinFailed(candidate);
+        if (await _tunnelWasDown(candidate, failuresBefore)) {
+          attempts.unreachable(candidate);
+        } else {
+          attempts.pinFailed(candidate);
+        }
         continue;
       } on SocketException {
         attempts.unreachable(candidate);

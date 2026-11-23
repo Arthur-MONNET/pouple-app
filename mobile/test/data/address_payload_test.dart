@@ -41,4 +41,35 @@ void main() {
     expect(payloadKind('  pouple-address:v1?x'), PayloadKind.address);
     expect(payloadKind('https://example.org'), PayloadKind.unknown);
   });
+
+  group('tunnel domain', () {
+    test('is optional', () {
+      expect(AddressPayload.parse('pouple-address:v1?ext=a.example:1&fp=$_fp').tunnel, isNull);
+    });
+
+    test('is read, lowercased', () {
+      final payload = AddressPayload.parse(
+        'pouple-address:v1?ext=a.example:1&fp=$_fp&tun=Mac.ngrok-free.app',
+      );
+      expect(payload.tunnel, 'mac.ngrok-free.app');
+    });
+
+    for (final bad in [
+      '',
+      'https://a.ngrok-free.app',
+      'a.ngrok-free.app:443',
+      'a.ngrok-free.app/x',
+      'localhost',
+      '1.2.3.4',
+    ]) {
+      test('refuses "$bad"', () {
+        expect(
+          () => AddressPayload.parse(
+            'pouple-address:v1?ext=a.example:1&fp=$_fp&tun=${Uri.encodeComponent(bad)}',
+          ),
+          throwsA(isA<PairingPayloadException>()),
+        );
+      });
+    }
+  });
 }

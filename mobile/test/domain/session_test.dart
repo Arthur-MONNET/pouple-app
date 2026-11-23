@@ -166,4 +166,49 @@ void main() {
       expect(store.saved!.token, 'secret-token');
     });
   });
+
+  group('tunnel domain', () {
+    Future<void> pairWithTunnel({String extra = ''}) async {
+      mac.answers['POST /remote/v1/pair'] = (201, {'deviceId': 'dev1', 'token': 'secret-token'});
+      await session.pair(
+        PairingPayload.parse(
+          'pouple-pair:v1?hosts=127.0.0.1&port=${mac.port}&fp=${'a' * 64}&code=${'b' * 32}&name=Studio'
+          '&ext=old.example.org:8000$extra',
+        ),
+      );
+    }
+
+    test('pairing keeps the tunnel domain of the code', () async {
+      await pairWithTunnel(extra: '&tun=old.ngrok-free.app');
+      expect(store.saved!.tunnel, 'old.ngrok-free.app');
+    });
+
+    test('an address code with a tunnel replaces it, and keeps the external address', () async {
+      await pairWithTunnel(extra: '&tun=old.ngrok-free.app');
+      await session.applyAddress(
+        AddressPayload.parse(
+          'pouple-address:v1?ext=new.example.org:9000&fp=${'a' * 64}&tun=new.ngrok-free.app',
+        ),
+      );
+      expect(store.saved!.tunnel, 'new.ngrok-free.app');
+      expect(store.saved!.external.toString(), 'new.example.org:9000');
+      expect(store.saved!.token, 'secret-token');
+    });
+
+    test('an address code without a tunnel leaves the stored one alone', () async {
+      await pairWithTunnel(extra: '&tun=old.ngrok-free.app');
+      await session.applyAddress(
+        AddressPayload.parse('pouple-address:v1?ext=new.example.org:9000&fp=${'a' * 64}'),
+      );
+      expect(store.saved!.tunnel, 'old.ngrok-free.app');
+    });
+
+    test('a tunnel domain learned from the Mac is stored the same way', () async {
+      await pairWithTunnel();
+      expect(store.saved!.tunnel, isNull);
+      await session.updateTunnel('learned.ngrok-free.app');
+      expect(store.saved!.tunnel, 'learned.ngrok-free.app');
+      expect(store.saved!.external.toString(), 'old.example.org:8000');
+    });
+  });
 }

@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/models/assistant.dart';
+import '../data/net/remote_client.dart';
 import '../domain/conversation_actions.dart';
 import '../domain/conversations_controller.dart';
 import '../domain/decisions.dart';
 import 'decision_cards.dart';
 import 'scoped_route.dart';
 import 'status_banner.dart';
-import 'status_chip.dart';
+import 'theme.dart';
 
 /// One conversation: what was said, what waits for the person, and the composer.
 class ConversationScreen extends StatefulWidget {
@@ -81,16 +82,106 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final groups = groupEntries(request.entries);
     _followBottom(request.entries.length + (isDeciding(request) ? 1 : 0));
     return Scaffold(
-      appBar: AppBar(
-        title: Text(request.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Center(child: StatusChip(status: request.status)),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _Header(request: request, actions: actions, onDelete: () => _delete(request)),
+            LinkBanner(controller: controller, onUpdateAddress: () => openAddressUpdate(context)),
+            Expanded(
+              child: ListView(
+                controller: _scroll,
+                padding: const EdgeInsets.all(12),
+                children: [
+                  for (final group in groups)
+                    switch (group) {
+                      StepsGroup(:final entries) => _Steps(entries: entries),
+                      MessageGroup(:final entry) => _Message(entry: entry),
+                    },
+                  _Footer(request: request, actions: actions),
+                ],
+              ),
+            ),
+            _Bottom(request: request, actions: actions),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Back, the conversation's title and where it comes from, the route the Mac is reached by, and the menu.
+class _Header extends StatelessWidget {
+  const _Header({required this.request, required this.actions, required this.onDelete});
+
+  final AssistantRequest request;
+  final ConversationActions actions;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final client = Provider.of<RemoteClient?>(context, listen: false);
+    final origin = [
+      request.source.channelName,
+      request.source.senderName,
+    ].whereType<String>().where((part) => part.isNotEmpty).join(' · ');
+    Widget route(NetworkRoute? value) {
+      if (value == null) return const SizedBox.shrink();
+      final away = value != NetworkRoute.home;
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(shape: BoxShape.circle, color: poupleGreen),
+            ),
+            const SizedBox(width: 6),
+            Text(away ? 'Away' : 'Home', style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant)),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6))),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Back',
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.chevron_left, size: 26),
           ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  request.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+                if (origin.isNotEmpty)
+                  Text(origin, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          if (client != null)
+            ValueListenableBuilder<NetworkRoute?>(
+              valueListenable: client.route,
+              builder: (context, value, _) => route(value),
+            ),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'delete') _delete(request);
+              if (value == 'delete') onDelete();
               if (value == 'dismiss') actions.ignore(request);
             },
             itemBuilder: (context) => const [
@@ -98,26 +189,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
               PopupMenuItem(value: 'delete', child: Text('Delete')),
             ],
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          LinkBanner(controller: controller, onUpdateAddress: () => openAddressUpdate(context)),
-          Expanded(
-            child: ListView(
-              controller: _scroll,
-              padding: const EdgeInsets.all(12),
-              children: [
-                for (final group in groups)
-                  switch (group) {
-                    StepsGroup(:final entries) => _Steps(entries: entries),
-                    MessageGroup(:final entry) => _Message(entry: entry),
-                  },
-                _Footer(request: request, actions: actions),
-              ],
-            ),
-          ),
-          _Bottom(request: request, actions: actions),
         ],
       ),
     );
@@ -177,8 +248,9 @@ class _Message extends StatelessWidget {
               ? scheme.primaryContainer
               : system
               ? scheme.surfaceContainerHighest
-              : scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(14),
+              : scheme.surfaceContainerLow,
+          border: mine ? null : Border.all(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
