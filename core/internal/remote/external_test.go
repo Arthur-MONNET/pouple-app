@@ -207,11 +207,11 @@ func TestSourceFilterDropsOutsideSourcesBeforeAnythingIsRead(t *testing.T) {
 func TestServiceTreatsOnLinkIPv6AsLocal(t *testing.T) {
 	prefix := netip.MustParsePrefix("2001:db8:abcd:12::/64")
 	s := &Service{}
-	s.onLinkFn = func() ([]netip.Prefix, error) { return []netip.Prefix{prefix}, nil }
+	s.onLinkFn = func([]string) ([]netip.Prefix, error) { return []netip.Prefix{prefix}, nil }
 	if s.isLocalSource(netip.MustParseAddr("2001:db8:abcd:12::77")) {
 		t.Fatal("nothing is on-link before the networks are read")
 	}
-	s.refreshOnLink()
+	s.refreshOnLink(nil)
 	for text, want := range map[string]bool{
 		"2001:db8:abcd:12::77": true, "2001:db8:abcd:13::77": false, "192.168.1.5": true, "203.0.113.7": false, "2001:db8::1": false,
 	} {
@@ -219,7 +219,7 @@ func TestServiceTreatsOnLinkIPv6AsLocal(t *testing.T) {
 			t.Errorf("isLocalSource(%s) = %v, want %v", text, got, want)
 		}
 	}
-	if _, err := systemOnLink(); err != nil {
+	if _, err := systemOnLink(nil); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -10,7 +10,9 @@ import (
 const (
 	// PairingWindow is how long a pairing code can be used.
 	PairingWindow = 2 * time.Minute
-	// maxPairingAttempts closes the window after this many wrong codes.
+	// maxPairingAttempts closes the window after this many wrong codes from a local source. A wrong code from any
+	// other source never counts: with 128 bits the code cannot be guessed, and letting the Internet close the window
+	// would let anyone keep the owner from pairing. The per-source throttle still counts and locks those sources.
 	maxPairingAttempts = 5
 )
 
@@ -57,8 +59,12 @@ func (p *Pairing) Cancel() {
 	p.code = ""
 }
 
-// Consume checks a code and closes the window when it matches: a code pairs one device only.
-func (p *Pairing) Consume(code string) error {
+// Consume checks a code from a local source: see ConsumeFrom.
+func (p *Pairing) Consume(code string) error { return p.ConsumeFrom(code, true) }
+
+// ConsumeFrom checks a code and closes the window when it matches: a code pairs one device only. A wrong code counts
+// toward the window's try limit only when it comes from a local source.
+func (p *Pairing) ConsumeFrom(code string, local bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.code == "" || !p.now().Before(p.expires) {
@@ -66,6 +72,9 @@ func (p *Pairing) Consume(code string) error {
 		return ErrPairingClosed
 	}
 	if subtle.ConstantTimeCompare([]byte(code), []byte(p.code)) != 1 {
+		if !local {
+			return ErrPairingRefused
+		}
 		p.attempts++
 		if p.attempts >= maxPairingAttempts {
 			p.code = ""

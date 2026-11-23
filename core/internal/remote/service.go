@@ -69,8 +69,12 @@ type Options struct {
 	// Local says whether a source address is on a local network; nil is IsLocalAddress, plus the IPv6 networks the Mac
 	// is attached to (a phone at home with a global IPv6 address is not an outside source).
 	Local func(netip.Addr) bool
-	// OnLink lists the IPv6 networks the Mac is attached to; nil reads the system's.
-	OnLink func() ([]netip.Prefix, error)
+	// OnLink lists the IPv6 networks the Mac is attached to through the chosen interfaces; nil reads the system's.
+	OnLink func(chosen []string) ([]netip.Prefix, error)
+	// MaxConnections and MaxConnectionsPerSource cap the connections the listeners hold open, in all and per source
+	// (an IPv4 address, an IPv6 /64); 0 is the default (256 and 16). Connections over a cap are dropped.
+	MaxConnections          int
+	MaxConnectionsPerSource int
 }
 
 // Interface is a network interface that can be chosen, with its usable addresses.
@@ -91,7 +95,7 @@ type Service struct {
 	hostname   func() (string, error)
 	now        func() time.Time
 	local      func(netip.Addr) bool
-	onLinkFn   func() ([]netip.Prefix, error)
+	onLinkFn   func(chosen []string) ([]netip.Prefix, error)
 	onLink     atomic.Pointer[[]netip.Prefix]
 	publicAddr PublicAddress
 
@@ -99,6 +103,11 @@ type Service struct {
 	life       context.Context
 	lifeCancel context.CancelFunc
 	bg         sync.WaitGroup
+
+	// cfgMu serializes the changes of the settings and their application: loading the settings and applying them is
+	// one step, so a stale Apply (the address ticker) never reopens a listener the owner just closed, and two updates
+	// never overwrite each other. It is taken before mu.
+	cfgMu sync.Mutex
 
 	mu        sync.Mutex
 	cert      *Certificate
@@ -213,6 +222,13 @@ func portOf(settings config.RemoteSettings) int {
 
 // Apply stops the listeners and starts them again as the stored settings say.
 func (s *Service) Apply() error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.applyLocked()
+}
+
+// applyLocked is Apply with cfgMu held: the settings are read here, so they are the latest saved ones.
+func (s *Service) applyLocked() error {
 	settings, loadErr := s.opts.Load()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -234,7 +250,7 @@ func (s *Service) Apply() error {
 		s.pairing.Cancel()
 		return nil
 	}
-	s.refreshOnLink()
+	s.refreshOnLink(settings.Interfaces)
 	addresses, err := s.addressesOf(settings.Interfaces)
 	if err != nil {
 		s.problem = err.Error()
@@ -257,6 +273,8 @@ func (s *Service) Apply() error {
 	s.cancel = cancel
 	tlsConfig := &tls.Config{Certificates: []tls.Certificate{s.cert.TLS}, MinVersion: tls.VersionTLS13}
 	port := strconv.Itoa(portOf(settings))
+	// One limiter for all the listeners of this Apply: the caps hold for the Mac, not per address.
+	limiter := newConnLimiter(s.opts.MaxConnections, s.opts.MaxConnectionsPerSource, s.handler.throttle.Flooding)
 	var problems []string
 	for _, address := range addresses {
 		listener, err := net.Listen("tcp", net.JoinHostPort(address, port))
@@ -279,6 +297,12 @@ func (s *Service) Apply() error {
 		if !settings.ExternalEnabled {
 			accepting = &sourceFilter{Listener: listener, allow: s.local}
 		}
+		// The limits come before the handshake too: a connection over a cap, or of a source that keeps hammering a
+		// lockout, costs a reset and no TLS work. A lockout alone drops nothing here (a valid token behind the same
+		// public address must still get through, see Handler.ServeHTTP): only a flood does. A connection that never
+		// authenticates cannot idle: the handshake and the request headers have 10 seconds, and every refusal
+		// answers "Connection: close".
+		accepting = &limitListener{Listener: accepting, limiter: limiter}
 		go func() {
 			if err := server.Serve(tls.NewListener(accepting, tlsConfig)); !errors.Is(err, http.ErrServerClosed) {
 				log.Printf("remote access on %s: %v", listener.Addr(), err)
@@ -456,9 +480,20 @@ func nonNil(values []string) []string {
 
 // UpdateSettings checks and saves a change, then restarts the listener with it.
 func (s *Service) UpdateSettings(update SettingsUpdate) (SettingsView, error) {
+	if err := s.updateSettings(update); err != nil {
+		return SettingsView{}, err
+	}
+	s.refreshSoon()
+	return s.Settings()
+}
+
+// updateSettings loads, changes, saves and applies the settings as one step against the other updates and Applies.
+func (s *Service) updateSettings(update SettingsUpdate) error {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	settings, err := s.opts.Load()
 	if err != nil {
-		return SettingsView{}, err
+		return err
 	}
 	if update.Enabled != nil {
 		settings.Enabled = *update.Enabled
@@ -467,7 +502,7 @@ func (s *Service) UpdateSettings(update SettingsUpdate) (SettingsView, error) {
 		chosen := []string{}
 		for _, name := range *update.Interfaces {
 			if !interfaceName.MatchString(name) {
-				return SettingsView{}, i18n.Wrap(ErrInvalidSettings, "“%s” is not the name of a network interface.", name)
+				return i18n.Wrap(ErrInvalidSettings, "“%s” is not the name of a network interface.", name)
 			}
 			if !slices.Contains(chosen, name) {
 				chosen = append(chosen, name)
@@ -477,7 +512,7 @@ func (s *Service) UpdateSettings(update SettingsUpdate) (SettingsView, error) {
 	}
 	if update.Port != nil {
 		if *update.Port < 1024 || *update.Port > 65535 {
-			return SettingsView{}, i18n.Wrap(ErrInvalidSettings, "The port must be between 1024 and 65535.")
+			return i18n.Wrap(ErrInvalidSettings, "The port must be between 1024 and 65535.")
 		}
 		settings.Port = *update.Port
 	}
@@ -487,30 +522,29 @@ func (s *Service) UpdateSettings(update SettingsUpdate) (SettingsView, error) {
 	if update.ExternalHost != nil {
 		host, err := ValidateExternalHost(*update.ExternalHost)
 		if err != nil {
-			return SettingsView{}, i18n.Wrap(ErrInvalidSettings, "“%s” is not a valid public name or address: use a host name such as home.example.net, or an IP address, with no http://, port, path or space.", shown(*update.ExternalHost))
+			return i18n.Wrap(ErrInvalidSettings, "“%s” is not a valid public name or address: use a host name such as home.example.net, or an IP address, with no http://, port, path or space.", shown(*update.ExternalHost))
 		}
 		settings.ExternalHost = host
 	}
 	if update.ExternalPort != nil {
 		if !validExternalPort(*update.ExternalPort) {
-			return SettingsView{}, i18n.Wrap(ErrInvalidSettings, "The external port must be 0 (the same as the port above) or between 1 and 65535.")
+			return i18n.Wrap(ErrInvalidSettings, "The external port must be 0 (the same as the port above) or between 1 and 65535.")
 		}
 		settings.ExternalPort = *update.ExternalPort
 	}
 	if settings.Enabled && len(settings.Interfaces) == 0 {
-		return SettingsView{}, i18n.Wrap(ErrInvalidSettings, "Choose the network the phone uses: Pouple never listens on every network at once.")
+		return i18n.Wrap(ErrInvalidSettings, "Choose the network the phone uses: Pouple never listens on every network at once.")
 	}
 	if settings.ExternalEnabled && settings.ExternalHost == "" {
-		return SettingsView{}, i18n.Wrap(ErrInvalidSettings, "Enter the public name or address of your home network to reach the Mac from outside.")
+		return i18n.Wrap(ErrInvalidSettings, "Enter the public name or address of your home network to reach the Mac from outside.")
 	}
 	if err := s.opts.Save(settings); err != nil {
-		return SettingsView{}, err
+		return err
 	}
-	if err := s.Apply(); err != nil {
+	if err := s.applyLocked(); err != nil {
 		log.Printf("remote access: %v", err)
 	}
-	s.refreshSoon()
-	return s.Settings()
+	return nil
 }
 
 // PairingOffer is what the settings show to pair a phone: the QR code's content and when it stops working.
@@ -691,9 +725,9 @@ func (s *Service) RefreshExternal(ctx context.Context) {
 	}
 }
 
-// refreshOnLink reads the IPv6 networks the Mac is attached to.
-func (s *Service) refreshOnLink() {
-	prefixes, err := s.onLinkFn()
+// refreshOnLink reads the IPv6 networks the Mac is attached to through the chosen interfaces.
+func (s *Service) refreshOnLink(chosen []string) {
+	prefixes, err := s.onLinkFn(chosen)
 	if err != nil {
 		return
 	}
@@ -714,25 +748,60 @@ func (s *Service) isLocalSource(addr netip.Addr) bool {
 	return prefixes != nil && slices.ContainsFunc(*prefixes, func(prefix netip.Prefix) bool { return prefix.Contains(addr) })
 }
 
-// systemOnLink lists the global IPv6 networks of the interfaces that are up.
-func systemOnLink() ([]netip.Prefix, error) {
-	addrs, err := net.InterfaceAddrs()
+// minOnLinkPrefix is the shortest IPv6 prefix that counts as "the network the Mac is attached to": normally a /64.
+// A shorter one (a /32 or a /48 announced on a point of presence, a mistaken /0) would make a whole provider's
+// customers look local, which weakens the throttle and lets them past the source filter.
+const minOnLinkPrefix = 48
+
+// linkAddrs is an interface with its addresses, as the system gives them.
+type linkAddrs struct {
+	Name  string
+	Flags net.Flags
+	Addrs []net.Addr
+}
+
+// systemOnLink lists the global IPv6 networks of the chosen interfaces, the ones the phone access is bound to.
+func systemOnLink(chosen []string) ([]netip.Prefix, error) {
+	system, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
-	var out []netip.Prefix
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
+	var links []linkAddrs
+	for _, iface := range system {
+		if !slices.Contains(chosen, iface.Name) {
 			continue
 		}
-		prefix, err := netip.ParsePrefix(ipNet.String())
-		if err != nil || !prefix.Addr().Is6() || prefix.Addr().Is4In6() || !prefix.Addr().IsGlobalUnicast() || prefix.Addr().IsPrivate() {
+		addrs, err := iface.Addrs()
+		if err != nil {
 			continue
 		}
-		out = append(out, prefix.Masked())
+		links = append(links, linkAddrs{Name: iface.Name, Flags: iface.Flags, Addrs: addrs})
 	}
-	return out, nil
+	return onLinkPrefixes(links, chosen), nil
+}
+
+// onLinkPrefixes keeps the global IPv6 prefixes (at least minOnLinkPrefix long) of the chosen interfaces that are up
+// and are not point-to-point (a tunnel or a VPN is not a network the phone is attached to).
+func onLinkPrefixes(links []linkAddrs, chosen []string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, link := range links {
+		if !slices.Contains(chosen, link.Name) || link.Flags&net.FlagUp == 0 || link.Flags&net.FlagPointToPoint != 0 {
+			continue
+		}
+		for _, addr := range link.Addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			prefix, err := netip.ParsePrefix(ipNet.String())
+			if err != nil || !prefix.Addr().Is6() || prefix.Addr().Is4In6() || !prefix.Addr().IsGlobalUnicast() ||
+				prefix.Addr().IsPrivate() || prefix.Bits() < minOnLinkPrefix {
+				continue
+			}
+			out = append(out, prefix.Masked())
+		}
+	}
+	return out
 }
 
 func isLoopback(address string) bool {

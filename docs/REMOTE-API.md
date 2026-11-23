@@ -19,7 +19,7 @@ Mac (see [Access from outside](#access-from-outside)). There is no cloud relay, 
   or the core stops.
 - While the access from outside is **off** (the default), the listener drops, before the TLS handshake, every
   connection whose source address is not local: loopback, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`),
-  link-local (`169.254/16`, `fe80::/10`), or a global IPv6 address inside a network the Mac is attached to. While it is
+  link-local (`169.254/16`, `fe80::/10`), or a global IPv6 address inside a network the Mac is attached to through a chosen interface (up, not point-to-point, prefix of 48 bits or longer; normally a `/64`). While it is
   **on**, any source is accepted: the pinned certificate, the tokens and the throttle below are the protection.
 - The phone is not a browser. A request with an `Origin` or `Sec-Fetch-Site` header is refused with 403
   `forbidden-origin`. No web interface is served, and no CORS header is ever sent.
@@ -36,7 +36,7 @@ Errors from the remote layer are JSON: `{"error":"<code>"}`. Errors from the ass
 | 403 | `forbidden-route` | The route is not on the allowlist, or the path is not in canonical form. |
 | 403 | `step-up-required` | This request needs a step-up and has none. |
 | 403 | `step-up-refused` | The step-up nonce is unknown, used, expired or another device's, or the signature does not verify. |
-| 403 | `pairing-closed` | No pairing window is open: never opened, expired, cancelled, used, or closed after 5 wrong codes. |
+| 403 | `pairing-closed` | No pairing window is open: never opened, expired, cancelled, used, or closed after 5 wrong codes from a local source. |
 | 403 | `pairing-refused` | Wrong pairing code. |
 | 409 | `too-many-devices` | 10 devices are already paired. Revoke one on the Mac. |
 | 413 | `body-too-large` | JSON bodies are limited to 1 MiB. |
@@ -47,7 +47,7 @@ Errors from the remote layer are JSON: `{"error":"<code>"}`. Errors from the ass
 
 1. On the Mac, the user turns the access on, chooses the network, and asks to pair a phone. The settings call
    `POST /api/remote/pairing` on the loopback API and show its `payload` as a QR code. The window lasts **2 minutes**.
-   The code is 128-bit and works **once**. Five wrong codes close the window.
+   The code is 128-bit and works **once**. Five wrong codes from a local source close the window; wrong codes from other sources never do (the throttle locks them).
 2. The QR payload is a URL with query parameters in this order. Each value is percent-encoded, so decode it as a
    query string:
 
@@ -267,13 +267,29 @@ the address is unknown, `ext` is left out of the pairing payload and `GET /remot
 
 - **Source filter**: with the access from outside off, non-local sources are dropped before the handshake (see
   Transport).
+- **Connection caps**: a listener wrapper applied before the TLS handshake holds at most 256 connections at once in
+  all and 16 per source (an IPv4 address, an IPv6 `/64`, like the throttle); a connection over a cap is reset without
+  any TLS work. The slots are given back on every way a connection ends (clean close, failed handshake, timeout,
+  shutdown). Every refusal of a client that did not authenticate (401, 403 including `forbidden-origin` and the pairing
+  errors, 400, 405, 422, 429) carries `Connection: close`, so a scanner cannot keep a connection open by waiting between
+  refusals; a connection that never speaks has 10 seconds for the handshake and the request headers.
 - **Throttle**: each source address (a whole `/64` for IPv6) that fails to authenticate (unknown or revoked token, wrong
   or closed pairing window, wrong step-up signature) is counted. A source on a local network is locked out after 30
   failures in 10 minutes, for 30 seconds; any other source after 6 failures in 10 minutes, for one minute. Each new
-  lockout of the same source doubles the previous one, up to 10 minutes (local) or one hour (other). A locked-out source
-  gets 429 `too-many-attempts` with `Retry-After` for every request, even with a valid token. The table is bounded
-  (4096 sources) and forgets a source after 6 hours without failure. A missing step-up, a malformed body or a browser
-  request is not counted.
+  lockout of the same source doubles the previous one, up to 10 minutes (local) or one hour (other). The table is
+  bounded (4096 sources) and forgets a source after 6 hours without failure. A missing step-up, a malformed body or a
+  browser request is not counted.
+- **Lockout semantics**: the lockout is for the requests that fail to authenticate, not for the address. A locked-out
+  source gets 429 `too-many-attempts` with `Retry-After` for a request with no token, a wrong or revoked token, a
+  pairing attempt, or a wrong step-up signature. A request that carries a **valid, non-revoked device token** is served
+  whatever its source: the owner may share a public address (CGNAT, office, family) with someone who locked it out.
+  Its failures are still counted. Because a lockout alone must not cut off a valid token, connections are not dropped
+  at accept time for a lockout; they are dropped only for a *flood*: a source that is locked out and has sent 100 more
+  requests that were refused (so it ignores its 429 answers) has its new connections reset until its lockout ends. The
+  owner's own valid requests never count toward a flood.
+- **Pairing window**: a wrong pairing code from a local source counts toward the 5 tries that close the window. A wrong
+  code from any other source does not: with 128 bits it cannot be guessed, and an Internet scanner must not be able to
+  close the window the owner just opened. Those attempts are still counted, and locked out, by the throttle.
 - **Log**: each pairing from a non-local source, and the first authenticated or pairing request from each new non-local
   source address, is logged once with the address, never with a token or content. A lockout is logged too.
 
@@ -284,14 +300,16 @@ Asana, Slite), and the secrets of connected services.
 
 | Threat | Mitigation |
 |---|---|
-| Someone on the same network (café, office Wi-Fi) | Off by default. Binds only the chosen interfaces. TLS 1.3 with a pinned certificate. Every route except pairing needs a 256-bit token. Pairing needs a 128-bit single-use code shown on the Mac's screen for 2 minutes, and 5 wrong guesses close the window. |
+| Someone on the same network (café, office Wi-Fi) | Off by default. Binds only the chosen interfaces. TLS 1.3 with a pinned certificate. Every route except pairing needs a 256-bit token. Pairing needs a 128-bit single-use code shown on the Mac's screen for 2 minutes, and 5 wrong guesses from a local source close the window. |
 | Man in the middle, or a spoofed Mac | The phone pins the certificate fingerprint received in the QR code, scanned in person. It never trusts a CA or a host name. |
 | A web page in a browser on the network (CSRF, DNS rebinding) | Requests with `Origin` or `Sec-Fetch-Site` are refused. The certificate is not trusted by browsers. The token is a header, never a cookie. No CORS. |
 | Stolen phone token (backup, malware without biometrics) | The token reads and interacts but cannot approve: approving a plan or proposal, deleting a conversation, and typing into a conversation that holds write grants all need a fresh signature by a Keystore key that requires the user's fingerprint. A typed "yes" never approves. The user revokes the device on the Mac, and tokens unused for 30 days expire. |
 | Replay of a captured step-up | The nonce is single use, expires after 60 s, and is bound to the device. The signature binds the route, conversation, ids, actions and the SHA-256 of the whole body. |
 | Phone reaching what it should not | Explicit allowlist enforced by the remote handler, on a mux of its own. Connectors, secrets, settings, providers, GitLab access, terminal, updates, memory, style and the remote administration are never reachable. |
 | "Apply every change" setting | When it is on, text from the phone (new conversation, message, answer) needs a step-up, because it could be applied without anyone reading it. |
-| A scanner or a guesser on the internet (external access on) | The listener answers TLS 1.3 with a certificate that is not tied to any name; every route except pairing needs a 256-bit token and pairing needs the 128-bit code of an open window. A per-source throttle answers 429 with a growing lockout. Turning the external access off drops non-local sources before the handshake. |
+| A scanner or a guesser on the internet (external access on) | The listener answers TLS 1.3 with a certificate that is not tied to any name; every route except pairing needs a 256-bit token and pairing needs the 128-bit code of an open window. A per-source throttle answers 429 with a growing lockout, a flood is reset before the handshake, and connection caps (256 in all, 16 per source) bound what a scanner can hold open. Turning the external access off drops non-local sources before the handshake. |
+| A router or reverse proxy that rewrites the source address | The core only sees the address of the TCP peer. If the router (or a proxy, a tunnel or a load balancer in front of the port) connects from its own LAN address, every Internet client looks local: they get the generous local throttle (30 failures, not 6), share one source for the throttle and the connection caps, and pass the source filter when the access from outside is off. **The port forward must be a plain NAT port forward, never a proxy** (no "reverse proxy", "hairpin NAT with source rewriting", or relay on the LAN). `X-Forwarded-For` and the PROXY protocol are never read. The pinned certificate, the tokens and the pairing code still protect the Mac in that case. |
+| A shared public address (CGNAT, office) where someone else fails to authenticate | Locking out the address does not lock out a request with a valid device token (see Lockout semantics). Pairing and unauthenticated requests from that address wait. |
 | A wrong address (typo, a stale DDNS entry, someone else behind the forwarded port) | The phone pins the certificate: it never sends a token to a Mac whose certificate does not match, and the address update payload is accepted only after that check. |
 | Lost Keychain key | A new certificate is made, its fingerprint changes, and pinned phones refuse it until they pair again. Nothing falls back to an unpinned connection. |
 

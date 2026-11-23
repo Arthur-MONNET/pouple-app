@@ -102,9 +102,10 @@ func TestBadTokensLockAnExternalSourceOutAndTheLockoutEnds(t *testing.T) {
 	if response.Code != http.StatusTooManyRequests || errorCode(t, response) != "too-many-attempts" || response.Header().Get("Retry-After") != "60" {
 		t.Fatalf("locked out: %d %s retry-after=%q", response.Code, response.Body, response.Header().Get("Retry-After"))
 	}
-	// Whatever the request, a locked-out source waits: a valid token does not get through, nor does pairing.
-	if response := f.authed("GET", "/api/assistant", "", nil); response.Code != http.StatusTooManyRequests {
-		t.Fatalf("valid token during the lockout: %d", response.Code)
+	// A request that does not authenticate waits, and so does pairing; a valid token is served (see
+	// TestAValidTokenIsServedWhileItsSourceIsLockedOut).
+	if response := f.do("GET", "/api/assistant", "", nil); response.Code != http.StatusTooManyRequests {
+		t.Fatalf("no token during the lockout: %d", response.Code)
 	}
 	if response := f.do("POST", "/remote/v1/pair", `{}`, nil); response.Code != http.StatusTooManyRequests {
 		t.Fatalf("pairing during the lockout: %d", response.Code)
@@ -116,7 +117,7 @@ func TestBadTokensLockAnExternalSourceOutAndTheLockoutEnds(t *testing.T) {
 	}
 	f.source = outside
 	f.clock.advance(30 * time.Second)
-	if response := f.authed("GET", "/api/assistant", "", nil); response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "30" {
+	if response := f.do("GET", "/api/assistant", "", bad); response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "30" {
 		t.Fatalf("half way through the lockout, the remaining time is reported: %d %q", response.Code, response.Header().Get("Retry-After"))
 	}
 	f.clock.advance(31 * time.Second)
@@ -154,12 +155,8 @@ func TestWrongPairingCodesAndWrongStepUpsCountAgainstTheSource(t *testing.T) {
 	wrong, _ := json.Marshal(map[string]string{"code": strings.Repeat("0", 32), "deviceName": "Pixel", "stepUpPublicKey": public})
 	for i := 0; i < externalLimits.failures; i++ {
 		response := f.do("POST", "/remote/v1/pair", string(wrong), nil)
-		// Five wrong codes close the window; what follows is "pairing-closed", and counts as well.
-		want := "pairing-refused"
-		if i >= maxPairingAttempts {
-			want = "pairing-closed"
-		}
-		if response.Code != http.StatusForbidden || errorCode(t, response) != want {
+		// Wrong codes from outside never close the window (TestExternalWrongCodesCannotCloseTheOwnersWindow).
+		if response.Code != http.StatusForbidden || errorCode(t, response) != "pairing-refused" {
 			t.Fatalf("attempt %d: %d %s", i+1, response.Code, response.Body)
 		}
 	}
@@ -185,7 +182,7 @@ func TestWrongPairingCodesAndWrongStepUpsCountAgainstTheSource(t *testing.T) {
 			t.Fatalf("step-up %d: %d %s", i+1, response.Code, response.Body)
 		}
 	}
-	if response := h.authed("GET", "/api/assistant", "", nil); response.Code != http.StatusTooManyRequests {
+	if response := h.do("GET", "/api/assistant", "", nil); response.Code != http.StatusTooManyRequests {
 		t.Fatalf("after %d wrong signatures: %d", externalLimits.failures, response.Code)
 	}
 	// A missing step-up is an honest client's mistake, not an attack.
