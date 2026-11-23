@@ -53,6 +53,7 @@ class SessionController extends ChangeNotifier {
         port: payload.port,
         fingerprint: payload.fingerprint,
         external: payload.external,
+        tunnel: payload.tunnel,
       ),
       null,
     );
@@ -67,6 +68,7 @@ class SessionController extends ChangeNotifier {
         deviceId: paired.deviceId,
         token: paired.token,
         external: payload.external,
+        tunnel: payload.tunnel,
       );
       await store.save(credentials);
       _credentials = credentials;
@@ -91,6 +93,16 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Keeps a new tunnel domain (the Mac announced it, or an address code carried it). Only the domain changes.
+  Future<void> updateTunnel(String domain) async {
+    final current = _credentials;
+    if (current == null || current.tunnel == domain) return;
+    final updated = current.withTunnel(domain);
+    await store.save(updated);
+    _credentials = updated;
+    notifyListeners();
+  }
+
   /// Applies an address update code. It is accepted only when it carries the fingerprint of the paired Mac.
   /// Throws an [AddressUpdateException] otherwise.
   Future<void> applyAddress(AddressPayload payload) async {
@@ -106,6 +118,8 @@ class SessionController extends ChangeNotifier {
       );
     }
     await updateExternal(payload.external);
+    final tunnel = payload.tunnel;
+    if (tunnel != null) await updateTunnel(tunnel);
   }
 
   /// Unpairs: tells the Mac when it can be reached, then forgets the token and the key either way.

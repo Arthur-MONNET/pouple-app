@@ -2,6 +2,7 @@
 library;
 
 import '../net/external_address.dart';
+import '../net/tunnel_domain.dart';
 
 /// The pairing text could not be understood.
 class PairingPayloadException implements Exception {
@@ -18,7 +19,7 @@ final _hex64 = RegExp(r'^[0-9a-f]{64}$');
 final _hex32 = RegExp(r'^[0-9a-f]{32}$');
 final _hostChars = RegExp(r'^[A-Za-z0-9._:\-\[\]]+$');
 
-/// The content of `pouple-pair:v1?hosts=...&port=...&fp=...&code=...&name=...&ext=...`.
+/// The content of `pouple-pair:v1?hosts=...&port=...&fp=...&code=...&name=...&ext=...&tun=...`.
 class PairingPayload {
   const PairingPayload({
     required this.hosts,
@@ -27,6 +28,7 @@ class PairingPayload {
     required this.code,
     required this.macName,
     this.external,
+    this.tunnel,
   });
 
   /// Reads the pairing text of the QR code, or of a manual paste.
@@ -75,6 +77,13 @@ class PairingPayload {
         throw const PairingPayloadException('The pairing code has an invalid external address.');
       }
     }
+    String? tunnel;
+    if (query.containsKey('tun')) {
+      tunnel = parseTunnelDomain(query['tun']);
+      if (tunnel == null) {
+        throw const PairingPayloadException('The pairing code has an invalid tunnel domain.');
+      }
+    }
     return PairingPayload(
       hosts: List.unmodifiable(hosts),
       port: port,
@@ -82,6 +91,7 @@ class PairingPayload {
       code: code,
       macName: name.isEmpty ? 'Mac' : name,
       external: external,
+      tunnel: tunnel,
     );
   }
 
@@ -100,4 +110,7 @@ class PairingPayload {
 
   /// Where the Mac is reachable from outside the home network, when the QR code says so.
   final ExternalAddress? external;
+
+  /// The ngrok domain the Mac is reachable through, when the QR code says so (a bare DNS name, lowercase).
+  final String? tunnel;
 }

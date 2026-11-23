@@ -21,6 +21,7 @@ void backgroundDispatcher() {
     final client = createPairedClient(
       credentials,
       onExternalChanged: (address) => saveExternal(store, address),
+      onTunnelChanged: (domain) => saveTunnel(store, domain),
     );
     try {
       final snapshot = await client.snapshot();

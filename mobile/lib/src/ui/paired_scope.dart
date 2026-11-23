@@ -40,7 +40,11 @@ class _PairedScopeState extends State<PairedScope> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final session = context.read<SessionController>();
-    _client = createPairedClient(widget.credentials, onExternalChanged: session.updateExternal);
+    _client = createPairedClient(
+      widget.credentials,
+      onExternalChanged: session.updateExternal,
+      onTunnelChanged: session.updateTunnel,
+    );
     _notifier = AttentionNotifier();
     _conversations = ConversationsController(
       openStream: _client.snapshots,
@@ -67,9 +71,13 @@ class _PairedScopeState extends State<PairedScope> with WidgetsBindingObserver {
   void didUpdateWidget(PairedScope oldWidget) {
     super.didUpdateWidget(oldWidget);
     final external = widget.credentials.external;
-    if (external != null && external != _client.endpoint.external) {
+    final tunnel = widget.credentials.tunnel;
+    final externalChanged = external != null && external != _client.endpoint.external;
+    final tunnelChanged = tunnel != null && tunnel != _client.endpoint.tunnel;
+    if (externalChanged || tunnelChanged) {
       // An address code was applied: use it now and reconnect.
       _client.useExternal(external);
+      _client.useTunnel(tunnel);
       if (widget.autoStart) {
         _conversations
           ..stop()

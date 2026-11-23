@@ -48,4 +48,35 @@ void main() {
     expect(after.fingerprint, before.fingerprint);
     expect(after.macName, before.macName);
   });
+
+  test('a pairing stored before the tunnel existed still loads, with none', () {
+    final credentials = Credentials.fromJson(jsonDecode(jsonEncode(_storedBeforeExternal())));
+    expect(credentials.tunnel, isNull);
+    expect(credentials.endpoint.tunnel, isNull);
+    expect(credentials.toJson().containsKey('tunnel'), isFalse);
+    expect(credentials.token, 'secret');
+  });
+
+  test('the tunnel domain survives a save and a load', () {
+    final credentials = Credentials.fromJson(_storedBeforeExternal()).withTunnel('mac.ngrok-free.app');
+    final back = Credentials.fromJson(jsonDecode(jsonEncode(credentials.toJson())));
+    expect(back.tunnel, 'mac.ngrok-free.app');
+    expect(back.endpoint.tunnel, 'mac.ngrok-free.app');
+  });
+
+  test('a damaged stored tunnel domain counts as none instead of breaking the pairing', () {
+    for (final bad in <Object?>['not a domain', 'https://a.example', 42, '']) {
+      final credentials = Credentials.fromJson(_storedBeforeExternal()..['tunnel'] = bad);
+      expect(credentials.tunnel, isNull);
+      expect(credentials.token, 'secret');
+    }
+  });
+
+  test('withExternal and withTunnel each keep the other', () {
+    final base = Credentials.fromJson(_storedBeforeExternal());
+    final both = base.withTunnel('mac.ngrok-free.app').withExternal(ExternalAddress.parse('a.example:1'));
+    expect(both.tunnel, 'mac.ngrok-free.app');
+    expect(both.withTunnel('other.ngrok-free.app').external.toString(), 'a.example:1');
+    expect(both.withTunnel('other.ngrok-free.app').token, 'secret');
+  });
 }
