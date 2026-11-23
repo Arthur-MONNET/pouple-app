@@ -286,8 +286,9 @@ export const en: MessageTree = {
     listening: 'Listening on {addresses}',
     problem: 'Not listening as asked: {problem}',
     pairing: {
+      qrLabel: 'Pairing QR code: scan it with the Pouple app on the phone',
       title: 'Pair a phone',
-      intro: 'Start a pairing window, then enter this code in the Pouple app on the phone. The window closes after 2 minutes, and the code works once.',
+      intro: 'Start a pairing window, then scan the QR code with the Pouple app on the phone, or paste the text below. The window closes after 2 minutes, and the code works once.',
       unavailable: 'Turn on the access and choose a network first: pairing needs Pouple to be listening.',
       start: 'Pair a phone',
       opening: 'Opening the pairing window…',

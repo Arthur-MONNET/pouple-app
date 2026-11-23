@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { qrMatrix } from '../lib/pairingQr';
 import AppButton from './AppButton.vue';
 import AppIcon from './AppIcon.vue';
 
-defineProps<{ payload: string }>();
+const props = defineProps<{ payload: string }>();
+
+const qr = computed(() => qrMatrix(props.payload));
 
 const copied = ref(false);
 const failed = ref(false);
@@ -28,8 +31,17 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 <template>
   <div class="flex flex-col gap-2" data-testid="pairing-payload">
-    <!-- Seam: a QR renderer takes this slot later and draws `payload`; the text below stays as the fallback. -->
-    <slot name="visual" :payload="payload" />
+    <!-- Always dark on white, whatever the theme: phone cameras need the contrast. -->
+    <svg
+      :viewBox="`0 0 ${qr.size} ${qr.size}`"
+      class="size-56 self-center rounded-lg bg-white"
+      shape-rendering="crispEdges"
+      role="img"
+      :aria-label="$t('phone.pairing.qrLabel')"
+      data-testid="pairing-qr"
+    >
+      <path :d="qr.path" fill="#000" />
+    </svg>
     <div class="flex items-start gap-2">
       <code class="max-h-28 min-w-0 flex-1 select-all overflow-y-auto break-all rounded-lg border border-line-strong bg-canvas px-3 py-2 font-mono text-xs text-ink" data-testid="pairing-payload-text">{{ payload }}</code>
       <AppButton variant="outline" size="md" data-testid="pairing-copy" @click="copy(payload)">
