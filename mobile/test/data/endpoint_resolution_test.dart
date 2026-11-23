@@ -58,7 +58,7 @@ void main() {
     required ExternalAddress? external,
     int? homePort,
     RouteMemory? memory,
-    Future<void> Function(ExternalAddress)? onChanged,
+    Future<void> Function(ExternalAddress?)? onChanged,
   }) => RemoteClient(
     endpoint: Endpoint(
       hosts: const ['127.0.0.1'],
@@ -303,8 +303,8 @@ void main() {
   });
 
   group('learning the external address from the Mac', () {
-    Future<(RemoteClient, List<ExternalAddress>)> connect(ExternalAddress? stored) async {
-      final changed = <ExternalAddress>[];
+    Future<(RemoteClient, List<ExternalAddress?>)> connect(ExternalAddress? stored) async {
+      final changed = <ExternalAddress?>[];
       final remote = client(external: stored, onChanged: (address) async => changed.add(address));
       addTearDown(remote.dispose);
       await remote.checkDevice();
@@ -334,7 +334,6 @@ void main() {
     });
 
     for (final entry in <String, (int, Object?)>{
-      'no external address on the Mac': (200, {'ext': null}),
       'a malformed address': (200, {'ext': 'not an address'}),
       'a port out of range': (200, {'ext': 'new.example.org:70000'}),
       'an unbracketed IPv6 address': (200, {'ext': 'fd00::1:443'}),
@@ -351,6 +350,30 @@ void main() {
         expect(changed, isEmpty);
       });
     }
+
+    test(
+      'an explicit null clears the stored address and reports it; an absent key changes nothing',
+      () async {
+        home.answers['GET /remote/v1/endpoint'] = (200, {'ext': null});
+        final changed = <ExternalAddress?>[];
+        final remote = client(
+          external: ExternalAddress.parse('old.example.org:8000'),
+          onChanged: (address) async => changed.add(address),
+        );
+        addTearDown(remote.dispose);
+        await remote.checkDevice();
+        await remote.settle();
+        expect(remote.endpoint.external, isNull);
+        expect(changed, [null]);
+
+        home.answers['GET /remote/v1/endpoint'] = (200, <String, Object?>{});
+        final kept = client(external: ExternalAddress.parse('old.example.org:8000'));
+        addTearDown(kept.dispose);
+        await kept.checkDevice();
+        await kept.settle();
+        expect(kept.endpoint.external.toString(), 'old.example.org:8000');
+      },
+    );
 
     test('asks once per connection, not on every request', () async {
       home.answers['GET /remote/v1/endpoint'] = (200, {'ext': 'old.example.org:8000'});

@@ -47,8 +47,12 @@ class Endpoint {
       Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: external, tunnel: domain);
 }
 
+/// The host name of every tunnel URL. It is never resolved: the connection factory sends it to the forwarder, and
+/// the pinning looks at the certificate, not at the name.
+const tunnelPlaceholderHost = 'mac.invalid';
+
 /// One address to try, and which way it goes. The pinned fingerprint is the same for every candidate. For the
-/// tunnel, [host] is the ngrok domain and [port] 443: the connection really goes to the loopback forwarder.
+/// tunnel, [host] is the ngrok domain and [port] 443: the connection really goes to the forwarder's Unix socket.
 class Candidate {
   const Candidate(this.host, this.port, this.route);
 
@@ -130,7 +134,7 @@ class RemoteClient {
     this.onExternalChanged,
     this.onTunnelChanged,
     Future<TunnelForwarder> Function(String domain)? forwarderFactory,
-  }) : _factory = clientFactory ?? createPinnedHttpClient,
+  }) : _customFactory = clientFactory,
        _forwarderFactory = forwarderFactory ?? TunnelForwarder.start;
 
   final String? token;
@@ -148,15 +152,16 @@ class RemoteClient {
   final RouteMemory? routeMemory;
 
   /// Called after the Mac told, over an authenticated pinned connection, that its external address changed.
-  final Future<void> Function(ExternalAddress address)? onExternalChanged;
+  final Future<void> Function(ExternalAddress? address)? onExternalChanged;
 
   /// Called after the Mac told, over an authenticated pinned connection, that its tunnel domain changed.
-  final Future<void> Function(String domain)? onTunnelChanged;
-  final HttpClient Function(String fingerprint) _factory;
+  final Future<void> Function(String? domain)? onTunnelChanged;
+  final HttpClient Function(String fingerprint)? _customFactory;
   final Future<TunnelForwarder> Function(String domain) _forwarderFactory;
 
   Endpoint _endpoint;
   HttpClient? _client;
+  HttpClient? _tunnelClient;
   String? _lastGoodHost;
   NetworkRoute? _lastRoute;
   bool _memoryLoaded = false;
@@ -183,12 +188,47 @@ class RemoteClient {
     _stopForwarder();
   }
 
-  HttpClient get _http => _client ??= _factory(_endpoint.fingerprint);
+  /// The endpoints (`host:port`, as the HTTP client names them) whose certificate the pin callback refused, with the
+  /// order number of the refusal. A TLS error counts as a pin failure only if its endpoint was refused after the
+  /// attempt began: a handshake cut by the peer never reaches the callback.
+  final Map<String, int> _refusedAt = {};
+  int _refusals = 0;
+
+  void _recordRefused(String host, int port) => _refusedAt['$host:$port'] = ++_refusals;
+
+  HttpClient get _http => _client ??= (_customFactory ?? _pinned)(_endpoint.fingerprint);
+
+  HttpClient _pinned(String fingerprint) => createPinnedHttpClient(fingerprint, onRefused: _recordRefused);
+
+  /// The client of the tunnel route. It is separate from [_http], which keeps its direct, pinned connections exactly
+  /// as they are: the HTTP client takes the socket of a `connectionFactory` as it comes and applies neither its
+  /// context nor its certificate callback to it, so this client's factory does the pinned TLS handshake itself
+  /// (see [pinnedSecureTask]), with the same pin and the same refusal record.
+  HttpClient get _tunnelHttp =>
+      _tunnelClient ??= (_customFactory?.call(_endpoint.fingerprint) ?? HttpClient())
+        ..connectionTimeout = const Duration(seconds: 10)
+        ..idleTimeout = const Duration(seconds: 30)
+        ..findProxy = ((_) => 'DIRECT')
+        ..connectionFactory = _connectTunnel;
+
+  /// The tunnel placeholder URL goes to the forwarder's Unix socket, never to the network.
+  Future<ConnectionTask<Socket>> _connectTunnel(Uri uri, String? proxyHost, int? proxyPort) async {
+    final domain = _endpoint.tunnel;
+    if (domain == null) throw const SocketException('No tunnel.');
+    final forwarder = await _forwarderFor(domain);
+    final task = await Socket.startConnect(forwarder.address, 0);
+    if (scheme != 'https') return task;
+    return pinnedSecureTask(task, _endpoint.fingerprint, onRefused: () => _recordRefused(uri.host, uri.port));
+  }
+
+  HttpClient _clientFor(Candidate candidate) => candidate.route == NetworkRoute.tunnel ? _tunnelHttp : _http;
 
   /// Closes open connections, streams included.
   void close() {
     _client?.close(force: true);
     _client = null;
+    _tunnelClient?.close(force: true);
+    _tunnelClient = null;
     _stopForwarder();
   }
 
@@ -267,38 +307,26 @@ class RemoteClient {
     NetworkRoute.tunnel => tunnelConnectTimeout,
   };
 
-  /// Where to connect for [candidate]. The tunnel goes to the loopback forwarder, whose port is only known once it
-  /// is started; the pinning does not look at the host name, so the pin check is the same as everywhere.
-  Future<({Uri uri, int upstreamFailures})> _target(
-    Candidate candidate,
-    String path,
-    Map<String, String>? query,
-  ) async {
-    var host = candidate.host;
-    var port = candidate.port;
-    var failures = 0;
-    if (candidate.route == NetworkRoute.tunnel) {
-      final forwarder = await _forwarderFor(candidate.host);
-      host = InternetAddress.loopbackIPv4.address;
-      port = forwarder.port;
-      failures = forwarder.upstreamFailures;
-    }
-    return (
-      uri: Uri(scheme: scheme, host: host, port: port, path: path, queryParameters: query),
-      upstreamFailures: failures,
+  /// The URL of [candidate]. The tunnel's is a placeholder: the HTTP client's connection factory sends it to the
+  /// forwarder, and the pin check never looks at the host name.
+  Uri _uri(Candidate candidate, String path, Map<String, String>? query) {
+    final tunnel = candidate.route == NetworkRoute.tunnel;
+    return Uri(
+      scheme: scheme,
+      host: tunnel ? tunnelPlaceholderHost : candidate.host,
+      port: tunnel ? 443 : candidate.port,
+      path: path,
+      queryParameters: query,
     );
   }
 
-  /// A TLS error on the tunnel whose WebSocket never opened (or died) is the tunnel being down, not a refused
-  /// certificate.
-  Future<bool> _tunnelWasDown(Candidate candidate, int before) async {
-    if (candidate.route != NetworkRoute.tunnel) return false;
-    final forwarder = _forwarder;
-    if (forwarder == null) return true;
-    try {
-      return (await forwarder).upstreamFailures > before;
-    } on Object {
-      return true;
+  /// Counts a TLS error of [uri]: a refused certificate is a pin failure, any other handshake error (cut by the
+  /// peer, a proxy, a captive portal, the tunnel dropping) is just an address that does not answer.
+  void _tlsFailed(_Attempts attempts, Candidate candidate, Uri uri, int startedAt) {
+    if ((_refusedAt['${uri.host}:${uri.port}'] ?? 0) > startedAt) {
+      attempts.pinFailed(candidate);
+    } else {
+      attempts.unreachable(candidate);
     }
   }
 
@@ -315,16 +343,34 @@ class RemoteClient {
   Future<void> _askExternal() async {
     try {
       final response = await request('GET', '/remote/v1/endpoint', learn: false);
-      final json = JsonObject.of(response.json);
-      final learned = ExternalAddress.tryParse(_optText(json, 'ext'));
-      if (learned != null && learned != _endpoint.external) {
-        _endpoint = _endpoint.withExternal(learned);
-        await onExternalChanged?.call(learned);
+      final raw = response.json;
+      final json = JsonObject.of(raw);
+      final fields = raw as Map;
+      // A key that is absent (an older Mac) or malformed changes nothing; an explicit null means "none any more".
+      if (fields.containsKey('ext') && fields['ext'] == null) {
+        if (_endpoint.external != null) {
+          _endpoint = _endpoint.withExternal(null);
+          await onExternalChanged?.call(null);
+        }
+      } else {
+        final learned = ExternalAddress.tryParse(_optText(json, 'ext'));
+        if (learned != null && learned != _endpoint.external) {
+          _endpoint = _endpoint.withExternal(learned);
+          await onExternalChanged?.call(learned);
+        }
       }
-      final tunnel = parseTunnelDomain(_optText(json, 'tun'));
-      if (tunnel != null && tunnel != _endpoint.tunnel) {
-        useTunnel(tunnel);
-        await onTunnelChanged?.call(tunnel);
+      if (fields.containsKey('tun') && fields['tun'] == null) {
+        if (_endpoint.tunnel != null) {
+          _endpoint = _endpoint.withTunnel(null);
+          _stopForwarder();
+          await onTunnelChanged?.call(null);
+        }
+      } else {
+        final tunnel = parseTunnelDomain(_optText(json, 'tun'));
+        if (tunnel != null && tunnel != _endpoint.tunnel) {
+          useTunnel(tunnel);
+          await onTunnelChanged?.call(tunnel);
+        }
       }
     } on Object {
       // An older Mac, a bad answer or a lost link: the stored address stays.
@@ -351,12 +397,29 @@ class RemoteClient {
   }) async {
     await _loadMemory();
     final attempts = _Attempts(_endpoint);
+    // A GET changes nothing on the Mac, so it may be sent again to the next address. Anything else is sent at most
+    // once: after its bytes may have left, a failure is reported, not retried (it could run twice).
+    final repeatable = method == 'GET' || method == 'HEAD';
     for (final candidate in candidates()) {
-      var failuresBefore = 0;
+      final uri = _uri(candidate, path, query);
+      final startedAt = _refusals;
+      final HttpClientRequest request;
       try {
-        final target = await _target(candidate, path, query);
-        failuresBefore = target.upstreamFailures;
-        final request = await _http.openUrl(method, target.uri).timeout(_connectTimeout(candidate));
+        request = await _clientFor(candidate).openUrl(method, uri).timeout(_connectTimeout(candidate));
+      } on TlsException {
+        _tlsFailed(attempts, candidate, uri, startedAt);
+        continue;
+      } on SocketException {
+        attempts.unreachable(candidate);
+        continue;
+      } on TimeoutException {
+        attempts.unreachable(candidate);
+        continue;
+      } on HttpException {
+        attempts.unreachable(candidate);
+        continue;
+      }
+      try {
         _decorate(request, authenticated: authenticated, stepUp: stepUp, hasBody: body != null);
         if (body != null) request.add(body);
         final response = await request.close().timeout(requestTimeout);
@@ -366,20 +429,23 @@ class RemoteClient {
         if (learn && authenticated) _learnExternal();
         return _checked(RemoteResponse(response.statusCode, bytes));
       } on RemoteFailure catch (failure) {
-        if (failure.kind != FailureKind.certificateMismatch) rethrow;
+        if (failure.kind != FailureKind.certificateMismatch || !repeatable) rethrow;
         attempts.pinFailed(candidate);
-      } on TlsException {
-        // Refused during the handshake, before anything (the token included) was sent: skip this address.
-        if (await _tunnelWasDown(candidate, failuresBefore)) {
-          attempts.unreachable(candidate);
-        } else {
-          attempts.pinFailed(candidate);
+      } on Object catch (error) {
+        if (error is! TlsException &&
+            error is! SocketException &&
+            error is! TimeoutException &&
+            error is! HttpException) {
+          rethrow;
         }
-      } on SocketException {
-        attempts.unreachable(candidate);
-      } on TimeoutException {
-        attempts.unreachable(candidate);
-      } on HttpException {
+        if (!repeatable) {
+          throw const RemoteFailure(
+            FailureKind.unreachable,
+            message:
+                'The connection dropped while the request was being sent. The Mac may or may not have '
+                'received it: check before trying again.',
+          );
+        }
         attempts.unreachable(candidate);
       }
     }
@@ -405,7 +471,8 @@ class RemoteClient {
     }
   }
 
-  /// Defense in depth: the handshake already refused any other certificate.
+  /// A consistency check on the answer, not the guard. The guard is the certificate callback of the pinned client:
+  /// a handshake with any other certificate fails before a byte of the request (the token included) is sent.
   void _checkCertificate(HttpClientResponse response) {
     if (scheme != 'https') return;
     final certificate = response.certificate;
@@ -490,11 +557,10 @@ class RemoteClient {
     final attempts = _Attempts(_endpoint);
     for (final candidate in candidates()) {
       HttpClientResponse response;
-      var failuresBefore = 0;
+      final uri = _uri(candidate, '/api/assistant/stream', null);
+      final startedAt = _refusals;
       try {
-        final target = await _target(candidate, '/api/assistant/stream', null);
-        failuresBefore = target.upstreamFailures;
-        final request = await _http.openUrl('GET', target.uri).timeout(_connectTimeout(candidate));
+        final request = await _clientFor(candidate).openUrl('GET', uri).timeout(_connectTimeout(candidate));
         _decorate(request, authenticated: true, stepUp: null, hasBody: false);
         request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
         response = await request.close().timeout(requestTimeout);
@@ -504,11 +570,7 @@ class RemoteClient {
         attempts.pinFailed(candidate);
         continue;
       } on TlsException {
-        if (await _tunnelWasDown(candidate, failuresBefore)) {
-          attempts.unreachable(candidate);
-        } else {
-          attempts.pinFailed(candidate);
-        }
+        _tlsFailed(attempts, candidate, uri, startedAt);
         continue;
       } on SocketException {
         attempts.unreachable(candidate);
@@ -579,6 +641,12 @@ class RemoteClient {
   }
 
   /// GET /remote/v1/device: checks that the pairing still works.
+  /// GET /remote/v1/endpoint, authenticated, without learning from the answer: succeeds only if an address answers
+  /// with the pinned certificate and accepts this phone's token. Used to check an address before it is stored.
+  Future<void> verify() async {
+    await request('GET', '/remote/v1/endpoint', learn: false);
+  }
+
   Future<void> checkDevice() async {
     await request('GET', '/remote/v1/device');
   }

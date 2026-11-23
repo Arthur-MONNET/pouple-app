@@ -129,7 +129,7 @@ void main() {
       ExternalAddress? external,
       RouteMemory? memory,
       String pin = testCertificateFingerprint,
-      Future<void> Function(String)? onTunnel,
+      Future<void> Function(String?)? onTunnel,
     }) => RemoteClient(
       endpoint: Endpoint(
         hosts: const ['127.0.0.1'],
@@ -180,10 +180,10 @@ void main() {
       await remote.snapshot();
       await remote.snapshot();
       expect(forwarders, hasLength(1));
-      final port = forwarders.single.port;
+      final address = forwarders.single.address;
       remote.dispose();
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      await expectLater(Socket.connect(InternetAddress.loopbackIPv4, port), throwsA(isA<SocketException>()));
+      await expectLater(Socket.connect(address, 0), throwsA(isA<SocketException>()));
     });
 
     test('a changed tunnel domain replaces the forwarder', () async {
@@ -191,10 +191,10 @@ void main() {
       final remote = client(homePort: await _deadPort());
       addTearDown(remote.dispose);
       await remote.snapshot();
-      final first = forwarders.single.port;
+      final first = forwarders.single.address;
       remote.useTunnel('other.ngrok-free.app');
       await Future<void>.delayed(const Duration(milliseconds: 200));
-      await expectLater(Socket.connect(InternetAddress.loopbackIPv4, first), throwsA(isA<SocketException>()));
+      await expectLater(Socket.connect(first, 0), throwsA(isA<SocketException>()));
     });
 
     test('the remembered tunnel route is tried first, ahead of a home address that would answer', () async {
@@ -292,9 +292,9 @@ void main() {
     });
     tearDown(() => home.close());
 
-    Future<(RemoteClient, List<String>, List<ExternalAddress>)> connect(String? stored) async {
-      final tunnels = <String>[];
-      final externals = <ExternalAddress>[];
+    Future<(RemoteClient, List<String?>, List<ExternalAddress?>)> connect(String? stored) async {
+      final tunnels = <String?>[];
+      final externals = <ExternalAddress?>[];
       final remote = RemoteClient(
         endpoint: Endpoint(
           hosts: const ['127.0.0.1'],
@@ -340,6 +340,14 @@ void main() {
       expect(externals, hasLength(1));
     });
 
+    test('an explicit null clears the stored domain and reports it; an absent key changes nothing', () async {
+      home.answers['GET /remote/v1/endpoint'] = (200, {'ext': null, 'tun': null});
+      final (remote, tunnels, _) = await connect('old.ngrok-free.app');
+      expect(remote.endpoint.tunnel, isNull);
+      expect(tunnels, [null]);
+      expect(remote.candidates().every((c) => c.route != NetworkRoute.tunnel), isTrue);
+    });
+
     test('the same domain changes nothing', () async {
       home.answers['GET /remote/v1/endpoint'] = (200, {'tun': 'old.ngrok-free.app'});
       final (_, tunnels, _) = await connect('old.ngrok-free.app');
@@ -347,7 +355,6 @@ void main() {
     });
 
     for (final entry in <String, (int, Object?)>{
-      'no tunnel on the Mac': (200, {'ext': null, 'tun': null}),
       'an old Mac that only answers ext': (200, {'ext': null}),
       'a scheme': (200, {'tun': 'https://new.ngrok-free.app'}),
       'a port': (200, {'tun': 'new.ngrok-free.app:443'}),

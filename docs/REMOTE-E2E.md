@@ -44,13 +44,16 @@ cannot read, forge or replay anything, it can only drop or delay.
 
 ## Phone side
 
-- To use the tunnel the app opens a **local loopback forwarder**: a `ServerSocket` bound to `127.0.0.1` on an ephemeral
-  port. For every TCP connection its HTTP client makes to it, the forwarder opens one WebSocket to
-  `wss://<domain>/tunnel/v1` (outer TLS validated with the system roots; header `ngrok-skip-browser-warning: 1`) and
-  pipes bytes both ways. The existing pinned HTTP client then talks to `127.0.0.1:<port>`: the app's pinning code
-  (SHA-256 of the DER certificate compared to `fp`, no CA, no host name) is reused as is, for REST and SSE.
+- To use the tunnel the app opens a **local forwarder on a Unix domain socket** in a private directory of the app
+  (random name, owner-only, removed on close): there is no TCP port, so no other app on the phone can reach it. For
+  every connection its HTTP client makes to it, the forwarder opens one WebSocket to `wss://<domain>/tunnel/v1`
+  (outer TLS validated with the system roots; header `ngrok-skip-browser-warning: 1`; messages above 1 MiB close the
+  link) and pipes bytes both ways. A dedicated HTTP client reaches the socket through `HttpClient.connectionFactory`
+  and does the TLS handshake itself with the same pin (SHA-256 of the DER certificate compared to `fp`, no CA, no
+  host name; the URL host is the placeholder `mac.invalid`), for REST and SSE.
 - A pin failure on the tunnel endpoint follows the existing rule (hard `certificateMismatch` when the external
-  endpoint fails the pin; skip-and-continue for a home address). The tunnel counts as an external endpoint.
+  endpoint fails the pin; skip-and-continue for a home address). The tunnel counts as an external endpoint. Only a
+  certificate that the pin check itself refused is a pin failure; a handshake cut by the peer is just unreachable.
 - Endpoint order: home addresses, `ext`, then `tun`; the last route that worked is tried first.
 
 ## Pairing and address payloads

@@ -38,5 +38,5 @@ adb -s <serial> install -r build/app/outputs/flutter-apk/app-arm64-v8a-release.a
 ```
 
 Release signing reads `android/key.properties` (ignored by git): `storeFile`, `storePassword`, `keyAlias`,
-`keyPassword`. Keep the keystore outside the repository. Without that file the release build is signed with the debug
-key. For development over USB: `adb reverse tcp:47821 tcp:47821` and pair with host `127.0.0.1`.
+`keyPassword`. Keep the keystore outside the repository. Without that file the release build fails: it is never signed
+with the debug key. For development over USB: `adb reverse tcp:47821 tcp:47821` and pair with host `127.0.0.1`.

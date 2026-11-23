@@ -66,6 +66,20 @@ class ExternalAddress {
   int get hashCode => Object.hash(host, port);
 }
 
+/// Whether [host] is a DNS name, an IPv4 address or (without brackets) an IPv6 address, by the same rules as
+/// [ExternalAddress].
+bool isValidHost(String host) {
+  if (host.contains(':')) {
+    try {
+      Uri.parseIPv6Address(host);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+  return _validHostName(host);
+}
+
 bool _validHostName(String host) {
   if (host.isEmpty || host.length > 253) return false;
   final labels = host.split('.');

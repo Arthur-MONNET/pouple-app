@@ -51,7 +51,11 @@ class PairingPayload {
       if (!_hostChars.hasMatch(host)) {
         throw const PairingPayloadException('The pairing code has an invalid address.');
       }
-      hosts.add(host.startsWith('[') && host.endsWith(']') ? host.substring(1, host.length - 1) : host);
+      final bare = host.startsWith('[') && host.endsWith(']') ? host.substring(1, host.length - 1) : host;
+      if (!isValidHost(bare)) {
+        throw const PairingPayloadException('The pairing code has an invalid address.');
+      }
+      hosts.add(bare.toLowerCase());
     }
     if (hosts.isEmpty) {
       throw const PairingPayloadException('The pairing code has no address.');

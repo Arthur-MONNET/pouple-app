@@ -53,7 +53,7 @@ class Credentials {
       Endpoint(hosts: hosts, port: port, fingerprint: fingerprint, external: external, tunnel: tunnel);
 
   /// The same pairing with another external address: the token, the keys and the home addresses stay.
-  Credentials withExternal(ExternalAddress address) => Credentials(
+  Credentials withExternal(ExternalAddress? address) => Credentials(
     macName: macName,
     hosts: hosts,
     port: port,
@@ -65,7 +65,7 @@ class Credentials {
   );
 
   /// The same pairing with another tunnel domain: the token, the keys and the addresses stay.
-  Credentials withTunnel(String domain) => Credentials(
+  Credentials withTunnel(String? domain) => Credentials(
     macName: macName,
     hosts: hosts,
     port: port,
@@ -104,8 +104,8 @@ String? _optText(JsonObject json, String key) {
 /// same candidate order, same route memory, same pinning.
 RemoteClient createPairedClient(
   Credentials credentials, {
-  Future<void> Function(ExternalAddress address)? onExternalChanged,
-  Future<void> Function(String domain)? onTunnelChanged,
+  Future<void> Function(ExternalAddress? address)? onExternalChanged,
+  Future<void> Function(String? domain)? onTunnelChanged,
 }) => RemoteClient(
   endpoint: credentials.endpoint,
   token: credentials.token,
@@ -115,14 +115,14 @@ RemoteClient createPairedClient(
 );
 
 /// Stores a new external address in the saved pairing, and nothing else.
-Future<void> saveExternal(CredentialStore store, ExternalAddress address) async {
+Future<void> saveExternal(CredentialStore store, ExternalAddress? address) async {
   final current = await store.load();
   if (current == null || current.external == address) return;
   await store.save(current.withExternal(address));
 }
 
 /// Stores a new tunnel domain in the saved pairing, and nothing else.
-Future<void> saveTunnel(CredentialStore store, String domain) async {
+Future<void> saveTunnel(CredentialStore store, String? domain) async {
   final current = await store.load();
   if (current == null || current.tunnel == domain) return;
   await store.save(current.withTunnel(domain));
