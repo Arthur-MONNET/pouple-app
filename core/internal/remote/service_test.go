@@ -22,6 +22,8 @@ import (
 type memorySettings struct {
 	mu       sync.Mutex
 	settings config.RemoteSettings
+	// saveErr, when set, is what saving the settings fails with.
+	saveErr error
 }
 
 func (m *memorySettings) load() (config.RemoteSettings, error) {
@@ -33,6 +35,9 @@ func (m *memorySettings) load() (config.RemoteSettings, error) {
 func (m *memorySettings) save(next config.RemoteSettings) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.saveErr != nil {
+		return m.saveErr
+	}
 	m.settings = next
 	return nil
 }

@@ -17,8 +17,11 @@ carries the same TLS session inside a WebSocket (see [Access through a tunnel](#
   any other certificate. The certificate stays the same across restarts. If the key is lost, a new certificate is
   made and every phone must pair again.
 - The listener binds the addresses of the network interfaces the user chose (for example `en0`), never `0.0.0.0` or
-  `::`. When the user chose none, the choice is **automatic**: every interface that is up and has a private address
-  (RFC 1918, or an IPv6 unique local address), never a loopback interface unless it is chosen explicitly. It restarts
+  `::`. When the user chose none, the choice is **automatic** and cautious: the interfaces that are up, broadcast and
+  not point-to-point (so no VPN or tunnel), whose name is not one of `utun*`, `ipsec*`, `ppp*`, `bridge*`, `vmnet*`,
+  `awdl*`, `llw*`, `anpi*`, and never a loopback one; and on them **only the private addresses** (RFC 1918, or IPv6
+  unique local), which are the only ones bound and advertised: never a global IPv6 or a public address. An interface
+  the user chooses explicitly is taken as it is (loopback, VPN, global addresses included). It restarts
   when the settings change or when those addresses change (the automatic choice is checked again every 30 seconds).
   It closes when the access is turned off or the core stops.
 - While the access from outside is **off** (the default), the listener drops, before the TLS handshake, every
@@ -332,11 +335,27 @@ closed before the new one binds), and stops when the access or the tunnel is tur
 change of the Mac's addresses restarts the LAN listeners, never the tunnel. A fault the user must fix (authtoken,
 domain, account) is retried every 5 minutes, any other one every 30 seconds.
 
-The endpoint serves only `GET /tunnel/v1` (a WebSocket upgrade); anything else is 404 with no body and a request with
-an `Origin` or `Sec-Fetch-Site` header is 403. Each source (an IPv4 address, an IPv6 `/64`) may ask 30 upgrades per
-10 minutes, then 429 with `Retry-After`. A WebSocket reads messages of at most 1 MiB, is pinged every 20 seconds and is
-closed after 2 minutes without data. Its connections count in the same caps (256 in all, 16 per source) and go through
-the same TLS server, handler, throttle and timeouts as the LAN listener.
+**The tunnel exposes the Mac to the Internet whatever `externalEnabled` says.** The source filter that drops non-local
+sources before the handshake belongs to the LAN listeners; the tunnel's connections come from ngrok and are accepted from
+any source, with the same protections as the access from outside: the pinned TLS 1.3 certificate, the 256-bit tokens, the
+throttle and the caps. A user who wants the Mac to be reachable from the home network only must leave the tunnel off.
+
+The endpoint serves only `GET /tunnel/v1` that is a WebSocket upgrade (`Connection: Upgrade`, `Upgrade: websocket`, a
+`Sec-WebSocket-Key`, version 13); anything else is 404 with no body, closes the connection, and costs no upgrade. A
+request with an `Origin` or `Sec-Fetch-Site` header is 403. The address of a client is the one ngrok reports for its
+connection, and no header the client sends is read. A client that comes through the tunnel is **never local**, whatever
+its address (even one on the Mac's own network): it gets the external limits and its wrong pairing codes never close the
+pairing window.
+
+The upgrade budget of a source (an IPv4 address, an IPv6 `/64`) is a token bucket: 30 upgrades at once, then one more
+every 20 seconds, then 429 with `Retry-After`. A connection that completes an authenticated request (a valid device
+token, or a pairing) gives its upgrade back, once. The 16-connections-per-source cap does not apply to a source that
+has an authenticated connection open (a paired phone behind a carrier NAT it shares with a scanner), while that
+connection lasts; the 256 in all always apply. The server that reads the upgrade requests has short timeouts (10 s for
+the headers, 15 s to read and to write, 30 s idle), 16 KiB of headers, and its own caps on the connections that have not
+upgraded yet (256 in all, 16 per source). A WebSocket reads messages of at most 1 MiB, is pinged every 20 seconds and
+is closed after 2 minutes without data. Its connections count in the same caps and go through the same TLS server,
+handler, throttle and timeouts as the LAN listener.
 
 ## Threat model
 
@@ -352,14 +371,15 @@ Asana, Slite), and the secrets of connected services.
 | Replay of a captured step-up | The nonce is single use, expires after 60 s, and is bound to the device. The signature binds the route, conversation, ids, actions and the SHA-256 of the whole body. |
 | Phone reaching what it should not | Explicit allowlist enforced by the remote handler, on a mux of its own. Connectors, secrets, settings, providers, GitLab access, terminal, updates, memory, style and the remote administration are never reachable. |
 | "Apply every change" setting | When it is on, text from the phone (new conversation, message, answer) needs a step-up, because it could be applied without anyone reading it. |
-| A scanner or a guesser on the internet (external access on) | The listener answers TLS 1.3 with a certificate that is not tied to any name; every route except pairing needs a 256-bit token and pairing needs the 128-bit code of an open window. A per-source throttle answers 429 with a growing lockout, a flood is reset before the handshake, and connection caps (256 in all, 16 per source) bound what a scanner can hold open. Turning the external access off drops non-local sources before the handshake. |
-| A router or reverse proxy that rewrites the source address | The core only sees the address of the TCP peer. If the router (or a proxy, a tunnel or a load balancer in front of the port) connects from its own LAN address, every Internet client looks local: they get the generous local throttle (30 failures, not 6), share one source for the throttle and the connection caps, and pass the source filter when the access from outside is off. **The port forward must be a plain NAT port forward, never a proxy** (no "reverse proxy", "hairpin NAT with source rewriting", or relay on the LAN). `X-Forwarded-For` and the PROXY protocol are never read on the LAN listener. The pinned certificate, the tokens and the pairing code still protect the Mac in that case. The tunnel is the one place where a forwarded address is read, because ngrok is the proxy there: the **last** `X-Forwarded-For` value, the one ngrok appended (it appends to what the client sent, so the first value can be forged), when it is a public address; otherwise the address of the connection. |
+| A scanner or a guesser on the internet (external access on, or the tunnel on) | The listener answers TLS 1.3 with a certificate that is not tied to any name; every route except pairing needs a 256-bit token and pairing needs the 128-bit code of an open window. A per-source throttle answers 429 with a growing lockout, a flood is reset before the handshake, and connection caps (256 in all, 16 per source) bound what a scanner can hold open. Turning the external access off drops non-local sources before the handshake **on the LAN listeners only: the tunnel, when it is on, accepts any source whatever `externalEnabled` says** (see "Access through a tunnel"). |
+| A router or reverse proxy that rewrites the source address | The core only sees the address of the TCP peer. If the router (or a proxy, a tunnel or a load balancer in front of the port) connects from its own LAN address, every Internet client looks local: they get the generous local throttle (30 failures, not 6), share one source for the throttle and the connection caps, and pass the source filter when the access from outside is off. **The port forward must be a plain NAT port forward, never a proxy** (no "reverse proxy", "hairpin NAT with source rewriting", or relay on the LAN). `X-Forwarded-For` and the PROXY protocol are never read on the LAN listener. The pinned certificate, the tokens and the pairing code still protect the Mac in that case. The tunnel does not read them either: the address of a tunnel client is the one ngrok's SDK reports for its connection (from the proxy header of ngrok's own stream, which the client cannot set), and a tunnel client is never treated as local. |
 | A shared public address (CGNAT, office) where someone else fails to authenticate | Locking out the address does not lock out a request with a valid device token (see Lockout semantics). Pairing and unauthenticated requests from that address wait. |
 | A wrong address (typo, a stale DDNS entry, someone else behind the forwarded port) | The phone pins the certificate: it never sends a token to a Mac whose certificate does not match, and the address update payload is accepted only after that check. |
 | Lost Keychain key | A new certificate is made, its fingerprint changes, and pinned phones refuse it until they pair again. Nothing falls back to an unpinned connection. |
 
 | ngrok, or someone on the path to it | ngrok carries raw TLS records inside a WebSocket: it can drop or delay them, never read, forge or replay them. The phone pins the Mac's certificate inside that TLS session, so a tunnel that ends anywhere else fails the pin. The authtoken is in the Keychain and never leaves the Mac, but for the connection to ngrok itself. |
-| Someone who knows the ngrok domain | They get the same TLS 1.3 server as a scanner on the port forward: no route without a 256-bit token, a per-source throttle that sees the real external address, at most 30 upgrades per source and 10 minutes, the same connection caps. The endpoint answers 404 to anything but the upgrade. |
+| Someone who knows the ngrok domain | They get the same TLS 1.3 server as a scanner on the port forward: no route without a 256-bit token, a per-source throttle with the external limits that sees the address ngrok reports, an upgrade budget of 30 then one per 20 seconds per source, the same connection caps. The endpoint answers 404 to anything but the upgrade. They reach it whatever `externalEnabled` says. |
+| What ngrok learns about the Mac | Besides the ciphertext's size and timing, ngrok's SDK describes the endpoint with the Mac's host name, the path of the Pouple executable and its process id (`app://<host>/<path>?pid=<n>`): the v2 SDK sets this by default for an endpoint it listens on and has no public option to change it (the override exists only in its internal package). It is shown in the user's ngrok dashboard and sent to ngrok, with the authtoken, the domain and the session's usual metadata. It is not secret from ngrok, which already holds the account. |
 
 Out of scope: push notifications (the phone polls), opening the router's port automatically
 (UPnP), that a Pouple Mac exists behind an ngrok domain, traffic volume and timing, and a compromised Mac user account. That account can already read everything through the local socket.

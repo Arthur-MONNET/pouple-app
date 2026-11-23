@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -25,6 +26,9 @@ type connLimiter struct {
 	mu    sync.Mutex
 	total int
 	bySrc map[netip.Addr]int
+	// authed counts, per source, the open connections that completed an authenticated request: a source that has one is
+	// a paired phone (perhaps behind a carrier NAT shared with a scanner), and the per-source cap no longer applies to it.
+	authed map[netip.Addr]int
 }
 
 func newConnLimiter(maxTotal, maxPerSource int, flooding func(netip.Addr) bool) *connLimiter {
@@ -34,14 +38,14 @@ func newConnLimiter(maxTotal, maxPerSource int, flooding func(netip.Addr) bool) 
 	if maxPerSource <= 0 {
 		maxPerSource = defaultMaxConnectionsPerSource
 	}
-	return &connLimiter{max: maxTotal, perSource: maxPerSource, flooding: flooding, bySrc: map[netip.Addr]int{}}
+	return &connLimiter{max: maxTotal, perSource: maxPerSource, flooding: flooding, bySrc: map[netip.Addr]int{}, authed: map[netip.Addr]int{}}
 }
 
 // acquire takes a slot for a source, or says there is none.
 func (l *connLimiter) acquire(key netip.Addr) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.total >= l.max || l.bySrc[key] >= l.perSource {
+	if l.total >= l.max || (l.bySrc[key] >= l.perSource && l.authed[key] == 0) {
 		return false
 	}
 	l.total++
@@ -57,6 +61,21 @@ func (l *connLimiter) release(key netip.Addr) {
 		delete(l.bySrc, key)
 	} else {
 		l.bySrc[key]--
+	}
+}
+
+// setAuthenticated records that a connection of the source completed an authenticated request, or (with false) that
+// such a connection ended.
+func (l *connLimiter) setAuthenticated(key netip.Addr, on bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch {
+	case on:
+		l.authed[key]++
+	case l.authed[key] <= 1:
+		delete(l.authed, key)
+	default:
+		l.authed[key]--
 	}
 }
 
@@ -104,10 +123,28 @@ type limitedConn struct {
 	limiter *connLimiter
 	key     netip.Addr
 	once    sync.Once
+	// authenticated is set when the connection completed a request with a valid device token.
+	authenticated atomic.Bool
+}
+
+// Authenticated says that the connection completed an authenticated request: its source is exempt from the per-source
+// cap while the connection is open, and the connection under it (a tunnel's) may give back what it cost.
+func (c *limitedConn) Authenticated() {
+	if c.authenticated.CompareAndSwap(false, true) {
+		c.limiter.setAuthenticated(c.key, true)
+	}
+	if inner, ok := c.Conn.(interface{ Authenticated() }); ok {
+		inner.Authenticated()
+	}
 }
 
 func (c *limitedConn) Close() error {
-	c.once.Do(func() { c.limiter.release(c.key) })
+	c.once.Do(func() {
+		if c.authenticated.Load() {
+			c.limiter.setAuthenticated(c.key, false)
+		}
+		c.limiter.release(c.key)
+	})
 	return c.Conn.Close()
 }
 

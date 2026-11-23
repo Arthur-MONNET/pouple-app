@@ -28,12 +28,24 @@ cannot read, forge or replay anything, it can only drop or delay.
   `NetConn`, ISC) and is handed, as an accepted connection, to the **same** `tls.Server` / `http.Server` as the LAN
   listener (a channel-backed `net.Listener`). So TLS 1.3, the certificate, the handler, the allowlist, the throttle,
   the connection caps and every timeout are shared, not duplicated.
-- The connection's `RemoteAddr` is the **last** `X-Forwarded-For` value on the upgrade request (a deviation from the
-  first draft, which said the first): ngrok appends the address it saw to whatever the client sent, and says to read the
-  last value for what it set, so the first can be forged by any client to choose the source the throttle sees. A value
-  that is not a public address, or no value, falls back to the address of the connection. The throttle, the caps and the
-  logs then see the real external source. Upgrades are counted per source before the upgrade (30 per 10 minutes, then
-  429).
+- The connection's `RemoteAddr` is the address ngrok reports for it, **not** `X-Forwarded-For` (a deviation from the
+  first draft, which said the first value): the SDK sets each connection's address from the client address in the proxy
+  header of ngrok's own stream (`ClientAddr`), which a client cannot touch, whereas `X-Forwarded-For` is a header the
+  client may fill and ngrok only appends to. No forwarded header is read. A connection with no readable address shares
+  one bucket, like in the throttle. The throttle, the caps and the logs then see the real external source.
+- A tunnel connection is **never local**: its requests carry a mark, so they get the external limits (6 failures, not 30)
+  and their wrong pairing codes never count toward closing the pairing window, even when the address is private, or on
+  the Mac's own IPv6 network.
+- The upgrade budget per source is a token bucket (30 at once, one more every 20 s, then 429), counted before the upgrade.
+  A request that is not a WebSocket upgrade is a 404 with no body that closes the connection and costs nothing. A
+  connection that completes an authenticated request gives its upgrade back, and the 16-per-source cap on connections
+  does not apply to a source with an authenticated connection open: a paired phone behind a carrier NAT is not locked out
+  by a scanner sharing it. The total caps always apply.
+- The server that reads the upgrade requests is not the LAN's: 10 s for headers, 15 s to read and write, 30 s idle,
+  16 KiB of headers, and its own caps (256, 16 per source) on connections that have not upgraded. Its timeouts are
+  cleared when a connection is taken over by the WebSocket.
+- The tunnel is reachable from the Internet whatever `externalEnabled` says: the source filter belongs to the LAN
+  listeners. See "Access through a tunnel" in `REMOTE-API.md`.
 - WebSocket read limit 1 MiB per message, ping every 20 s, idle close after 2 minutes without data.
 - `websocket.NetConn` closes the whole connection when a read deadline expires during a read, which `net/http` does
   after every response (it interrupts its background read with a deadline in the past, then clears it): each request
@@ -72,11 +84,15 @@ domain or token changes, and stops when Pouple stops or either setting is turned
 listeners, so a change of the Mac's addresses never drops its ngrok session, and its connection to ngrok never blocks
 the settings.
 
-`enabled` with an empty `interfaces` list now means "automatic": every interface that is up and has a private
-(RFC 1918 / ULA) address, never loopback unless chosen explicitly. This is what the simplified settings screen sends.
-The choice is read again at every address check, like an explicit one.
+`enabled` with an empty `interfaces` list now means "automatic": the broadcast interfaces that are up and not
+point-to-point, never loopback, never `utun*`, `ipsec*`, `ppp*`, `bridge*`, `vmnet*`, `awdl*`, `llw*` or `anpi*`, and on
+them only their private (RFC 1918 / ULA) addresses, never a global IPv6 one. An interface chosen explicitly is taken as it
+is. This is what the simplified settings screen sends. The choice is read again at every address check, like an explicit one.
 
 ## Not covered
 
 That a Pouple Mac exists behind a domain, traffic volume and timing, ngrok dropping the connection, and the plan's
-own limits (bandwidth, connections).
+own limits (bandwidth, connections). Also what the ngrok v2 SDK sends by default about the endpoint: the Mac's host
+name, the path of the executable and its process id (`app://<host>/<path>?pid=<n>`). The SDK has no public option to
+replace it (`WithForwardsTo` is in its internal package, and `Forward` would need a loopback upstream and loses the
+client address), so it stays; ngrok already holds the account, the domain and the traffic.

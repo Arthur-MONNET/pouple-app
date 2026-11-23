@@ -92,6 +92,11 @@ type Interface struct {
 	Name      string   `json:"name"`
 	Addresses []string `json:"addresses"`
 	Loopback  bool     `json:"loopback"`
+	// PointToPoint and Broadcast are the interface's flags: the automatic choice only takes broadcast networks that are
+	// not point-to-point (a VPN or a tunnel is neither a home network nor one the phone is on). They are not part of
+	// the settings' answer.
+	PointToPoint bool `json:"-"`
+	Broadcast    bool `json:"-"`
 }
 
 // Service runs the remote listener as the settings say, and is what the loopback admin endpoints act on.
@@ -213,15 +218,20 @@ func SystemInterfaces() ([]Interface, error) {
 			addresses = append(addresses, ipNet.IP.String())
 		}
 		if len(addresses) > 0 {
-			out = append(out, Interface{Name: iface.Name, Addresses: addresses, Loopback: iface.Flags&net.FlagLoopback != 0})
+			out = append(out, Interface{
+				Name: iface.Name, Addresses: addresses, Loopback: iface.Flags&net.FlagLoopback != 0,
+				PointToPoint: iface.Flags&net.FlagPointToPoint != 0, Broadcast: iface.Flags&net.FlagBroadcast != 0,
+			})
 		}
 	}
 	return out, nil
 }
 
 // resolve is the interfaces the access listens on and their addresses to bind, sorted; never an unspecified address.
-// Chosen interfaces are taken as they are, loopback included. With none chosen the choice is automatic: every interface
-// that is up and has a private address (RFC 1918, or unique local for IPv6), never a loopback one.
+// Chosen interfaces are taken as they are, loopback and global addresses included: the user asked for them. With none
+// chosen the choice is automatic, and cautious: the broadcast networks that are up and are not point-to-point, loopback,
+// virtual or tunnel interfaces (see automaticInterface), and of those only their private addresses (RFC 1918, or IPv6
+// unique local), never a global IPv6 one.
 func (s *Service) resolve(chosen []string) (names, addresses []string, err error) {
 	available, err := s.interfaces()
 	if err != nil {
@@ -229,15 +239,22 @@ func (s *Service) resolve(chosen []string) (names, addresses []string, err error
 	}
 	automatic := len(chosen) == 0
 	for _, iface := range available {
+		var wanted []string
 		if automatic {
-			if iface.Loopback || !slices.ContainsFunc(iface.Addresses, isPrivateAddress) {
+			if !automaticInterface(iface) {
+				continue
+			}
+			wanted = slices.DeleteFunc(slices.Clone(iface.Addresses), func(address string) bool { return !isPrivateAddress(address) })
+			if len(wanted) == 0 {
 				continue
 			}
 		} else if !slices.Contains(chosen, iface.Name) {
 			continue
+		} else {
+			wanted = iface.Addresses
 		}
 		names = append(names, iface.Name)
-		for _, address := range iface.Addresses {
+		for _, address := range wanted {
 			if ip := net.ParseIP(address); ip != nil && !ip.IsUnspecified() {
 				addresses = append(addresses, address)
 			}
@@ -245,6 +262,20 @@ func (s *Service) resolve(chosen []string) (names, addresses []string, err error
 	}
 	slices.Sort(addresses)
 	return names, slices.Compact(addresses), nil
+}
+
+// virtualInterfaces are the name prefixes of the interfaces the automatic choice never takes: tunnels and VPNs (utun,
+// ipsec, ppp), the bridges of virtual machines and Internet Sharing (bridge, vmnet), and the system's own links to
+// other Apple devices (awdl, llw, anpi).
+var virtualInterfaces = []string{"utun", "ipsec", "ppp", "bridge", "vmnet", "awdl", "llw", "anpi"}
+
+// automaticInterface says whether the automatic choice may listen on an interface: a broadcast network that is not
+// point-to-point, loopback or one of virtualInterfaces.
+func automaticInterface(iface Interface) bool {
+	if iface.Loopback || iface.PointToPoint || !iface.Broadcast {
+		return false
+	}
+	return !slices.ContainsFunc(virtualInterfaces, func(prefix string) bool { return strings.HasPrefix(iface.Name, prefix) })
 }
 
 // isPrivateAddress says whether an address is a private one: RFC 1918 or IPv6 unique local.
@@ -324,7 +355,7 @@ func (s *Service) applyLocked() error {
 			problems = append(problems, err.Error())
 			continue
 		}
-		server := s.newServer(ctx, tlsConfig)
+		server := s.newServer(ctx, tlsConfig, false)
 		s.servers = append(s.servers, server)
 		s.listening = append(s.listening, listener.Addr().String())
 		// Without the external access the listener only talks to local networks: any other source is dropped before the
@@ -382,11 +413,13 @@ func (s *Service) tlsConfig(cert Certificate) *tls.Config {
 }
 
 // newServer is the HTTP server of the LAN listeners and of the tunnel: the same handler and the same timeouts.
-func (s *Service) newServer(ctx context.Context, tlsConfig *tls.Config) *http.Server {
+// A tunnel server marks its requests, which are never local.
+func (s *Service) newServer(ctx context.Context, tlsConfig *tls.Config, tunnel bool) *http.Server {
 	return &http.Server{
 		Handler: s.handler, TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
 		BaseContext: func(net.Listener) context.Context { return ctx },
+		ConnContext: serverConnContext(tunnel),
 		ErrorLog:    quietLog(),
 	}
 }
@@ -656,12 +689,19 @@ func (s *Service) updateSettings(update SettingsUpdate) error {
 	if settings.TunnelEnabled && (settings.TunnelDomain == "" || !haveToken) {
 		return i18n.Wrap(ErrInvalidSettings, "Enter your ngrok domain and authtoken to turn the tunnel on.")
 	}
+	// The authtoken and the configuration are saved as one step: the token goes first, and a configuration that cannot
+	// be saved puts the previous token back.
+	var restore func()
 	if token != nil {
-		if err := s.storeTunnelToken(*token); err != nil {
+		var err error
+		if restore, err = s.storeTunnelToken(*token); err != nil {
 			return err
 		}
 	}
 	if err := s.opts.Save(settings); err != nil {
+		if restore != nil {
+			restore()
+		}
 		return err
 	}
 	if err := s.applyLocked(); err != nil {
@@ -839,23 +879,35 @@ func (s *Service) tokenIsSet() bool {
 	return false
 }
 
-// storeTunnelToken writes the authtoken to the Keychain, or removes it when it is empty.
-func (s *Service) storeTunnelToken(token string) error {
+// storeTunnelToken writes the authtoken to the Keychain, or removes it when it is empty. It returns what puts the
+// previous state back, for a change that must be undone. A write that fails leaves the previous token in place.
+func (s *Service) storeTunnelToken(token string) (restore func(), err error) {
 	if s.opts.Secrets == nil {
-		return errors.New("no secrets store")
+		return nil, errors.New("no secrets store")
+	}
+	previous, readErr := s.opts.Secrets.Get(tunnelTokenSecret)
+	hadPrevious := readErr == nil && previous != ""
+	restore = func() {
+		if hadPrevious {
+			_ = s.opts.Secrets.Set(tunnelTokenSecret, previous)
+		} else {
+			_ = s.opts.Secrets.Delete(tunnelTokenSecret)
+		}
+		s.tokenSet.Store(0) // read again
 	}
 	if token == "" {
 		if err := s.opts.Secrets.Delete(tunnelTokenSecret); err != nil {
-			return errors.New("the ngrok authtoken could not be removed from the Keychain")
+			return nil, errors.New("the ngrok authtoken could not be removed from the Keychain")
 		}
 		s.tokenSet.Store(2)
-		return nil
+		return restore, nil
 	}
 	if err := s.opts.Secrets.Set(tunnelTokenSecret, token); err != nil {
-		return errors.New("the ngrok authtoken could not be saved in the Keychain")
+		restore()
+		return nil, errors.New("the ngrok authtoken could not be saved in the Keychain")
 	}
 	s.tokenSet.Store(1)
-	return nil
+	return restore, nil
 }
 
 // syncTunnel tells the tunnel what to run: it runs while the access and the tunnel are on, and a domain and its
@@ -877,6 +929,9 @@ func (s *Service) syncTunnel(settings config.RemoteSettings, loadErr error) {
 // logTunnel writes why the tunnel stopped, without the authtoken.
 func (s *Service) logTunnel(cfg tunnelConfig, err error) {
 	text := err.Error()
+	if faultOf(err) == FaultToken {
+		text = tokenFaultText(err) // never the text of ngrok's answer about the authtoken
+	}
 	if cfg.Authtoken != "" {
 		text = strings.ReplaceAll(text, cfg.Authtoken, "[authtoken]")
 	}

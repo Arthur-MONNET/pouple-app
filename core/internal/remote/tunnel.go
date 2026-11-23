@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -34,11 +35,18 @@ const (
 	tunnelPingTimeout = 10 * time.Second
 	// tunnelIdle closes a WebSocket that carried no data for this long (the pings do not count).
 	tunnelIdle = 2 * time.Minute
-	// tunnelUpgrades is how many WebSocket upgrades one source may ask for in tunnelUpgradeWindow, then 429.
-	tunnelUpgrades      = 30
-	tunnelUpgradeWindow = 10 * time.Minute
-	// maxUpgradeSources bounds the sources the upgrade counter remembers.
-	maxUpgradeSources = 4096
+	// The upgrade budget of a source is a token bucket: tunnelUpgradeBurst upgrades at once, then one more every
+	// tunnelUpgradeRefill, and a connection that authenticates gives its upgrade back. maxUpgradeSources bounds the
+	// sources it remembers.
+	tunnelUpgradeBurst  = 30
+	tunnelUpgradeRefill = 20 * time.Second
+	maxUpgradeSources   = 4096
+	// The server that reads the upgrade requests is not the LAN's: it never reads a body, so it has short timeouts.
+	edgeReadHeaderTimeout = 10 * time.Second
+	edgeReadTimeout       = 15 * time.Second
+	edgeWriteTimeout      = 15 * time.Second
+	edgeIdleTimeout       = 30 * time.Second
+	edgeMaxHeaderBytes    = 16 << 10
 
 	// Tunnel states, as the settings show them.
 	TunnelStatusOff      = "off"
@@ -185,9 +193,14 @@ type tunnelGate struct {
 }
 
 func (g *tunnelGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	// Anything but the upgrade path answers 404 with no body: the endpoint reveals nothing to a scanner.
-	if r.URL.Path != tunnelPath || r.Method != http.MethodGet {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	// Every answer but the upgrade ends the connection: nothing that is not a phone keeps one open. The upgrade's own
+	// "Connection: Upgrade" replaces this one.
+	h.Set("Connection", "close")
+	// Anything but the upgrade path, or a request that is no WebSocket upgrade, answers 404 with no body: the endpoint
+	// reveals nothing to a scanner, and such requests cost no upgrade.
+	if r.URL.Path != tunnelPath || r.Method != http.MethodGet || !isWebSocketUpgrade(r) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -196,24 +209,28 @@ func (g *tunnelGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
-	source := tunnelSource(r)
+	// The source is the address ngrok reports for the connection (the SDK reads it from the proxy header of ngrok's own
+	// stream, which a client cannot touch), never a header the client could have sent.
+	source := sourceOf(r.RemoteAddr)
 	// The upgrades are counted before they are accepted: each costs a WebSocket and a TLS handshake.
 	if wait, ok := g.upgrades.allow(source); !ok {
 		tooManyUpgrades(w, wait)
 		return
 	}
 	if g.flooding != nil && g.flooding(source) {
+		g.upgrades.refund(source)
 		tooManyUpgrades(w, time.Minute)
 		return
 	}
-	socket, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+	socket, err := websocket.Accept(hijackClearer{w}, r, &websocket.AcceptOptions{})
 	if err != nil {
-		return // Accept answered the request that was not a WebSocket upgrade
+		g.upgrades.refund(source)
+		return // Accept answered the request
 	}
 	// NetConn lifts the read limit: it is set again, after, to the limit of the tunnel.
 	netConn := websocket.NetConn(g.ctx, socket, websocket.MessageBinary)
 	socket.SetReadLimit(tunnelReadLimit)
-	conn := newTunnelConn(g.ctx, newDeadlineConn(netConn), socket, source, remotePort(r.RemoteAddr), g.pingEvery, g.pingTimeout, g.idle)
+	conn := newTunnelConn(g.ctx, newDeadlineConn(netConn), socket, source, remotePort(r.RemoteAddr), g.upgrades, g.pingEvery, g.pingTimeout, g.idle)
 	if !g.conns.put(conn) {
 		_ = conn.Close()
 		return
@@ -221,26 +238,38 @@ func (g *tunnelGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	go conn.watch()
 }
 
-func tooManyUpgrades(w http.ResponseWriter, wait time.Duration) {
-	w.Header().Set("Retry-After", strconv.Itoa(max(1, int((wait+time.Second-1)/time.Second))))
-	w.WriteHeader(http.StatusTooManyRequests)
+// hijackClearer clears the deadlines of the edge server when the connection is taken over: they are the server's
+// timeouts for reading a request, not those of the tunnel that follows.
+type hijackClearer struct{ http.ResponseWriter }
+
+func (w hijackClearer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := w.ResponseWriter.(http.Hijacker).Hijack()
+	if err == nil {
+		_ = conn.SetDeadline(time.Time{})
+	}
+	return conn, rw, err
 }
 
-// tunnelSource is the external address of the client behind the provider. ngrok appends the address it saw to the
-// X-Forwarded-For the client sent (its documentation says to read the last value), so the last value is the only one
-// that cannot be forged by the client: the first would let anyone pick the source the throttle and the logs see. A value
-// that is not a public address is ignored and the address of the connection is used instead.
-func tunnelSource(r *http.Request) netip.Addr {
-	if values := r.Header.Values("X-Forwarded-For"); len(values) > 0 {
-		parts := strings.Split(strings.Join(values, ","), ",")
-		if addr, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil && addr.Zone() == "" {
-			addr = addr.Unmap()
-			if !addr.IsUnspecified() && !addr.IsMulticast() && !IsLocalAddress(addr) {
-				return addr
+// isWebSocketUpgrade says whether a request asks for a WebSocket (RFC 6455, version 13).
+func isWebSocketUpgrade(r *http.Request) bool {
+	return headerHasToken(r.Header, "Connection", "upgrade") && headerHasToken(r.Header, "Upgrade", "websocket") &&
+		r.Header.Get("Sec-WebSocket-Key") != "" && r.Header.Get("Sec-WebSocket-Version") == "13"
+}
+
+func headerHasToken(header http.Header, name, token string) bool {
+	for _, value := range header.Values(name) {
+		for part := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return true
 			}
 		}
 	}
-	return sourceOf(r.RemoteAddr)
+	return false
+}
+
+func tooManyUpgrades(w http.ResponseWriter, wait time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(max(1, int((wait+time.Second-1)/time.Second))))
+	w.WriteHeader(http.StatusTooManyRequests)
 }
 
 func remotePort(remote string) int {
@@ -250,11 +279,13 @@ func remotePort(remote string) int {
 	return 0
 }
 
-// upgradeLimiter counts the WebSocket upgrades per source (a whole /64 for IPv6) in a fixed window, in a bounded table.
+// upgradeLimiter is the upgrade budget of each source (a whole /64 for IPv6): a token bucket in a bounded table. A
+// source that is only unlucky (a carrier NAT shared with a scanner) gets its budget back one upgrade at a time, and
+// refund gives one back as soon as a connection proves to be a paired phone.
 type upgradeLimiter struct {
 	now    func() time.Time
-	limit  int
-	window time.Duration
+	burst  float64
+	refill time.Duration
 	max    int
 
 	mu      sync.Mutex
@@ -262,18 +293,26 @@ type upgradeLimiter struct {
 }
 
 type upgradeEntry struct {
-	start time.Time
-	count int
+	tokens float64
+	last   time.Time
 }
 
 func newUpgradeLimiter(now func() time.Time) *upgradeLimiter {
 	if now == nil {
 		now = time.Now
 	}
-	return &upgradeLimiter{now: now, limit: tunnelUpgrades, window: tunnelUpgradeWindow, max: maxUpgradeSources, entries: map[netip.Addr]*upgradeEntry{}}
+	return &upgradeLimiter{now: now, burst: tunnelUpgradeBurst, refill: tunnelUpgradeRefill, max: maxUpgradeSources, entries: map[netip.Addr]*upgradeEntry{}}
 }
 
-// allow counts an upgrade, or says how long the source must wait.
+// top brings an entry up to date: tokens come back with time, up to the burst.
+func (l *upgradeLimiter) top(e *upgradeEntry, now time.Time) {
+	if elapsed := now.Sub(e.last); elapsed > 0 {
+		e.tokens = min(l.burst, e.tokens+float64(elapsed)/float64(l.refill))
+		e.last = now
+	}
+}
+
+// allow spends an upgrade, or says how long the source must wait for the next one.
 func (l *upgradeLimiter) allow(source netip.Addr) (time.Duration, bool) {
 	key, now := throttleKey(source), l.now()
 	l.mu.Lock()
@@ -281,33 +320,44 @@ func (l *upgradeLimiter) allow(source netip.Addr) (time.Duration, bool) {
 	entry := l.entries[key]
 	if entry == nil {
 		l.makeRoom(now)
-		entry = &upgradeEntry{start: now}
+		entry = &upgradeEntry{tokens: l.burst, last: now}
 		l.entries[key] = entry
 	}
-	if now.Sub(entry.start) >= l.window {
-		entry.start, entry.count = now, 0
+	l.top(entry, now)
+	if entry.tokens >= 1 {
+		entry.tokens--
+		return 0, true
 	}
-	if entry.count >= l.limit {
-		return entry.start.Add(l.window).Sub(now), false
-	}
-	entry.count++
-	return 0, true
+	return time.Duration((1 - entry.tokens) * float64(l.refill)), false
 }
 
-// makeRoom frees a slot when the table is full: the sources whose window ended first, else the oldest window.
+// refund gives back one upgrade: the connection it was spent on authenticated.
+func (l *upgradeLimiter) refund(source netip.Addr) {
+	key, now := throttleKey(source), l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if entry := l.entries[key]; entry != nil {
+		l.top(entry, now)
+		entry.tokens = min(l.burst, entry.tokens+1)
+	}
+}
+
+// makeRoom frees a slot when the table is full: a source whose budget is whole again is the same as an unknown one, else
+// the one that was seen first goes.
 func (l *upgradeLimiter) makeRoom(now time.Time) {
 	if len(l.entries) < l.max {
 		return
 	}
 	var oldest netip.Addr
-	var oldestStart time.Time
+	var oldestSeen time.Time
 	for key, entry := range l.entries {
-		if now.Sub(entry.start) >= l.window {
+		l.top(entry, now)
+		if entry.tokens >= l.burst {
 			delete(l.entries, key)
 			continue
 		}
-		if oldestStart.IsZero() || entry.start.Before(oldestStart) {
-			oldest, oldestStart = key, entry.start
+		if oldestSeen.IsZero() || entry.last.Before(oldestSeen) {
+			oldest, oldestSeen = key, entry.last
 		}
 	}
 	if len(l.entries) >= l.max {
@@ -323,14 +373,18 @@ type tunnelConn struct {
 	remote net.Addr
 	ctx    context.Context
 
+	source   netip.Addr
+	upgrades *upgradeLimiter
+	refunded atomic.Bool
+
 	pingEvery, pingTimeout, idle time.Duration
 	lastData                     atomic.Int64 // unix nanoseconds of the last byte read or written
 	done                         chan struct{}
 	once                         sync.Once
 }
 
-func newTunnelConn(ctx context.Context, conn net.Conn, socket *websocket.Conn, source netip.Addr, port int, pingEvery, pingTimeout, idle time.Duration) *tunnelConn {
-	c := &tunnelConn{Conn: conn, socket: socket, ctx: ctx, pingEvery: pingEvery, pingTimeout: pingTimeout, idle: idle, done: make(chan struct{})}
+func newTunnelConn(ctx context.Context, conn net.Conn, socket *websocket.Conn, source netip.Addr, port int, upgrades *upgradeLimiter, pingEvery, pingTimeout, idle time.Duration) *tunnelConn {
+	c := &tunnelConn{Conn: conn, socket: socket, ctx: ctx, source: source, upgrades: upgrades, pingEvery: pingEvery, pingTimeout: pingTimeout, idle: idle, done: make(chan struct{})}
 	if source.IsValid() {
 		c.remote = net.TCPAddrFromAddrPort(netip.AddrPortFrom(source, uint16(port)))
 	} else {
@@ -338,6 +392,14 @@ func newTunnelConn(ctx context.Context, conn net.Conn, socket *websocket.Conn, s
 	}
 	c.touch()
 	return c
+}
+
+// Authenticated gives back the upgrade this connection cost its source: it proved to be a paired phone, so it must not
+// eat the budget that a scanner behind the same address is draining.
+func (c *tunnelConn) Authenticated() {
+	if c.refunded.CompareAndSwap(false, true) {
+		c.upgrades.refund(c.source)
+	}
 }
 
 func (c *tunnelConn) touch() { c.lastData.Store(time.Now().UnixNano()) }
@@ -394,6 +456,65 @@ func (c *tunnelConn) watch() {
 			}
 		}
 	}
+}
+
+// newEdgeServer is the server that reads the upgrade requests of the provider's endpoint: short timeouts, small headers,
+// and the slots of the connections that have not upgraded yet given back when they do.
+func newEdgeServer(ctx context.Context, gate *tunnelGate, pending *edgeListener) *http.Server {
+	return &http.Server{
+		Handler: gate, ReadHeaderTimeout: edgeReadHeaderTimeout, ReadTimeout: edgeReadTimeout, WriteTimeout: edgeWriteTimeout,
+		IdleTimeout: edgeIdleTimeout, MaxHeaderBytes: edgeMaxHeaderBytes,
+		BaseContext: func(net.Listener) context.Context { return ctx },
+		ConnState:   pending.state,
+		ErrorLog:    quietLog(),
+	}
+}
+
+// edgeListener caps the connections of the provider's endpoint that have not upgraded yet, in all and per source (the
+// address ngrok reports): a connection that says nothing, or never finishes its request, holds a slot until the
+// server's timeouts end it, and one that upgrades gives its slot back, since it is then counted by the caps of the TLS
+// server.
+type edgeListener struct {
+	net.Listener
+	limiter *connLimiter
+}
+
+func (l *edgeListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		key := throttleKey(sourceOf(conn.RemoteAddr().String()))
+		if !l.limiter.acquire(key) {
+			dropConn(conn)
+			continue
+		}
+		return &edgeConn{Conn: conn, limiter: l.limiter, key: key}, nil
+	}
+}
+
+// state gives the slot back when a connection is taken over by the WebSocket, or ends.
+func (l *edgeListener) state(conn net.Conn, state http.ConnState) {
+	if state == http.StateHijacked || state == http.StateClosed {
+		if edge, ok := conn.(*edgeConn); ok {
+			edge.release()
+		}
+	}
+}
+
+type edgeConn struct {
+	net.Conn
+	limiter *connLimiter
+	key     netip.Addr
+	once    sync.Once
+}
+
+func (c *edgeConn) release() { c.once.Do(func() { c.limiter.release(c.key) }) }
+
+func (c *edgeConn) Close() error {
+	c.release()
+	return c.Conn.Close()
 }
 
 // chanListener is a net.Listener fed by a channel: the connections the gate upgrades are its accepted connections.
@@ -613,19 +734,18 @@ func (t *tunnelRuntime) run(ctx context.Context, cfg tunnelConfig) error {
 		s.tunnelTiming(gate)
 	}
 	tlsConfig := s.tlsConfig(cert)
-	secure := s.newServer(serving, tlsConfig)
-	edge := &http.Server{
-		Handler: gate, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 16 << 10,
-		BaseContext: func(net.Listener) context.Context { return serving },
-		ErrorLog:    quietLog(),
-	}
+	secure := s.newServer(serving, tlsConfig, true)
+	// The server that reads the upgrade requests has no caps of the LAN's behind it yet: it has its own, on the
+	// connections that did not upgrade, and short timeouts.
+	pending := &edgeListener{Listener: listener, limiter: newConnLimiter(0, 0, nil)}
+	edge := newEdgeServer(serving, gate, pending)
 	failed := make(chan error, 2)
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		// The caps apply to the tunnel like to a LAN listener, before any TLS byte is read.
 		failed <- secure.Serve(tls.NewListener(&limitListener{Listener: conns, limiter: s.limiter}, tlsConfig))
 	})
-	wg.Go(func() { failed <- edge.Serve(listener) })
+	wg.Go(func() { failed <- edge.Serve(pending) })
 
 	var ended error
 	select {
