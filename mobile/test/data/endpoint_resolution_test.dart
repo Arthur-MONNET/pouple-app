@@ -203,51 +203,83 @@ void main() {
           token: 'tok',
         );
 
+    Future<int> deadPort() async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final port = server.port;
+      await server.close();
+      return port;
+    }
+
+    RemoteClient custom({required int homePort, ExternalAddress? external}) => RemoteClient(
+      endpoint: Endpoint(
+        hosts: const ['127.0.0.1'],
+        port: homePort,
+        fingerprint: testCertificateFingerprint,
+        external: external,
+      ),
+      token: 'tok',
+      homeConnectTimeout: const Duration(milliseconds: 500),
+    );
+
+    Matcher failsWith(FailureKind kind) => throwsA(isA<RemoteFailure>().having((f) => f.kind, 'kind', kind));
+
     test(
-      'a wrong certificate on the home network is a hard failure: no fallback to the external address',
+      'another device on the home address (other certificate) is skipped: connects over the external one',
       () async {
         final remote = pinned(homeServer: wrongHome, outsideServer: rightOutside);
         addTearDown(remote.dispose);
-        await expectLater(
-          remote.snapshot(),
-          throwsA(isA<RemoteFailure>().having((f) => f.kind, 'kind', FailureKind.certificateMismatch)),
-        );
-        expect(outsideSeen, isEmpty);
+        expect((await remote.snapshot()).requests, hasLength(1));
+        expect(remote.route.value, NetworkRoute.outside);
+        // The foreign device never saw a request, so never saw the token.
         expect(homeSeen, isEmpty);
+        expect(outsideSeen, ['/api/assistant']);
       },
     );
 
-    test('the stream fails the same way', () async {
+    test('the stream skips it the same way', () async {
       final remote = pinned(homeServer: wrongHome, outsideServer: rightOutside);
       addTearDown(remote.dispose);
-      await expectLater(
-        remote.snapshots().toList(),
-        throwsA(isA<RemoteFailure>().having((f) => f.kind, 'kind', FailureKind.certificateMismatch)),
-      );
-      expect(outsideSeen, isEmpty);
+      await remote.snapshots().toList();
+      expect(homeSeen, isEmpty);
+      expect(remote.route.value, NetworkRoute.outside);
     });
 
-    test('a wrong certificate on the external address is a hard failure too', () async {
-      final remote = pinned(homeServer: rightOutside, outsideServer: wrongHome);
+    test('a wrong certificate on the external address is a hard certificateMismatch', () async {
+      final remote = custom(
+        homePort: await deadPort(),
+        external: ExternalAddress('localhost', wrongHome.port),
+      );
       addTearDown(remote.dispose);
-      // Home is the right one and answers.
-      expect((await remote.snapshot()).requests, hasLength(1));
+      await expectLater(remote.snapshot(), failsWith(FailureKind.certificateMismatch));
+      expect(homeSeen, isEmpty);
+    });
 
-      final other = RemoteClient(
-        endpoint: Endpoint(
-          hosts: const ['127.0.0.1'],
-          port: 1,
-          fingerprint: testCertificateFingerprint,
-          external: ExternalAddress('localhost', wrongHome.port),
-        ),
-        token: 'tok',
-        homeConnectTimeout: const Duration(milliseconds: 500),
+    test(
+      'a wrong certificate on the external address stays a mismatch when the home network also fails',
+      () async {
+        final remote = pinned(homeServer: wrongHome, outsideServer: wrongHome);
+        addTearDown(remote.dispose);
+        await expectLater(remote.snapshot(), failsWith(FailureKind.certificateMismatch));
+        await expectLater(remote.snapshots().toList(), failsWith(FailureKind.certificateMismatch));
+      },
+    );
+
+    test('a wrong home certificate with the external address down is plain unreachable', () async {
+      final remote = custom(
+        homePort: wrongHome.port,
+        external: ExternalAddress('localhost', await deadPort()),
       );
-      addTearDown(other.dispose);
-      await expectLater(
-        other.snapshot(),
-        throwsA(isA<RemoteFailure>().having((f) => f.kind, 'kind', FailureKind.certificateMismatch)),
-      );
+      addTearDown(remote.dispose);
+      await expectLater(remote.snapshot(), failsWith(FailureKind.unreachable));
+      await expectLater(remote.snapshots().toList(), failsWith(FailureKind.unreachable));
+      expect(homeSeen, isEmpty);
+    });
+
+    test('a wrong home certificate and no other endpoint at all is a certificateMismatch', () async {
+      final remote = custom(homePort: wrongHome.port);
+      addTearDown(remote.dispose);
+      await expectLater(remote.snapshot(), failsWith(FailureKind.certificateMismatch));
+      await expectLater(remote.snapshots().toList(), failsWith(FailureKind.certificateMismatch));
     });
 
     test('the same pin accepts the right certificate on the external address', () async {

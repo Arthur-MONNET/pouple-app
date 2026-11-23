@@ -61,11 +61,41 @@ class RemoteResponse {
   Object? get json => body.isEmpty ? null : jsonDecode(utf8.decode(body));
 }
 
+/// What happened on each candidate of one call, to name the failure when none worked.
+class _Attempts {
+  _Attempts(this._endpoint);
+
+  final Endpoint _endpoint;
+  int _homePinFailures = 0;
+  int _homeUnreachable = 0;
+  bool _externalPinFailed = false;
+
+  void pinFailed(Candidate candidate) {
+    if (candidate.route == NetworkRoute.home) {
+      _homePinFailures++;
+    } else {
+      _externalPinFailed = true;
+    }
+  }
+
+  void unreachable(Candidate candidate) {
+    if (candidate.route == NetworkRoute.home) _homeUnreachable++;
+  }
+
+  /// A wrong certificate on the external address is a real alarm. On the home network it is usually another
+  /// device at the same address on a foreign network, so it only counts when nothing else could be tried.
+  RemoteFailure failure() {
+    final onlyHomeAnswered = _endpoint.external == null && _homePinFailures > 0 && _homeUnreachable == 0;
+    if (_externalPinFailed || onlyHomeAnswered) return const RemoteFailure(FailureKind.certificateMismatch);
+    return const RemoteFailure(FailureKind.unreachable);
+  }
+}
+
 /// The Mac's phone API over TLS with a pinned certificate.
 ///
 /// Tries the home network addresses first (with a short timeout), then the external address, and remembers which
-/// route worked. A certificate that is not the pinned one is a hard failure on any of them: it never falls back to
-/// another address. Never logs a token, a body, an answer or an address.
+/// route worked. A certificate that is not the pinned one skips that address (nothing is sent to it) and the next one
+/// is tried; see [_Attempts.failure] for when it is reported. Never logs a token, a body, an answer or an address.
 class RemoteClient {
   RemoteClient({
     required this._endpoint,
@@ -198,6 +228,7 @@ class RemoteClient {
     bool learn = true,
   }) async {
     await _loadMemory();
+    final attempts = _Attempts(_endpoint);
     for (final candidate in candidates()) {
       try {
         final request = await _http
@@ -211,21 +242,22 @@ class RemoteClient {
         await _succeeded(candidate);
         if (learn && authenticated) _learnExternal();
         return _checked(RemoteResponse(response.statusCode, bytes));
-      } on RemoteFailure {
-        rethrow;
+      } on RemoteFailure catch (failure) {
+        if (failure.kind != FailureKind.certificateMismatch) rethrow;
+        attempts.pinFailed(candidate);
       } on TlsException {
-        // Not the pinned certificate (or not a Mac at all): never try another address after that.
-        throw const RemoteFailure(FailureKind.certificateMismatch);
+        // Refused during the handshake, before anything (the token included) was sent: skip this address.
+        attempts.pinFailed(candidate);
       } on SocketException {
-        continue;
+        attempts.unreachable(candidate);
       } on TimeoutException {
-        continue;
+        attempts.unreachable(candidate);
       } on HttpException {
-        continue;
+        attempts.unreachable(candidate);
       }
     }
     _needsSync = true;
-    throw const RemoteFailure(FailureKind.unreachable);
+    throw attempts.failure();
   }
 
   void _decorate(
@@ -328,6 +360,7 @@ class RemoteClient {
   /// Each event is a full snapshot.
   Stream<AssistantSnapshot> snapshots() async* {
     await _loadMemory();
+    final attempts = _Attempts(_endpoint);
     for (final candidate in candidates()) {
       HttpClientResponse response;
       try {
@@ -338,15 +371,21 @@ class RemoteClient {
         request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
         response = await request.close().timeout(requestTimeout);
         _checkCertificate(response);
-      } on RemoteFailure {
-        rethrow;
+      } on RemoteFailure catch (failure) {
+        if (failure.kind != FailureKind.certificateMismatch) rethrow;
+        attempts.pinFailed(candidate);
+        continue;
       } on TlsException {
-        throw const RemoteFailure(FailureKind.certificateMismatch);
+        attempts.pinFailed(candidate);
+        continue;
       } on SocketException {
+        attempts.unreachable(candidate);
         continue;
       } on TimeoutException {
+        attempts.unreachable(candidate);
         continue;
       } on HttpException {
+        attempts.unreachable(candidate);
         continue;
       }
       await _succeeded(candidate);
@@ -379,7 +418,7 @@ class RemoteClient {
       return;
     }
     _needsSync = true;
-    throw const RemoteFailure(FailureKind.unreachable);
+    throw attempts.failure();
   }
 
   // Remote layer -----------------------------------------------------------------------------------------------
