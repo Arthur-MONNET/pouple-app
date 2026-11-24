@@ -105,7 +105,9 @@ type Deps struct {
 	// a note). Like Services it has its own time limits and never fails; nil when there is no such source.
 	Lookups func(ctx context.Context, lookups []Lookup) ServiceContext
 	// CreateSlitePage publishes the exact contents approved in a plan.
-	CreateSlitePage func(ctx context.Context, parentID, title, markdown string) (string, error)
+	CreateSlitePage  func(ctx context.Context, parentID, title, markdown string) (string, error)
+	CreateAsanaTask  func(ctx context.Context, project, title, description string) (string, error)
+	AsanaProjectName func(ctx context.Context, project string) (string, error)
 	// WebAccess says whether the AI may search the web and read public pages; read at each turn.
 	WebAccess func() bool
 	// Persona says who the assistant works for; read at each prompt, so a change applies at once.
@@ -859,6 +861,8 @@ func (s *Service) settleStopped(id string, queued bool) {
 	status, text := StatusReady, "Stopped."
 	if queued {
 		status, text = StatusIgnored, "Stopped before it started."
+	} else if request.Status == StatusApplying && request.Plan != nil && request.Plan.hasAsanaTasks() {
+		text = "Task creation was interrupted. Check the project in Asana."
 	} else if request.Status == StatusApplying && request.Plan != nil && request.Plan.hasSlitePages() {
 		text = "Publication was interrupted. Check Slite before requesting the pages again."
 	} else if request.Status == StatusApplying {

@@ -22,6 +22,7 @@ type state struct {
 	PipelineCursor *Cursor `json:"pipelineCursor,omitempty"`
 	// EventCursors are what the other event sources remember between two polls, by source name.
 	EventCursors map[string]*Cursor `json:"eventCursors,omitempty"`
+	AsanaTasks   map[string]string  `json:"asanaTasks,omitempty"`
 	Requests     []Stored           `json:"requests"`
 	// Topics are the subjects the conversations are sorted into.
 	Topics       []Topic      `json:"topics,omitempty"`
@@ -38,6 +39,7 @@ type Store struct {
 	state    state
 	dirty    bool
 	writing  bool
+	writeErr error
 	done     *sync.Cond
 	onError  func(error)
 	onChange func()
@@ -232,6 +234,9 @@ func (s *Store) writeLoop() {
 		if err == nil {
 			err = writeAtomic(s.path, data)
 		}
+		s.mu.Lock()
+		s.writeErr = err
+		s.mu.Unlock()
 		if err != nil && s.onError != nil {
 			s.onError(err)
 		}
@@ -239,12 +244,46 @@ func (s *Store) writeLoop() {
 }
 
 // Flush waits until everything changed so far is on disk.
-func (s *Store) Flush() {
+func (s *Store) Flush() { _ = s.flush() }
+
+func (s *Store) flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for s.writing {
 		s.done.Wait()
 	}
+	return s.writeErr
+}
+
+// reserveAsanaTask writes an empty receipt before sending the POST, so a crash leaves a replay blocked.
+func (s *Store) reserveAsanaTask(key string) (link string, reserved bool, err error) {
+	s.mu.Lock()
+	if link, exists := s.state.AsanaTasks[key]; exists {
+		s.mu.Unlock()
+		return link, false, nil
+	}
+	if s.state.AsanaTasks == nil {
+		s.state.AsanaTasks = make(map[string]string)
+	}
+	s.state.AsanaTasks[key] = ""
+	s.changed()
+	if err := s.flush(); err != nil {
+		s.finishAsanaTask(key, "")
+		return "", false, err
+	}
+	return "", true, nil
+}
+
+// An empty link here means a definite rejection, so another approved attempt can run.
+func (s *Store) finishAsanaTask(key, link string) {
+	s.mu.Lock()
+	if link == "" {
+		delete(s.state.AsanaTasks, key)
+	} else {
+		s.state.AsanaTasks[key] = link
+	}
+	s.changed()
+	s.Flush()
 }
 
 func writeAtomic(path string, data []byte) error {

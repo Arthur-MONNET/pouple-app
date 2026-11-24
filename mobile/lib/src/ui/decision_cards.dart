@@ -169,7 +169,7 @@ class _PlanCardState extends State<PlanCard> {
               dense: true,
               leading: const Icon(Icons.edit_note),
               title: Text(planActionLabel(action)),
-              subtitle: action.summary.isEmpty ? null : Text(action.summary),
+              subtitle: planActionDescription(action).isEmpty ? null : Text(planActionDescription(action)),
             ),
         if (plan.brief.isNotEmpty)
           ExpansionTile(

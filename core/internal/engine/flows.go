@@ -960,7 +960,9 @@ func (s *Service) Recover() {
 				settleCommands(r.Entries)
 				r.Status = StatusReady
 				message := "Pouple was closed while the change was being made. Check the project with git status, then ask again if needed."
-				if r.Plan != nil && r.Plan.hasSlitePages() {
+				if r.Plan != nil && r.Plan.hasAsanaTasks() {
+					message = "Task creation was interrupted. Check the project in Asana."
+				} else if r.Plan != nil && r.Plan.hasSlitePages() {
 					message = "Publication was interrupted. Check Slite before requesting the pages again."
 				}
 				r.Entries = append(r.Entries, s.entry("system", "text", s.text(message)))

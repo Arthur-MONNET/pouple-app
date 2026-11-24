@@ -99,9 +99,10 @@ type Action struct {
 	// fingerprint.
 	Branch string `json:"branch,omitempty"`
 	Base   string `json:"base,omitempty"`
-	// Title and Markdown are the exact contents approved and sent to Slite.
-	Title    string `json:"title,omitempty"`
-	Markdown string `json:"markdown,omitempty"`
+	// Title, Markdown and Description hold the exact contents approved for a page or task.
+	Title       string `json:"title,omitempty"`
+	Markdown    string `json:"markdown,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // PlanStatus is where a plan stands.
@@ -231,7 +232,14 @@ func (a Action) normalize() (Action, error) {
 	if err := checkBranches(a.Kind, branch, base); err != nil {
 		return Action{}, err
 	}
-	if a.Kind == WriteNote {
+	if a.Kind == CreateTask {
+		if strings.TrimSpace(a.Title) == "" || !validPlanText(a.Title, maxActionSummary, false) ||
+			len(a.Description) > 64<<10 || !validPlanText(a.Description, 64<<10, true) || a.Markdown != "" {
+			return Action{}, i18n.Wrap(ErrOutcome, "An Asana task needs a valid title and description")
+		}
+	} else if a.Description != "" {
+		return Action{}, i18n.Wrap(ErrOutcome, "Only Asana task actions can contain a description")
+	} else if a.Kind == WriteNote {
 		if strings.TrimSpace(a.Title) == "" || !validPlanText(a.Title, maxActionSummary, false) ||
 			len(a.Markdown) > 64<<10 || !validPlanText(a.Markdown, 64<<10, true) {
 			return Action{}, i18n.Wrap(ErrOutcome, "A Slite page needs a valid title and Markdown")
@@ -296,6 +304,14 @@ func validPlanText(text string, max int, lineBreaks bool) bool {
 		return unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp)
 	})
 	return utf8.ValidString(text) && utf8.RuneCountInString(text) <= max && !hidden
+}
+
+func (p Plan) hasAsanaTasks() bool {
+	return slices.ContainsFunc(p.Actions, func(action Action) bool { return action.Kind == CreateTask })
+}
+
+func (p Plan) requiresContentApproval() bool {
+	return p.hasSlitePages() || p.hasAsanaTasks()
 }
 
 func (p Plan) hasSlitePages() bool {
@@ -365,8 +381,8 @@ func (g Grants) With(p Plan) (Grants, error) {
 		out[i] = Grant{Scope: grant.Scope, Kinds: slices.Clone(grant.Kinds), Actions: slices.Clone(grant.Actions)}
 	}
 	for _, action := range p.Actions {
-		if action.Kind == WriteNote {
-			continue // Publishing requires approval of each page, never a standing grant.
+		if action.Kind == WriteNote || action.Kind == CreateTask {
+			continue // Each page or task requires approval of its contents.
 		}
 		index := slices.IndexFunc(out, func(grant Grant) bool { return grant.Scope.same(action.Scope) })
 		if index < 0 {
@@ -388,7 +404,7 @@ func (g Grants) With(p Plan) (Grants, error) {
 // Covers reports whether an action is already approved: its scope was granted, with its kind. An action whose kind does
 // not write in its scope's service is never covered.
 func (g Grants) Covers(action Action) bool {
-	if service, known := action.Kind.Service(); !known || service != action.Scope.Service || action.Kind == WriteNote {
+	if service, known := action.Kind.Service(); !known || service != action.Scope.Service || action.Kind == WriteNote || action.Kind == CreateTask {
 		return false
 	}
 	return slices.ContainsFunc(g, func(grant Grant) bool {

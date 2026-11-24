@@ -15,6 +15,7 @@ import (
 	"github.com/Arthur-MONNET/pouple/core/internal/asanawatch"
 	"github.com/Arthur-MONNET/pouple/core/internal/config"
 	"github.com/Arthur-MONNET/pouple/core/internal/connector"
+	"github.com/Arthur-MONNET/pouple/core/internal/connectors/asana"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/codex"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/gitlab"
 	"github.com/Arthur-MONNET/pouple/core/internal/connectors/slite"
@@ -207,6 +208,21 @@ func newAssistant(dir string, ownPort int, interactiveTerminal bool, registry *c
 		},
 		Services: gatherer.Gather,
 		Lookups:  gatherer.Lookup,
+		AsanaProjectName: func(ctx context.Context, project string) (string, error) {
+			values, err := registry.Values(asana.ID)
+			if err != nil {
+				return "", err
+			}
+			resolved, err := asana.NewClient(values["token"]).Project(ctx, project)
+			return resolved.Name, err
+		},
+		CreateAsanaTask: func(ctx context.Context, project, title, description string) (string, error) {
+			values, err := registry.Values(asana.ID)
+			if err != nil {
+				return "", err
+			}
+			return asana.NewClient(values["token"]).CreateTask(ctx, project, title, description)
+		},
 		CreateSlitePage: func(ctx context.Context, parentID, title, markdown string) (string, error) {
 			values, err := registry.Values(slite.ID)
 			if err != nil {

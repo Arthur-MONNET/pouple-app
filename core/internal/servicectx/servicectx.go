@@ -56,7 +56,7 @@ type Asana interface {
 	SearchTasks(ctx context.Context, words []string) ([]asana.Task, error)
 	Task(ctx context.Context, gid string) (asana.TaskDetails, error)
 	Comments(ctx context.Context, gid string, limit int) ([]asana.Comment, error)
-	// AddComment is the one write: the engine lets it through only for a request the user made themselves.
+	FindProjects(ctx context.Context, name string) ([]asana.Project, error)
 	AddComment(ctx context.Context, gid, text string) (asana.PostedComment, error)
 }
 

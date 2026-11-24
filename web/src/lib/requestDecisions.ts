@@ -3,6 +3,7 @@ import { t } from '../i18n';
 
 /** What a plan's action is called where the user picks it: its kind, and the branches it names. */
 export function planActionLabel(action: PlanAction): string {
+  if (action.kind === 'asana.create-task') return `${action.title} · ${action.scope.name || action.scope.id}`;
   if (action.kind === 'slite.write') return `${action.title} · ${action.scope.id}`;
   const arrow = action.kind === 'gitlab.merge-request' ? '→' : '←';
   const where = action.branch ? (action.base ? `${action.branch} ${arrow} ${action.base}` : action.branch) : action.scope.id;
@@ -46,7 +47,8 @@ export function planQuestions(request: AssistantRequest): AssistantQuestion[] {
   const sync = plan.actions.some((action) => action.kind === 'code.sync');
   const mr = plan.actions.some((action) => action.kind === 'gitlab.merge-request');
   const slite = plan.actions.some((action) => action.kind === 'slite.write');
-  const approval = slite ? 'planSliteYes' : mr ? 'planMRYes' : sync ? 'planSyncYes' : 'planYes';
+  const asana = plan.actions.some((action) => action.kind === 'asana.create-task');
+  const approval = asana ? 'planAsanaYes' : slite ? 'planSliteYes' : mr ? 'planMRYes' : sync ? 'planSyncYes' : 'planYes';
   return [
     {
       id: 'plan',

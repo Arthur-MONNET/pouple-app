@@ -206,6 +206,7 @@ export interface PlanAction {
   base?: string;
   title?: string;
   markdown?: string;
+  description?: string;
 }
 
 /** What the assistant wants to write, for the user to approve before anything is written. */

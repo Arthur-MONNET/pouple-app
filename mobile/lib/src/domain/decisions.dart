@@ -21,6 +21,11 @@ enum Decision { questions, plan, proposal }
 
 /// What a plan's action is called where the user picks it.
 String planActionLabel(PlanAction action) {
+  if (action.kind == 'asana.create-task') {
+    final project = action.scope.name;
+    final destination = project == null || project.isEmpty ? action.scope.id : '$project (${action.scope.id})';
+    return '${action.title ?? 'Task'} · $destination';
+  }
   if (action.kind == 'slite.write') {
     return '${action.title ?? 'Page'} · ${action.scope.id}';
   }
@@ -32,6 +37,9 @@ String planActionLabel(PlanAction action) {
       : action.scope.id;
   return '${planKindLabel(action.kind)} · $where';
 }
+
+String planActionDescription(PlanAction action) =>
+    action.kind == 'asana.create-task' ? action.description ?? 'No description' : action.summary;
 
 /// The kind of a plan action in words; an unknown kind is shown as it is.
 String planKindLabel(String kind) => switch (kind) {
@@ -81,7 +89,7 @@ DecisionQuestion? planQuestion(AssistantRequest request) {
           AssistantOption(
             id: 'action-$i',
             label: planActionLabel(plan.actions[i]),
-            description: plan.actions[i].summary,
+            description: planActionDescription(plan.actions[i]),
           ),
       ],
     );
@@ -89,7 +97,10 @@ DecisionQuestion? planQuestion(AssistantRequest request) {
   final kinds = plan.actions.map((action) => action.kind).toSet();
   final String approval;
   final String help;
-  if (kinds.contains('slite.write')) {
+  if (kinds.contains('asana.create-task')) {
+    approval = 'Yes, create the Asana task';
+    help = 'This approval covers the task title, description and project shown above.';
+  } else if (kinds.contains('slite.write')) {
     approval = 'Yes, publish the page in Slite';
     help = 'This approval covers the title, Markdown and parent shown above.';
   } else if (kinds.contains('gitlab.merge-request')) {

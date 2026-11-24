@@ -4,13 +4,14 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Arthur-MONNET/pouple/core/internal/i18n"
 )
 
 // supportedKinds are the kinds of write Pouple can carry out today. A plan that asks for another kind is refused when it
 // is made, not when the user has already approved it.
-var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest, RunTerminal, WriteNote}
+var supportedKinds = []ActionKind{EditCode, SyncBranch, MergeRequest, RunTerminal, WriteNote, CreateTask}
 
 // proposePlan shows the plan the investigating AI wrote for the user to approve. Inside places the user already approved
 // in this conversation it is carried out at once: a grant is for the whole conversation. canAct is whether the turn that
@@ -43,7 +44,26 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry, canAct 
 			return
 		}
 	}
-	for _, action := range plan.Actions {
+	for i, action := range plan.Actions {
+		if action.Kind == CreateTask {
+			if !canAct {
+				refuse(s.text("Asana tasks can only be proposed at your request."))
+				return
+			}
+			if s.deps.CreateAsanaTask == nil || s.deps.AsanaProjectName == nil {
+				refuse(s.text("Asana task creation is unavailable."))
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			name, err := s.deps.AsanaProjectName(ctx, action.Scope.ID)
+			cancel()
+			name, valid := planText(name, maxScopeName, false)
+			if err != nil || !valid || name == "" {
+				refuse(s.text("The Asana project could not be verified."))
+				return
+			}
+			plan.Actions[i].Scope.Name = name
+		}
 		if !containsKind(supportedKinds, action.Kind) {
 			refuse(s.text("The plan asks for a kind of write Pouple cannot do yet: %s", action.Summary))
 			return
@@ -79,7 +99,7 @@ func (s *Service) proposePlan(id string, outcome Outcome, summary Entry, canAct 
 			trusted = false
 		}
 	}
-	if !plan.hasSlitePages() && (covered || trusted) {
+	if !plan.requiresContentApproval() && (covered || trusted) {
 		plan.Status = PlanApproved
 		why := "Inside what you already approved here: carrying it out"
 		if !covered {
@@ -203,11 +223,14 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 		return i18n.NewError("The plan has not been approved")
 	}
 	hasSlitePages := plan.hasSlitePages()
-	if hasSlitePages {
+	if plan.requiresContentApproval() {
 		request, ok := s.deps.Store.Get(id)
 		if !ok || request.Status != StatusApplying || request.Plan == nil ||
 			plan.Automatic || request.Plan.Status != PlanApproved || request.Plan.Automatic ||
 			PlanFingerprint(*request.Plan) != PlanFingerprint(plan) {
+			if plan.hasAsanaTasks() {
+				return i18n.Wrap(ErrState, "Asana task creation requires explicit approval")
+			}
 			return i18n.Wrap(ErrState, "Slite page creation requires explicit approval")
 		}
 	}
@@ -222,10 +245,15 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 		return s.runTerminalPlan(ctx, id, plan)
 	}
 	var written []string
-	var sliteCreated, sliteTotal int
+	var sliteCreated, sliteTotal, asanaCreated, asanaTotal int
 	codePushes := map[string]bool{}
-	recordSkippedPages := func(actions []Action) {
+	recordSkippedContent := func(actions []Action) {
 		for _, pending := range actions {
+			if pending.Kind == CreateTask {
+				s.update(id, func(r *Stored) {
+					r.Entries = append(r.Entries, s.entry("system", "text", s.text("Asana: “%s” was skipped after task creation stopped.", pending.Title)))
+				})
+			}
 			if pending.Kind == WriteNote {
 				s.recordSliteResult(id, "system", s.text("Slite: “%s” was skipped after publication stopped.", pending.Title))
 			}
@@ -240,7 +268,7 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 			line, err := run(ctx, id, plan, action)
 			if err != nil {
-				recordSkippedPages(plan.Actions[i+1:])
+				recordSkippedContent(plan.Actions[i+1:])
 				if ctx.Err() != nil {
 					return ErrCancelled
 				}
@@ -256,16 +284,16 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			}
 		case MergeRequest:
 			if pushed, ran := codePushes[action.Branch]; ran && !pushed {
-				recordSkippedPages(plan.Actions[i+1:])
+				recordSkippedContent(plan.Actions[i+1:])
 				return i18n.NewError("The source branch was not pushed; the merge request was not created")
 			}
 			if plan.Automatic || s.deps.OpenMergeRequest == nil {
-				recordSkippedPages(plan.Actions[i+1:])
+				recordSkippedContent(plan.Actions[i+1:])
 				return i18n.NewError("Merge request creation needs user approval and a connected GitLab account")
 			}
 			link, err := s.deps.OpenMergeRequest(ctx, action, plan.Goal)
 			if err != nil {
-				recordSkippedPages(plan.Actions[i+1:])
+				recordSkippedContent(plan.Actions[i+1:])
 				failure := i18n.Wrap(err, "Merge request %s → %s could not be opened: %s", action.Branch, action.Base, err)
 				if len(written) > 0 {
 					return i18n.Wrap(failure, "%s\n%s", strings.Join(written, "\n"), failure)
@@ -275,6 +303,11 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			line := s.text("Merge request: %s", link)
 			written = append(written, line)
 			s.update(id, func(r *Stored) { r.Summary = ptr(line); r.Entries = append(r.Entries, s.entry("system", "text", line)) })
+		case CreateTask:
+			asanaTotal++
+			if s.createAsanaTask(ctx, id, action) {
+				asanaCreated++
+			}
 		case WriteNote:
 			sliteTotal++
 			if s.publishSlitePage(ctx, id, action) {
@@ -284,11 +317,18 @@ func (s *Service) executePlan(ctx context.Context, id string, plan Plan) error {
 			return i18n.NewError("Pouple cannot carry out this kind of write yet")
 		}
 	}
-	if hasSlitePages {
-		summary := s.text("Slite pages created: %d of %d", sliteCreated, sliteTotal)
+	if plan.requiresContentApproval() {
+		var totals []string
+		if hasSlitePages {
+			totals = append(totals, s.text("Slite pages created: %d of %d", sliteCreated, sliteTotal))
+		}
+		if asanaTotal > 0 {
+			totals = append(totals, s.text("Asana tasks confirmed: %d of %d", asanaCreated, asanaTotal))
+		}
+		summary := strings.Join(totals, "\n")
 		s.update(id, func(r *Stored) {
 			r.Status, r.Summary = StatusDone, ptr(summary)
-			if sliteCreated != sliteTotal {
+			if sliteCreated != sliteTotal || asanaCreated != asanaTotal {
 				r.Status = StatusReady
 			}
 		})
@@ -410,7 +450,7 @@ func (s *Service) runCodeEdit(ctx context.Context, id string, plan Plan, action 
 	if line == "" {
 		// The AI stopped on something it lacked: say it plainly and keep the request open.
 		s.update(id, func(r *Stored) {
-			if !plan.hasSlitePages() {
+			if !plan.requiresContentApproval() {
 				r.Status = StatusReady
 			}
 			r.Entries = append(r.Entries, s.entry("assistant", "text", outcome.Summary), s.entry("system", "text", s.text("No file was changed.")))

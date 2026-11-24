@@ -40,13 +40,14 @@ func (c *Connector) Descriptor() connector.Descriptor {
 		}},
 		Guide: []connector.GuideStep{
 			{Title: "Open the Asana developer console", Body: "Sign in to Asana, then open My apps.", Link: &connector.Link{Label: "Open Asana My apps", URL: "https://app.asana.com/0/my-apps"}},
-			{Title: "Create a personal access token", Body: "Under Personal access tokens, click Create new token, name it Pouple and accept the terms. Pouple reads your tasks. It posts a comment on a task only when you ask for one yourself in Pouple, and never changes anything else in Asana."},
+			{Title: "Create a personal access token", Body: "Under Personal access tokens, click Create new token, name it Pouple and accept the terms. Pouple reads your tasks, posts a comment when you ask, and creates tasks after you approve the draft."},
 			{Title: "Paste the token", Body: "Copy it right away (Asana shows it only once) and paste it here. Pouple shows whose account it is before saving."},
 		},
 	}
 }
 
-func (c *Connector) client(token string) *Client {
+// Client returns an Asana API client using the connector’s configured transport.
+func (c *Connector) Client(token string) *Client {
 	client := NewClient(token)
 	if c.Base != "" {
 		client.base = c.Base
@@ -58,7 +59,7 @@ func (c *Connector) client(token string) *Client {
 }
 
 func (c *Connector) Validate(ctx context.Context, values connector.Values) (connector.Profile, error) {
-	client := c.client(strings.TrimSpace(values["token"]))
+	client := c.Client(strings.TrimSpace(values["token"]))
 	me, err := client.Me(ctx)
 	switch {
 	case svchttp.Status(err) == http.StatusUnauthorized || svchttp.Status(err) == http.StatusForbidden:

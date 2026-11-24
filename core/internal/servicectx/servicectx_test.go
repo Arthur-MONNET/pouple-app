@@ -43,6 +43,8 @@ func (f *fakeAsana) Comments(context.Context, string, int) ([]asana.Comment, err
 	return f.taskComments, nil
 }
 
+func (f *fakeAsana) FindProjects(context.Context, string) ([]asana.Project, error) { return nil, nil }
+
 func (f *fakeAsana) AddComment(_ context.Context, gid, text string) (asana.PostedComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

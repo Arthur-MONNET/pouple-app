@@ -142,7 +142,7 @@ func TestNoWorkspaceIsAWarning(t *testing.T) {
 
 func TestOpenTasksAreSortedAndCompletedOnesLeftOut(t *testing.T) {
 	f := &fake{}
-	client := f.connector(t).client(goodToken)
+	client := f.connector(t).Client(goodToken)
 	open, err := client.OpenTasks(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestOpenTasksAreSortedAndCompletedOnesLeftOut(t *testing.T) {
 
 func TestSearchFallsBackToTheTypeaheadOnAFreePlan(t *testing.T) {
 	f := &fake{}
-	client := f.connector(t).client(goodToken)
+	client := f.connector(t).Client(goodToken)
 	found, err := client.SearchTasks(context.Background(), []string{"login", "sso"})
 	if err != nil || len(found) != 1 || found[0].Name != "Login bug" || found[0].Assignee != "Morgan" {
 		t.Fatalf("search: %+v, %v", found, err)

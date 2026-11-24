@@ -148,8 +148,7 @@ type PostedComment struct {
 	GID string
 }
 
-// AddComment posts a comment on a task, under the name of the token's owner. This is the only thing Pouple writes in
-// Asana, and only for a user who asked for it in the app (the assistant's engine decides that, not this client).
+// AddComment posts a comment on a task under the name of the token's owner.
 func (c *Client) AddComment(ctx context.Context, gid, text string) (PostedComment, error) {
 	if err := validTask(gid); err != nil {
 		return PostedComment{}, err

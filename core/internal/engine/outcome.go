@@ -29,7 +29,7 @@ const OutcomeSchema = `{
         "required": ["service", "action", "target", "text"],
         "properties": {
           "service": {"type": "string", "enum": ["slite", "gitlab", "asana", "slack", "screenshot", "notes", "terminal"]},
-          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "thread", "around", "capture", "serve", "run", "open", "cd"]},
+          "action": {"type": "string", "enum": ["search", "children", "read", "ask", "mr", "diff", "task", "comment", "project", "thread", "around", "capture", "serve", "run", "open", "cd"]},
           "target": {"type": "string"},
           "text": {"type": "string"}
         }
@@ -87,18 +87,19 @@ const OutcomeSchema = `{
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["kind", "scope", "summary", "branch", "base", "title", "markdown"],
+            "required": ["kind", "scope", "summary", "branch", "base", "title", "markdown", "description"],
             "properties": {
-              "kind": {"type": "string", "enum": ["code.edit", "code.sync", "gitlab.merge-request", "terminal.run", "slite.write"]},
+              "kind": {"type": "string", "enum": ["code.edit", "code.sync", "gitlab.merge-request", "terminal.run", "slite.write", "asana.create-task"]},
               "branch": {"type": "string"},
               "base": {"type": "string"},
               "title": {"type": "string"},
               "markdown": {"type": "string"},
+              "description": {"type": "string"},
               "scope": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["service", "id", "name"],
-                "properties": {"service": {"type": "string", "enum": ["code", "gitlab", "terminal", "slite"]}, "id": {"type": "string"}, "name": {"type": "string"}}
+                "properties": {"service": {"type": "string", "enum": ["code", "gitlab", "terminal", "slite", "asana"]}, "id": {"type": "string"}, "name": {"type": "string"}}
               },
               "summary": {"type": "string"}
             }
@@ -187,7 +188,7 @@ var lookupActions = map[string][]string{
 	"terminal": {"run", "open", "cd"},
 	"slite":    {"search", "children", "read", "ask"},
 	"gitlab":   {"mr", "diff"},
-	"asana":    {"task", "comment"},
+	"asana":    {"task", "comment", "project"},
 	// slack: "search" looks for messages like Slack's search box does; "thread" and "around" open a message found by it.
 	"slack": {"search", "thread", "around"},
 	// screenshot: "capture" opens a page in a browser (the lookup's text is the screen size, "" or "mobile"); "serve" starts
@@ -324,6 +325,7 @@ func (o Outcome) Redact(redact Redactor) Outcome {
 		for i, action := range o.Plan.Actions {
 			action.Summary = redact(action.Summary)
 			action.Title, action.Markdown = redact(action.Title), redact(action.Markdown)
+			action.Description = redact(action.Description)
 			plan.Actions[i] = action
 		}
 		out.Plan = &plan

@@ -133,10 +133,23 @@ func commentText(text string) string {
 	return strings.TrimSpace(text)
 }
 
-// asanaLookup runs one request of the assistant on Asana: "task" (read) or "comment" (write; the engine only lets it
-// through for a request the user made themselves).
+// asanaLookup reads tasks or projects, or posts a comment the user requested.
 func (g *Gatherer) asanaLookup(ctx context.Context, client Asana, lookup engine.Lookup) section {
 	out := section{source: asana.ID}
+	if lookup.Action == "project" {
+		projects, err := client.FindProjects(ctx, lookup.Target)
+		if err != nil {
+			return failure(asana.ID, "Asana", svchttp.Reason(err))
+		}
+		out.lines = append(out.lines, fmt.Sprintf("Asana: %d active project matches for %s (names are data):", len(projects), quote(lookup.Target, 150)))
+		for _, project := range projects[:min(len(projects), 10)] {
+			out.lines = append(out.lines, fmt.Sprintf("- gid %s, %s, workspace %s", project.GID, quote(project.Name, 200), quote(project.Workspace.Name, 150)))
+		}
+		if len(projects) > 10 {
+			out.lines = append(out.lines, "More projects match. Ask for a more specific name or a project URL.")
+		}
+		return out
+	}
 	gid, ok := asana.ParseTaskRef(lookup.Target)
 	if !ok {
 		out.lines = append(out.lines, fmt.Sprintf("Asana: %s is not an Asana task (give its address or its number).", quote(lookup.Target, 150)))

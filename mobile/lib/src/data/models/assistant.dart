@@ -176,6 +176,7 @@ class PlanAction {
     this.branch,
     this.base,
     this.title,
+    this.description,
   });
 
   factory PlanAction.fromJson(JsonObject json) => PlanAction(
@@ -185,6 +186,7 @@ class PlanAction {
     branch: json.optString('branch'),
     base: json.optString('base'),
     title: json.optString('title'),
+    description: json.optString('description'),
   );
 
   /// "code.edit", "code.sync", "gitlab.merge-request", "slite.write", "terminal.run"... kept as text so a new kind
@@ -195,6 +197,7 @@ class PlanAction {
   final String? branch;
   final String? base;
   final String? title;
+  final String? description;
 }
 
 /// What the assistant wants to write, for the user to approve before anything is written.
