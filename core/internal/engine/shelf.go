@@ -23,7 +23,7 @@ type Arrangement struct {
 }
 
 // Arrange pins, archives or snoozes a conversation (or undoes it). Archiving and snoozing close its bubble, and the two
-// exclude each other; archiving also unpins. The assistant working on a request is not interrupted, but it cannot be
+// exclude each other; archiving also unpins; bringing one back opens its bubble again. The assistant working on a request is not interrupted, but it cannot be
 // archived while it works: it would vanish before its answer.
 func (s *Service) Arrange(id string, change Arrangement) error {
 	now := s.deps.Now()
@@ -51,6 +51,7 @@ func (s *Service) Arrange(id string, change Arrangement) error {
 				r.PinnedAt = stamp(now)
 			}
 		}
+		wasAway := r.ArchivedAt != "" || r.SnoozedUntil != ""
 		if change.Archived != nil {
 			r.ArchivedAt = ""
 			if archiving {
@@ -62,6 +63,10 @@ func (s *Service) Arrange(id string, change Arrangement) error {
 			if !until.IsZero() {
 				r.SnoozedUntil, r.ArchivedAt, r.Closed = stamp(until), "", true
 			}
+		}
+		// Bringing a conversation back (an undo, or "bring back now") shows its bubble again when it needs one.
+		if wasAway && r.ArchivedAt == "" && r.SnoozedUntil == "" && r.Status.reachesUser() {
+			r.Closed = false
 		}
 	})
 	if !found {

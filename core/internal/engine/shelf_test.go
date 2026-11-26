@@ -61,8 +61,21 @@ func TestArchivingClosesAndUnpinsAndCanBeUndone(t *testing.T) {
 	if err := h.svc.Arrange(request.ID, Arrangement{Archived: no()}); err != nil {
 		t.Fatal(err)
 	}
-	if h.get(t, request.ID).ArchivedAt != "" {
-		t.Fatal("undoing the archive left it archived")
+	if back := h.get(t, request.ID); back.ArchivedAt != "" || back.Closed {
+		t.Fatalf("undoing the archive left it away or its bubble closed: %+v", back)
+	}
+}
+
+func TestBringingASnoozedConversationBackNowShowsItAgain(t *testing.T) {
+	h, request := shelved(t)
+	until := stamp(h.now.Add(time.Hour))
+	_ = h.svc.Arrange(request.ID, Arrangement{SnoozedUntil: &until})
+	none := ""
+	if err := h.svc.Arrange(request.ID, Arrangement{SnoozedUntil: &none}); err != nil {
+		t.Fatal(err)
+	}
+	if back := h.get(t, request.ID); back.SnoozedUntil != "" || back.Closed {
+		t.Fatalf("the conversation did not come back: %+v", back)
 	}
 }
 
