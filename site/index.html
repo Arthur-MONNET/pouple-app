@@ -289,12 +289,12 @@
   "$(command -v node >/dev/null &amp;&amp; echo "✓ Node $(node -v)" || echo '✗ Node')" \
   "$(command -v pnpm >/dev/null &amp;&amp; echo "✓ pnpm $(pnpm -v)" || echo '✗ pnpm')"</code></pre>
                   <pre class="out" aria-label="Exemple de résultat"><span class="ok">✓ Xcode CLT</span>
-<span class="ok">✓ Go go1.27.3</span>
+<span class="ok">✓ Go go1.27.4</span>
 <span class="ok">✓ nvm 0.40.3</span>
 <span class="ok">✓ Node v24.1.0</span>
 <span class="ko">✗ pnpm</span>   <span data-i18n="outHint">← celui-ci est à installer</span></pre>
                 </div>
-                <p data-i18n="s1need">Il faut : les outils de ligne de commande Xcode, Go 1.27.3+, Node.js 22.12+ (avec nvm) et pnpm 10. Tout est ✓ ? Passe à l’étape suivante.</p>
+                <p data-i18n="s1need">Il faut : les outils de ligne de commande Xcode, Go 1.27.4+, Node.js 22.12+ (avec nvm) et pnpm 10. Tout est ✓ ? Passe à l’étape suivante.</p>
 
                 <h4 data-i18n="nvmT">Node.js, avec nvm (recommandé)</h4>
                 <p data-i18n="nvmP1">nvm installe Node dans ton dossier personnel et te laisse changer de version sans toucher à ton système. Pouple demande Node 24 (fichier <code>.nvmrc</code>), 22.12 au minimum. Installe nvm :</p>
@@ -430,7 +430,7 @@ npm install --global pnpm@10</code></pre>
         k1: 'Step 1', h1s: 'Check what is missing', time1: '2 min',
         s1p: 'Paste this command: it lists the tools you need and tells you which ones are already there (<b>✓</b>) or still to install (<b>✗</b>).',
         outHint: '← this one needs installing',
-        s1need: 'You need: the Xcode command line tools, Go 1.27.3+, Node.js 22.12+ (with nvm) and pnpm 10. All ✓? Go to the next step.',
+        s1need: 'You need: the Xcode command line tools, Go 1.27.4+, Node.js 22.12+ (with nvm) and pnpm 10. All ✓? Go to the next step.',
         nvmT: 'Node.js, with nvm (recommended)',
         nvmP1: 'nvm installs Node in your home folder and lets you switch versions without touching your system. Pouple asks for Node 24 (the <code>.nvmrc</code> file), 22.12 at least. Install nvm:',
         nvmP2: 'Close and reopen Terminal so nvm loads, then install Node and pnpm:',

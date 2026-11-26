@@ -9,6 +9,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "build:embed": "pnpm build && node scripts/embed.mjs",
     "typecheck": "vue-tsc --noEmit",
+    "knip": "knip --include files,dependencies",
     "test": "vitest run"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.6",
     "@vitejs/plugin-vue": "^6.0.10",
+    "knip": "6.48.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",

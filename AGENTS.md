@@ -64,13 +64,16 @@ update the relevant section with the contract, decision, or constraint. Link to 
 
 ## Verification commands
 
-Run each command from its owning directory. See the [CI workflow](.github/workflows/ci.yml) for CI-specific checks.
+Run each command from its owning directory. From the repository root, run `scripts/check-changed.sh` to
+check the modules affected by your changes relative to `origin/develop`. Pass a Git ref as the first argument
+to compare against a different branch or commit. See the [CI workflow](.github/workflows/ci.yml) for CI-specific
+checks, including Go vulnerability scanning.
 
 | Directory | Commands |
 | --- | --- |
 | `core/` | `go vet ./... && go test -race ./...` |
 | `core/`, when touching `internal/remote` | Also run `go test -race -count=5 ./internal/remote` |
-| `web/` | `pnpm typecheck && pnpm test && pnpm build` |
+| `web/` | `pnpm typecheck && pnpm test && pnpm knip && pnpm build` |
 | `app/` | `swift test` |
 | `mobile/` | `fvm flutter analyze && fvm flutter test` |
 
