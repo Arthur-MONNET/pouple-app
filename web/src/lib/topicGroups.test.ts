@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AssistantRequest, AssistantTopic, RequestOrigin } from '../api/types';
-import { groupByTopic, IN_APP_KEY, previewOf, sourceLabel, UNSORTED_KEY } from './topicGroups';
+import { groupByTopic, IN_APP_KEY, PINNED_KEY, previewOf, sourceLabel, UNSORTED_KEY } from './topicGroups';
 
 function request(id: string, origin: RequestOrigin = 'mention', topicId?: string, overrides: Partial<AssistantRequest['source']> = {}, status: AssistantRequest['status'] = 'ready'): AssistantRequest {
   return {
@@ -15,6 +15,16 @@ const topic = (id: string, title: string): AssistantTopic => ({ id, title, creat
 const TOPICS = [topic('t1', 'Billing'), topic('t2', 'Release')];
 
 describe('groupByTopic', () => {
+  it('lifts pinned conversations out of their topic into a first group', () => {
+    const pinned = { ...request('b', 'mention', 't1', {}, 'awaiting-user'), pinnedAt: '2026-11-20T10:00:00Z' };
+    const groups = groupByTopic([request('a', 'mention', 't1'), pinned, request('c', 'mention', 't2')], TOPICS);
+    expect(groups.map((group) => [group.key, group.requests.map((item) => item.id), group.attention])).toEqual([
+      [PINNED_KEY, ['b'], 1],
+      ['t1', ['a'], 0],
+      ['t2', ['c'], 0],
+    ]);
+  });
+
   it('groups by topic id, labelled with the title, in order of latest activity', () => {
     const groups = groupByTopic([request('a', 'mention', 't2'), request('b', 'mention', 't1'), request('c', 'direct-message', 't2')], TOPICS);
     expect(groups.map((group) => [group.key, group.label, group.requests.map((item) => item.id)])).toEqual([

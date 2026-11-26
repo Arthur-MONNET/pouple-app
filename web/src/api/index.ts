@@ -32,6 +32,7 @@ export async function createApi(): Promise<PoupleApi> {
       retry: mock.retry,
       stop: mock.stop,
       remove: mock.remove,
+      arrange: mock.arrange,
       uploadAttachment: mock.uploadAttachment,
       createConversation: mock.createConversation,
       uploadDraftAttachment: mock.uploadDraftAttachment,

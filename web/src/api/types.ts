@@ -355,6 +355,14 @@ export interface BrowserState {
   step: string;
 }
 
+/** A change to how a conversation is kept in the list; an absent field is left as it is. */
+export interface ArrangeChange {
+  pinned?: boolean;
+  archived?: boolean;
+  /** An RFC 3339 moment in the future; an empty string brings the conversation back at once. */
+  snoozedUntil?: string;
+}
+
 export interface AssistantRequest {
   stopCheckpoint?: string;
   id: string;
@@ -393,6 +401,12 @@ export interface AssistantRequest {
   engaged?: boolean;
   /** The user closed its bubble. */
   closed?: boolean;
+  /** Set (RFC 3339) while the user keeps the conversation at the top of the list. */
+  pinnedAt?: string;
+  /** Set while the conversation is put away: by the user, or by itself once it was done for a week. */
+  archivedAt?: string;
+  /** Set while the user postponed the conversation; the core brings it back when this moment passes. */
+  snoozedUntil?: string;
   /** What the AI used on this conversation; absent until it used any. */
   tokens?: Tokens;
   /** The other AI ("codex", "claude") that can take over a request stopped by a usage limit. */

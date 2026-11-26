@@ -1,9 +1,12 @@
 import type { AssistantRequest, AssistantTopic } from '../api/types';
 import { t } from '../i18n';
 import { headlineOf, isEvent, isInApp, needsAttention } from './assistantRequests';
+import { isPinned } from './shelf';
 
 /** The key of the trailing group of conversations the core has not sorted into a topic. */
 export const UNSORTED_KEY = 'unsorted';
+/** The key of the group at the top that holds the conversations the user pinned. */
+export const PINNED_KEY = 'pinned';
 /** The key of the group of conversations the user started in Pouple and the core has not sorted yet. */
 export const IN_APP_KEY = 'in-app';
 
@@ -20,13 +23,20 @@ export interface ConversationGroup {
 /**
  * Groups requests by topic. Topics are ordered by their latest activity (the input is already newest first). A request
  * with no topic, or one the snapshot does not know, goes in one trailing `unsorted` group, except a conversation the
- * user started in Pouple: those go in their own `in-app` group, placed by its latest activity like a topic.
+ * user started in Pouple: those go in their own `in-app` group, placed by its latest activity like a topic. The
+ * conversations the user pinned come out of their topic into a `pinned` group that always comes first.
  */
 export function groupByTopic(requests: readonly AssistantRequest[], topics: readonly AssistantTopic[]): ConversationGroup[] {
   const titles = new Map(topics.map((topic) => [topic.id, topic.title]));
   const groups = new Map<string, ConversationGroup>();
   const unsorted: ConversationGroup = { key: UNSORTED_KEY, label: t('list.unsorted'), requests: [], attention: 0 };
+  const pinned: ConversationGroup = { key: PINNED_KEY, label: t('list.pinned'), requests: [], attention: 0 };
   for (const request of requests) {
+    if (isPinned(request)) {
+      pinned.requests.push(request);
+      if (needsAttention(request)) pinned.attention += 1;
+      continue;
+    }
     const title = request.topicId ? titles.get(request.topicId) : undefined;
     let group = unsorted;
     if (!(request.topicId && title !== undefined) && isInApp(request)) {
@@ -47,7 +57,8 @@ export function groupByTopic(requests: readonly AssistantRequest[], topics: read
     group.requests.push(request);
     if (needsAttention(request)) group.attention += 1;
   }
-  return unsorted.requests.length > 0 ? [...groups.values(), unsorted] : [...groups.values()];
+  const sorted = unsorted.requests.length > 0 ? [...groups.values(), unsorted] : [...groups.values()];
+  return pinned.requests.length > 0 ? [pinned, ...sorted] : sorted;
 }
 
 /**

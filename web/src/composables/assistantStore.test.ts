@@ -208,4 +208,58 @@ describe('assistant store', () => {
     await expect(store.deleteAlert(made?.id ?? '')).rejects.toBeInstanceOf(ApiError);
     store.stop();
   });
+
+  it('archives a conversation out of the attention count and undoes it', async () => {
+    const api = createMockApi({ latency: 0 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const waiting = store.requests.value.find((r) => r.status === 'awaiting-user');
+    const id = waiting?.id ?? '';
+    const updatedAt = waiting?.updatedAt;
+    await store.arrange(id, { archived: true }, 'Archived');
+    await tick();
+    expect(store.byId(id)?.archivedAt).toBeTruthy();
+    expect(store.byId(id)?.updatedAt).toBe(updatedAt);
+    expect(store.attention.value).toBe(2);
+    expect(store.lastArrange.value?.message).toBe('Archived');
+
+    await store.undoArrange();
+    await tick();
+    expect(store.byId(id)?.archivedAt).toBeUndefined();
+    expect(store.attention.value).toBe(3);
+    expect(store.lastArrange.value).toBeNull();
+    store.stop();
+  });
+
+  it('restores the pin that archiving removed when the archive is undone', async () => {
+    const api = createMockApi({ latency: 0 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const id = store.requests.value.find((r) => r.status === 'ready')?.id ?? '';
+    await store.arrange(id, { pinned: true }, 'Pinned');
+    await tick();
+    await store.arrange(id, { archived: true }, 'Archived');
+    await tick();
+    expect(store.byId(id)?.pinnedAt).toBeUndefined();
+    await store.undoArrange();
+    await tick();
+    expect(store.byId(id)?.pinnedAt).toBeTruthy();
+    expect(store.byId(id)?.archivedAt).toBeUndefined();
+    store.stop();
+  });
+
+  it('refuses to archive a conversation the assistant is working on', async () => {
+    const api = createMockApi({ latency: 0, workMs: 1000 });
+    const store = createAssistantStore(api);
+    store.start();
+    await tick();
+    const waiting = store.requests.value.find((r) => r.questions.length > 0);
+    await store.answer(waiting?.id ?? '', waiting?.questions.map((q) => ({ questionId: q.id, optionId: q.options[0]?.id ?? '' })) ?? []);
+    await tick();
+    await expect(store.arrange(waiting?.id ?? '', { archived: true }, 'Archived')).rejects.toBeInstanceOf(ApiError);
+    expect(store.lastArrange.value).toBeNull();
+    store.stop();
+  });
 });

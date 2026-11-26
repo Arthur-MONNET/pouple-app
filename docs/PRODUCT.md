@@ -80,6 +80,21 @@ channel, in a direct message and in a pipeline failure is one topic. A conversat
   you. A folded topic still shows the open conversation, an open one shows its five latest and **Show more** for the rest, and
   one button folds or unfolds them all. What you fold or unfold yourself is remembered.
 
+## Keeping the list tidy
+
+You can **pin**, **archive** or **snooze** a conversation from the menu of its header, and undo it for five seconds from
+the notice that follows.
+
+- **Pinned** conversations come out of their topic into a group at the top of the list.
+- **Archived** and **snoozed** conversations leave the main list and the count of what waits for you; the *Archived and
+  snoozed* view at the bottom of the list shows them. Archiving also unpins. A snoozed conversation comes back, with its
+  bubble, when the moment you chose passes (an hour, tomorrow at 9:00 or next Monday at 9:00).
+- **Anything that reaches you brings a conversation back.** A question, an answer or a failure clears the archive and the
+  snooze, so nothing that needs you stays hidden. A request the assistant is working on cannot be archived.
+- **Settling.** A conversation you marked done (or that needed nothing) puts itself away after seven days without activity.
+  A pinned one stays, and so does anything waiting for you.
+- Filing a conversation away is not activity: it keeps its place in the order, and the assistant is not interrupted.
+
 ## Memory
 
 Pouple keeps a **memory** of what lasts beyond a conversation: your projects, your team and your decisions. It is a folder

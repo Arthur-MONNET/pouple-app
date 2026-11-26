@@ -18,7 +18,8 @@ Effort: S = hours, M = a day or two, L = several days.
 - [x] Go 1.27.4 (GO-2026-6859), only with Arthur's approval.
 
 ## Phase 1: comfort in conversations (S to M)
-- [ ] Pin, archive, settle (automatic after 7 days or when the PR merges), snooze; 5-second undo.
+- [x] Pin, archive, settle (automatic after 7 days), snooze; 5-second undo.
+- [ ] Settle a conversation when its merge request or pull request merges.
 - [ ] Command palette (Cmd+K) that also searches message text; customizable shortcuts.
 - [ ] OS notifications with sound modes, Dock badge.
 

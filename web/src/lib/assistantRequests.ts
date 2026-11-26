@@ -1,5 +1,6 @@
 import type { AssistantRequest, AssistantStatus, ChatEntry, RequestOrigin } from '../api/types';
 import { t } from '../i18n';
+import { isAway } from './shelf';
 
 const WORKING = new Set<AssistantStatus>(['queued', 'analyzing', 'applying']);
 
@@ -11,8 +12,9 @@ export const isWorking = (request: Pick<AssistantRequest, 'status'>): boolean =>
 export const needsAttention = (request: Pick<AssistantRequest, 'status'>): boolean =>
   request.status === 'awaiting-user' || request.status === 'failed';
 
-export function attentionCount(requests: readonly Pick<AssistantRequest, 'status'>[]): number {
-  return requests.filter(needsAttention).length;
+/** What waits for the user, not counting what they put away or postponed. */
+export function attentionCount(requests: readonly Pick<AssistantRequest, 'status' | 'archivedAt' | 'snoozedUntil'>[]): number {
+  return requests.filter((request) => needsAttention(request) && !isAway(request)).length;
 }
 
 export type ConversationFilter = 'all' | 'needs-me' | 'done';
@@ -25,6 +27,14 @@ export function matchesFilter(request: Pick<AssistantRequest, 'status'>, filter:
   if (filter === 'all') return true;
   if (filter === 'needs-me') return needsAttention(request);
   return request.status === 'ready' || request.status === 'done' || request.status === 'ignored';
+}
+
+/**
+ * What the list shows. The main list leaves out what the user archived or postponed (and what put itself away);
+ * the archive view shows only that.
+ */
+export function inView(request: Pick<AssistantRequest, 'status' | 'archivedAt' | 'snoozedUntil'>, filter: ConversationFilter, archive: boolean): boolean {
+  return archive ? isAway(request) : !isAway(request) && matchesFilter(request, filter);
 }
 
 /** The list shows the latest activity first. */

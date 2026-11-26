@@ -7,6 +7,7 @@ import type {
   MemoryDecision,
   MemoryView,
   AlertPatch,
+  ArrangeChange,
   AppState,
   AssistantAlert,
   AssistantSnapshot,
@@ -124,6 +125,8 @@ export interface PoupleApi {
   continueWith(requestId: string, provider: string): Promise<void>;
   stop(requestId: string): Promise<void>;
   remove(requestId: string): Promise<void>;
+  /** Pins, archives or snoozes a conversation, or undoes it. It is not activity: the order of the list stays. */
+  arrange(requestId: string, change: ArrangeChange): Promise<void>;
   uploadAttachment(requestId: string, file: File): Promise<AttachmentRef>;
   /** The bytes of an attachment (the endpoint needs the bearer token, so an <img src> cannot load it directly). */
   getAttachment(requestId: string, attachmentId: string): Promise<Blob>;
@@ -275,6 +278,7 @@ export function createHttpApi(fetchImpl: Fetch = (input, init) => fetch(input, i
     continueWith: (requestId, provider) => post(assistant(requestId, '/continue-with'), { provider }),
     stop: (requestId) => post(assistant(requestId, '/stop')),
     remove: async (requestId) => void (await send(assistant(requestId), { method: 'DELETE' })),
+    arrange: (requestId, change) => post(assistant(requestId, '/arrange'), change),
 
     createConversation: (body) => read<{ id: string }>('/api/assistant/requests', { method: 'POST' }, body),
     uploadDraftAttachment: (file) => uploadFile('/api/assistant/attachments', file),
