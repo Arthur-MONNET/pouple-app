@@ -62,9 +62,22 @@ func (f *fakeAssistant) ShareMemoryFact(id, change, item string, shared bool) er
 }
 func (f *fakeAssistant) Ignore(id string) error      { return f.record("ignore", id) }
 func (f *fakeAssistant) Close(id, seen string) error { return f.record("close", id+seen) }
-func (f *fakeAssistant) Retry(id string) error       { return f.record("retry", id) }
-func (f *fakeAssistant) Remove(id string) error      { return f.record("remove", id) }
-func (f *fakeAssistant) Stop(id string) error        { return f.record("stop", id) }
+func (f *fakeAssistant) Arrange(id string, change engine.Arrangement) error {
+	parts := []string{id}
+	if change.Pinned != nil {
+		parts = append(parts, fmt.Sprintf("pinned=%t", *change.Pinned))
+	}
+	if change.Archived != nil {
+		parts = append(parts, fmt.Sprintf("archived=%t", *change.Archived))
+	}
+	if change.SnoozedUntil != nil {
+		parts = append(parts, "snooze="+*change.SnoozedUntil)
+	}
+	return f.record("arrange", strings.Join(parts, ","))
+}
+func (f *fakeAssistant) Retry(id string) error  { return f.record("retry", id) }
+func (f *fakeAssistant) Remove(id string) error { return f.record("remove", id) }
+func (f *fakeAssistant) Stop(id string) error   { return f.record("stop", id) }
 func (f *fakeAssistant) StyleInfo() engine.StyleInfo {
 	return engine.StyleInfo{Learned: true, From: 40}
 }
@@ -112,6 +125,9 @@ func TestAssistantRoutesCallTheEngineAndMapItsErrors(t *testing.T) {
 		{"POST", "/api/assistant/requests/r1/close", "", 204, "close r1"},
 		{"POST", "/api/assistant/requests/r1/close", `{"updatedAt":"2026-11-13T10:00:00.000Z"}`, 204, "close r12026-11-13T10:00:00.000Z"},
 		{"POST", "/api/assistant/requests/r1/close", `{`, 400, ""},
+		{"POST", "/api/assistant/requests/r1/arrange", `{"pinned":true}`, 204, "arrange r1,pinned=true"},
+		{"POST", "/api/assistant/requests/r1/arrange", `{"archived":false,"snoozedUntil":"2026-11-27T09:00:00Z"}`, 204, "arrange r1,archived=false,snooze=2026-11-27T09:00:00Z"},
+		{"POST", "/api/assistant/requests/r1/arrange", `{`, 400, ""},
 		{"DELETE", "/api/assistant/requests/r1", "", 204, "remove r1"},
 		{"POST", "/api/assistant/requests/r1/proposal", `{"decision":"approve"}`, 202, "decide r1 true "},
 		{"POST", "/api/assistant/requests/r1/plan", `{"decision":"approve","planId":"p1","actions":[0,2]}`, 202, "decide-plan r1 true p1 [0 2]"},

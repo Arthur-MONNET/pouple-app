@@ -9,6 +9,7 @@ import { mockCheckResult, mockUpdateInfo, type UpdateScenario } from './mockUpda
 import type {
   ActionEvent,
   AppState,
+  ArrangeChange,
   AssistantAlert,
   AssistantRequest,
   AssistantSnapshot,
@@ -463,6 +464,23 @@ export function createMockApi(options: MockOptions = {}): PoupleApi {
     async remove(requestId) {
       await wait();
       requests = requests.filter((item) => item.id !== requestId);
+      publish();
+    },
+    async arrange(requestId, change: ArrangeChange) {
+      await wait();
+      const request = find(requestId);
+      if (change.archived && ['queued', 'analyzing', 'applying'].includes(request.status)) throw new ApiError(409, 'the assistant is still working on this request');
+      const now = nowIso();
+      if (change.pinned !== undefined) request.pinnedAt = change.pinned ? now : undefined;
+      if (change.archived !== undefined) {
+        request.archivedAt = change.archived ? now : undefined;
+        if (change.archived) Object.assign(request, { pinnedAt: undefined, snoozedUntil: undefined, closed: true });
+      }
+      if (change.snoozedUntil !== undefined) {
+        request.snoozedUntil = change.snoozedUntil || undefined;
+        if (change.snoozedUntil) Object.assign(request, { archivedAt: undefined, closed: true });
+      }
+      // Not activity: the update time stays.
       publish();
     },
     async uploadAttachment(_requestId, file) {

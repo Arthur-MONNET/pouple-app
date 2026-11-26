@@ -3,6 +3,7 @@ import { createFixtures } from '../api/mockFixtures';
 import type { AssistantStatus, ChatEntry } from '../api/types';
 import {
   attentionCount,
+  inView,
   byRecentActivity,
   groupEntries,
   isEvent,
@@ -90,5 +91,28 @@ describe('leavesAfterRemoval', () => {
   it('stays on the conversation the user opened while another one was being deleted', () => {
     expect(leavesAfterRemoval('a1', 'b2')).toBe(false);
     expect(leavesAfterRemoval('a1', null)).toBe(false);
+  });
+});
+
+describe('the archive view', () => {
+  const away = { archivedAt: '2026-11-20T10:00:00Z' };
+  const snoozed = { snoozedUntil: '2026-11-27T09:00:00Z' };
+
+  it('leaves archived and snoozed conversations out of the main list, whatever the filter', () => {
+    for (const filter of ['all', 'needs-me', 'done'] as const) {
+      expect(inView({ status: 'awaiting-user', ...away }, filter, false)).toBe(false);
+      expect(inView({ status: 'ready', ...snoozed }, filter, false)).toBe(false);
+    }
+    expect(inView({ status: 'awaiting-user' }, 'needs-me', false)).toBe(true);
+  });
+
+  it('shows only those in the archive view', () => {
+    expect(inView({ status: 'ready', ...away }, 'all', true)).toBe(true);
+    expect(inView({ status: 'ready', ...snoozed }, 'all', true)).toBe(true);
+    expect(inView({ status: 'ready' }, 'all', true)).toBe(false);
+  });
+
+  it('does not count a postponed question as waiting for the user', () => {
+    expect(attentionCount([{ status: 'awaiting-user' }, { status: 'awaiting-user', ...snoozed }, { status: 'failed', ...away }])).toBe(1);
   });
 });

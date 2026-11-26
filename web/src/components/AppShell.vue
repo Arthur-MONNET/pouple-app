@@ -7,6 +7,7 @@ import { languageEpoch } from '../i18n';
 import { isNewConversationShortcut } from '../lib/newConversation';
 import AppSidebar from './AppSidebar.vue';
 import StatusBanner from './StatusBanner.vue';
+import UndoToast from './UndoToast.vue';
 
 // One stream of conversations for every screen: moving between them neither reopens it nor loses the sidebar.
 const store = provideAssistantStore(useApi());
@@ -34,5 +35,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       <StatusBanner :status="store.status.value" :error="store.error.value" />
       <RouterView />
     </div>
+    <UndoToast />
   </div>
 </template>

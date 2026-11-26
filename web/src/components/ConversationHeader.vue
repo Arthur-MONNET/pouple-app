@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { AssistantRequest } from '../api/types';
+import type { ArrangeChange, AssistantRequest } from '../api/types';
 import { useAssistantStore } from '../composables/assistantStore';
 import { useAsyncAction } from '../composables/useAsyncAction';
 import { t } from '../i18n';
 import { isWorking, permalinkLabelKey, requestTitle, statusLabel } from '../lib/assistantRequests';
-import { compactCount, formatReceived } from '../lib/format';
+import { compactCount, formatReceived, untilTime } from '../lib/format';
+import { isAway, isPinned, SNOOZE_PRESETS, snoozeUntil, type SnoozePreset } from '../lib/shelf';
 import { totalTokens } from '../lib/usage';
 import ActionMenu, { type MenuItem } from './ActionMenu.vue';
 import AppIcon from './AppIcon.vue';
@@ -26,11 +27,26 @@ const items = computed<MenuItem[]>(() => [
     ? [{ id: 'retry', label: t(props.request.stopCheckpoint ? 'terminal.resume' : 'chat.again') }]
     : []),
   ...(props.request.status === 'ready' || props.request.status === 'done' ? [{ id: 'dismiss', label: t('chat.dismiss') }] : []),
+  { id: 'pin', label: t(isPinned(props.request) ? 'shelf.unpin' : 'shelf.pin') },
+  ...(isAway(props.request)
+    ? [{ id: 'bring-back', label: t('shelf.bringBack') }]
+    : SNOOZE_PRESETS.map((preset) => ({ id: `snooze:${preset}`, label: t(`shelf.snooze.${preset}`) }))),
+  ...(props.request.archivedAt ? [] : [{ id: 'archive', label: t('shelf.archive') }]),
   { id: 'delete', label: t('chat.delete'), danger: true },
 ]);
 
+async function arrange(change: ArrangeChange, message: string): Promise<void> {
+  await action.run(() => store.arrange(props.request.id, change, message));
+}
+
 async function onSelect(id: string): Promise<void> {
-  if (id === 'retry') await action.run(() => store.retry(props.request.id));
+  if (id === 'pin') await arrange({ pinned: !isPinned(props.request) }, t(isPinned(props.request) ? 'shelf.unpinned' : 'shelf.pinned'));
+  else if (id === 'archive') await arrange({ archived: true }, t('shelf.archived'));
+  else if (id === 'bring-back') await arrange({ archived: false, snoozedUntil: '' }, t('shelf.broughtBack'));
+  else if (id.startsWith('snooze:')) {
+    const until = snoozeUntil(id.slice('snooze:'.length) as SnoozePreset, new Date());
+    await arrange({ snoozedUntil: until }, t('shelf.snoozed', { time: untilTime(until) }));
+  } else if (id === 'retry') await action.run(() => store.retry(props.request.id));
   else if (id === 'dismiss') await action.run(() => store.ignore(props.request.id));
   else if (id === 'delete') {
     // The conversation deleted, not the one shown when the deletion ends: the user may have opened another one meanwhile.

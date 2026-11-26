@@ -30,7 +30,10 @@ export type IconName =
   | 'x-circle'
   | 'check-circle'
   | 'phone'
-  | 'lock';
+  | 'lock'
+  | 'pin'
+  | 'archive'
+  | 'clock';
 
 const PATHS: Record<IconName, string[]> = {
   logo: ['M8 3h8a5 5 0 0 1 5 5v8a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8a5 5 0 0 1 5-5z', 'M8 15a4 4 0 0 1 8 0', 'M12 15l2.5-3'],
@@ -63,6 +66,9 @@ const PATHS: Record<IconName, string[]> = {
   'x-circle': ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M9.5 9.5l5 5M14.5 9.5l-5 5'],
   phone: ['M9.5 2.5h5A2.5 2.5 0 0 1 17 5v14a2.5 2.5 0 0 1-2.5 2.5h-5A2.5 2.5 0 0 1 7 19V5a2.5 2.5 0 0 1 2.5-2.5z', 'M11 18.5h2'],
   lock: ['M7 11h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z', 'M8 11V8a4 4 0 0 1 8 0v3'],
+  pin: ['M9 4h6l-1 5 3 3v1.5H7V12l3-3z', 'M12 13.5V20'],
+  archive: ['M4 5h16v4H4z', 'M5.5 9v10h13V9', 'M10 13h4'],
+  clock: ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M12 8v4.5l3 1.5'],
   'check-circle': ['M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z', 'M8.5 12.2l2.3 2.3 4.7-4.7'],
 };
 

@@ -2,6 +2,7 @@ import { computed, inject, onBeforeUnmount, onMounted, provide, ref, type Inject
 import { ApiError, errorMessage, type PoupleApi } from '../api/client';
 import type {
   AlertInput,
+  ArrangeChange,
   AlertPatch,
   AssistantAlert,
   AssistantRequest,
@@ -14,6 +15,7 @@ import type {
   ReminderPick,
 } from '../api/types';
 import { attentionCount, byRecentActivity } from '../lib/assistantRequests';
+import { undoOf } from '../lib/shelf';
 
 const RETRY_MS = [1000, 2000, 5000, 10_000];
 const POLL_MS = 3000;
@@ -36,6 +38,9 @@ export function createAssistantStore(api: PoupleApi) {
   /** Requests the user stopped: the conversation says so until something else happens to them. */
   const stopped = ref<string[]>([]);
   const forgetStopped = (id: string): void => void (stopped.value = stopped.value.filter((item) => item !== id));
+  /** The last pin, archive or snooze: what the toast offers to undo for a few seconds. `seq` tells two of them apart. */
+  const lastArrange = ref<{ seq: number; message: string; id: string; undo: ArrangeChange } | null>(null);
+  let arrangeSeq = 0;
   let abort: AbortController | null = null;
 
   /** Newest activity first, for the list. */
@@ -122,6 +127,7 @@ export function createAssistantStore(api: PoupleApi) {
     error,
     live,
     stopped,
+    lastArrange,
     byId,
     refresh,
     start,
@@ -146,6 +152,18 @@ export function createAssistantStore(api: PoupleApi) {
       if (!stopped.value.includes(id)) stopped.value = [...stopped.value, id];
     },
     remove: (id: string) => act(() => api.remove(id)),
+    /** Pins, archives or snoozes; `message` is what the toast says. The core applies it at once and the undo reverses it. */
+    arrange: async (id: string, change: ArrangeChange, message: string) => {
+      const before = byId(id);
+      await act(() => api.arrange(id, change));
+      if (before) lastArrange.value = { seq: (arrangeSeq += 1), message, id, undo: undoOf(before, new Date()) };
+    },
+    undoArrange: async () => {
+      const last = lastArrange.value;
+      lastArrange.value = null;
+      if (last) await act(() => api.arrange(last.id, last.undo));
+    },
+    dismissArrange: () => void (lastArrange.value = null),
     /**
      * Starts a conversation and resolves with its id once the list knows it: the snapshot is read at once, so the
      * conversation can be opened without waiting for the stream (which would otherwise land on another one).

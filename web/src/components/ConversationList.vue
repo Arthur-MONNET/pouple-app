@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { AssistantRequest, AssistantTopic } from '../api/types';
-import { filterLabel, FILTERS, isInApp, matchesFilter, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
+import { filterLabel, FILTERS, inView, isInApp, statusLabel, type ConversationFilter } from '../lib/assistantRequests';
+import { isArchived, isAway, isSnoozed } from '../lib/shelf';
 import { groupByTopic, previewOf, sourceLabel, type ConversationGroup } from '../lib/topicGroups';
 import { shownRequests } from '../lib/topicFolds';
-import { relativeTime } from '../lib/format';
+import { relativeTime, untilTime } from '../lib/format';
+import { t } from '../i18n';
 import { useSpringLoad } from '../composables/useSpringLoad';
 import { useTopicFolds } from '../composables/useTopicFolds';
 import AppIcon from './AppIcon.vue';
@@ -15,11 +17,25 @@ const props = defineProps<{ requests: AssistantRequest[]; topics?: AssistantTopi
 const emit = defineEmits<{ select: [id: string] }>();
 
 const filter = ref<ConversationFilter>('all');
-const visible = computed(() => props.requests.filter((request) => matchesFilter(request, filter.value)));
+// The archive view shows what the user put away or postponed, and only that; a filter button leaves it.
+const archive = ref(false);
+const away = computed(() => props.requests.filter(isAway).length);
+// Leaving the last archived conversation (or undoing its archive) returns to the main list instead of an empty view.
+watch(away, (count) => {
+  if (count === 0) archive.value = false;
+});
+const visible = computed(() => props.requests.filter((request) => inView(request, filter.value, archive.value)));
 const groups = computed(() => groupByTopic(visible.value, props.topics ?? []));
+const pick = (item: ConversationFilter): void => {
+  filter.value = item;
+  archive.value = false;
+};
 
-// Which topics are open follows the whole list, not the filter, so picking a filter does not move the defaults.
-const allGroups = computed(() => groupByTopic(props.requests, props.topics ?? []));
+// Which topics are open follows the whole main list, not the filter, so picking a filter does not move the defaults.
+const allGroups = computed(() => groupByTopic(props.requests.filter((request) => !isAway(request)), props.topics ?? []));
+/** What a row says under its title: the status, or why it is out of the main list. */
+const stateLabel = (request: AssistantRequest): string =>
+  isSnoozed(request) ? t('shelf.snoozed', { time: untilTime(request.snoozedUntil ?? '') }) : isArchived(request) ? t('shelf.archivedLabel') : statusLabel(request.status);
 const folds = useTopicFolds(allGroups, () => props.selectedId);
 const { isOpen, toggle } = folds;
 const groupKeys = computed(() => groups.value.map((group) => group.key));
@@ -59,6 +75,7 @@ onBeforeUnmount(() => {
 });
 
 const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs-me': 'list.emptyNeedsMe', done: 'list.emptyDone' };
+const emptyKey = computed(() => (archive.value ? 'list.emptyArchive' : EMPTY[filter.value]));
 </script>
 
 <template>
@@ -70,10 +87,10 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
           v-for="item in FILTERS"
           :key="item"
           type="button"
-          :aria-pressed="filter === item"
+          :aria-pressed="!archive && filter === item"
           class="flex-1 whitespace-nowrap rounded-md px-2 py-1 text-xs transition motion-reduce:transition-none"
-          :class="{ 'bg-selected font-medium text-ink': filter === item, 'text-ink-muted hover:text-ink': filter !== item }"
-          @click="filter = item"
+          :class="{ 'bg-selected font-medium text-ink': !archive && filter === item, 'text-ink-muted hover:text-ink': archive || filter !== item }"
+          @click="pick(item)"
         >
           {{ filterLabel(item) }}
           <span v-if="item === 'needs-me' && attention > 0" class="ml-1 rounded bg-accent/20 px-1 text-2xs text-accent">{{ attention }}</span>
@@ -132,9 +149,10 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
                 <span class="flex min-w-0 items-center gap-1 text-sm text-ink">
                   <AppIcon v-if="isInApp(request)" name="pencil" size="sm" class="text-accent" data-testid="in-app-icon" />
                   <span class="truncate">{{ sourceLabel(request) }}</span>
+                  <AppIcon v-if="request.pinnedAt" name="pin" size="sm" class="text-ink-dim" data-testid="pinned-icon" />
                 </span>
                 <span class="block truncate text-xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ previewOf(request) }}</span>
-                <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ statusLabel(request.status) }}</span>
+                <span class="mt-0.5 block text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'">{{ stateLabel(request) }}</span>
               </span>
               <time class="shrink-0 pt-0.5 text-2xs" :class="request.id === selectedId ? 'text-ink-muted' : 'text-ink-dim'" :datetime="request.updatedAt">{{ relativeTime(request.updatedAt) }}</time>
             </button>
@@ -152,12 +170,24 @@ const EMPTY: Record<ConversationFilter, string> = { all: 'list.emptyAll', 'needs
         </ul>
       </li>
     </ul>
+    <button
+      v-if="away > 0 || archive"
+      type="button"
+      class="mx-1.5 mb-1.5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition hover:bg-raised hover:text-ink motion-reduce:transition-none"
+      :class="archive ? 'bg-selected text-ink' : 'text-ink-muted'"
+      :aria-pressed="archive"
+      data-testid="toggle-archive"
+      @click="archive = !archive"
+    >
+      <AppIcon name="archive" size="sm" />
+      <span class="min-w-0 flex-1 truncate">{{ archive ? $t('shelf.backToList') : $t('shelf.archiveView', { count: away }) }}</span>
+    </button>
     <div v-if="loaded && visible.length === 0 && filter === 'all'" class="flex flex-col items-center gap-2 px-5 py-8 text-center" data-testid="empty-list">
       <MascotStage pose="sleep" size="md" class="!size-28" />
       <p class="font-display text-lg font-semibold text-ink">{{ $t('list.emptyTitle') }}</p>
-      <p class="text-xs leading-relaxed text-ink-muted">{{ $t(EMPTY[filter]) }}</p>
+      <p class="text-xs leading-relaxed text-ink-muted">{{ $t(emptyKey) }}</p>
     </div>
-    <p v-else-if="loaded && visible.length === 0" class="px-4 py-6 text-center text-xs leading-relaxed text-ink-dim">{{ $t(EMPTY[filter]) }}</p>
+    <p v-else-if="loaded && visible.length === 0" class="px-4 py-6 text-center text-xs leading-relaxed text-ink-dim">{{ $t(emptyKey) }}</p>
     <p v-else-if="!loaded" class="px-4 py-6 text-center text-xs text-ink-dim" role="status">{{ $t('common.loading') }}</p>
   </div>
 </template>

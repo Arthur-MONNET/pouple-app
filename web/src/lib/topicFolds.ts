@@ -1,4 +1,4 @@
-import type { ConversationGroup } from './topicGroups';
+import { PINNED_KEY, type ConversationGroup } from './topicGroups';
 
 /** topic id → whether the user left it open (true) or folded it (false). A missing id follows the default. */
 export type FoldOverrides = Record<string, boolean>;
@@ -48,11 +48,13 @@ export function pruneFolds(folds: FoldOverrides, existing: ReadonlySet<string>):
 }
 
 /**
- * The topics open when the user said nothing: the one holding the selected conversation, and the most recent
+ * The topics open when the user said nothing: the pinned ones, the one holding the selected conversation, and the most recent
  * topics (the groups come newest first) that hold a conversation needing attention.
  */
 export function defaultOpenKeys(groups: readonly ConversationGroup[], selectedId: string | null): Set<string> {
   const open = new Set<string>();
+  // What the user pinned is what they want at hand.
+  if (groups.some((group) => group.key === PINNED_KEY)) open.add(PINNED_KEY);
   for (const group of groups) {
     if (selectedId && group.requests.some((request) => request.id === selectedId)) open.add(group.key);
   }

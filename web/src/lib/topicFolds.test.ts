@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultOpenKeys, FOLDS_KEY, isTopicOpen, pruneFolds, readFolds, shownRequests, writeFolds, type FoldStorage } from './topicFolds';
-import type { ConversationGroup } from './topicGroups';
+import { PINNED_KEY, type ConversationGroup } from './topicGroups';
 
 const group = (key: string, ids: string[], attention = 0): ConversationGroup => ({
   key, label: key, attention, requests: ids.map((id) => ({ id }) as ConversationGroup['requests'][number]),
@@ -12,6 +12,10 @@ function memory(initial?: string): FoldStorage & { value: string | null } {
 }
 
 describe('defaultOpenKeys', () => {
+  it('opens the pinned group', () => {
+    expect([...defaultOpenKeys([group(PINNED_KEY, ['a']), group('t1', ['b'])], null)]).toEqual([PINNED_KEY]);
+  });
+
   it('folds everything when nothing is selected and nothing needs attention', () => {
     expect(defaultOpenKeys([group('a', ['1']), group('b', ['2'])], null).size).toBe(0);
   });
