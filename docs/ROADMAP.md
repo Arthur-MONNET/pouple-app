@@ -13,7 +13,7 @@ Effort: S = hours, M = a day or two, L = several days.
 
 ## Phase 0: foundations (S)
 - [x] `AGENTS.md`: rules for AI contributors (tests at the lowest layer that fails, no sleeps in tests, how docs are kept).
-- [ ] `SECURITY.md`: public threat model, from docs/REMOTE-API.md and REMOTE-E2E.md (principals, what counts as a finding).
+- [x] `SECURITY.md`: public threat model, from docs/REMOTE-API.md and REMOTE-E2E.md (principals, what counts as a finding).
 - [ ] CI gates: dead-code check on web (knip), `govulncheck`, a changed-files check script.
 - [ ] Go 1.27.4 (GO-2026-6859), only with Arthur's approval.
 
