@@ -44,6 +44,7 @@ type fakeTunnel struct {
 	err      error
 	block    chan struct{}
 	listener *trackedListener
+	accepted chan<- struct{}
 	report   TunnelReport
 	closed   int
 }
@@ -102,6 +103,10 @@ func (l *trackedListener) close() { l.once.Do(func() { close(l.done) }) }
 func (l *trackedListener) Accept() (net.Conn, error) {
 	select {
 	case conn := <-l.ready:
+		select {
+		case l.f.accepted <- struct{}{}:
+		default:
+		}
 		return conn, nil
 	case <-l.done:
 		return nil, net.ErrClosed
@@ -1465,7 +1470,9 @@ func TestUpgradedConnectionsOutliveTheTimeoutsOfTheEdgeServer(t *testing.T) {
 }
 
 func TestEdgeCapsTheConnectionsThatHaveNotUpgradedAndGivesTheSlotBackOnUpgrade(t *testing.T) {
+	accepted := make(chan struct{}, 1)
 	f := newTunnelFixture(t)
+	f.fake.accepted = accepted
 	f.turnOn(t)
 	address := f.fake.address()
 	hold := func(source string) net.Conn {
@@ -1478,24 +1485,31 @@ func TestEdgeCapsTheConnectionsThatHaveNotUpgradedAndGivesTheSlotBackOnUpgrade(t
 		}
 		return conn
 	}
-	// Sixteen connections of one source that say nothing hold the pre-upgrade slots of that source.
+	// The fake admits peers concurrently. Wait for each handoff so the probe arrives after the holders.
+	admissionDeadline := time.NewTimer(5 * time.Second)
+	defer admissionDeadline.Stop()
 	var holders []net.Conn
-	for range defaultMaxConnectionsPerSource {
-		holders = append(holders, hold(testSource))
-	}
 	defer func() {
 		for _, conn := range holders {
 			conn.Close()
 		}
 	}()
-	// Wait until the edge has accepted them all: a further one is then dropped without a byte of answer.
-	eventually(t, "the 17th connection of the source to be dropped", func() bool {
-		extra := hold(testSource)
-		defer extra.Close()
-		_ = extra.SetReadDeadline(time.Now().Add(time.Second))
-		_, err := extra.Read(make([]byte, 1))
-		return err != nil && !errors.Is(err, os.ErrDeadlineExceeded)
-	})
+	for range defaultMaxConnectionsPerSource {
+		holders = append(holders, hold(testSource))
+		select {
+		case <-accepted:
+		case <-admissionDeadline.C:
+			t.Fatal("the fake tunnel did not hand off a holding connection")
+		}
+	}
+	extra := hold(testSource)
+	defer extra.Close()
+	if err := extra.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := extra.Read(make([]byte, 1)); size != 0 || err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("extra connection: read %d bytes, %v; want it closed without a response", size, err)
+	}
 	// Another source is not affected, and the ones that hold their slot are still there.
 	other := hold("198.51.100.77")
 	defer other.Close()
