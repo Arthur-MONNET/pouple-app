@@ -61,7 +61,7 @@ You need:
 | Tool | Version | How |
 |---|---|---|
 | Xcode Command Line Tools | any | `xcode-select --install` |
-| Go | 1.27.3 or later | `brew install go` |
+| Go | 1.27.4 or later | `brew install go` |
 | Node.js | 22.12 or later (24 recommended) | with [nvm](https://github.com/nvm-sh/nvm), below |
 | pnpm | 10 | `npm install --global pnpm@10` |
 
