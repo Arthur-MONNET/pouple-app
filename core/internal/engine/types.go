@@ -170,6 +170,13 @@ type Request struct {
 	Engaged bool `json:"engaged,omitempty"`
 	// Closed is set when the user closed its bubble. The bubble comes back the next time the request needs them.
 	Closed bool `json:"closed,omitempty"`
+	// PinnedAt (RFC 3339) is set while the user keeps the conversation at the top of the list.
+	PinnedAt string `json:"pinnedAt,omitempty"`
+	// ArchivedAt (RFC 3339) is set while the conversation is put away: by the user, or by itself once it was done for a
+	// week. Anything that reaches the user brings it back.
+	ArchivedAt string `json:"archivedAt,omitempty"`
+	// SnoozedUntil (RFC 3339) is set while the user postponed the conversation; it comes back when this moment passes.
+	SnoozedUntil string `json:"snoozedUntil,omitempty"`
 	// StopCheckpoint is kept until the user explicitly resumes the investigation.
 	StopCheckpoint string `json:"stopCheckpoint,omitempty"`
 	// Tokens are what the AI used on this conversation; absent until it used any.

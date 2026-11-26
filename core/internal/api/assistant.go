@@ -33,6 +33,8 @@ type Assistant interface {
 	Ignore(id string) error
 	// Close hides a request's bubble until it needs the user again; seen is the update time the user saw, or "".
 	Close(id, seen string) error
+	// Arrange pins, archives or snoozes a conversation, or undoes it.
+	Arrange(id string, change engine.Arrangement) error
 	Retry(id string) error
 	// ContinueWith switches to another AI and investigates the request again with it.
 	ContinueWith(id string, provider providers.ID) error
@@ -265,6 +267,13 @@ func mountAssistant(assistant Assistant, attachments *engine.Attachments, messag
 				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
 			}
 			return noContent(w, assistant.Close(r.PathValue("id"), body.UpdatedAt))
+		})
+		handle("POST /api/assistant/requests/{id}/arrange", func(w http.ResponseWriter, r *http.Request) error {
+			var change engine.Arrangement
+			if err := decodeBody(r, &change); err != nil {
+				return i18n.Wrap(engine.ErrInput, "the body is not valid JSON")
+			}
+			return noContent(w, assistant.Arrange(r.PathValue("id"), change))
 		})
 		handle("POST /api/assistant/requests/{id}/continue-with", func(w http.ResponseWriter, r *http.Request) error {
 			var body struct {

@@ -20,6 +20,8 @@ const (
 func (s *Service) watchAlerts(ctx context.Context) {
 	for ctx.Err() == nil {
 		s.fireDueAlerts()
+		// The same clock look wakes the snoozed conversations and puts away the ones that are done.
+		s.sweepShelf()
 		wait := alertCheckEvery
 		if next, ok := s.deps.Alerts.Next(); ok {
 			if until := next.Sub(s.deps.Now()); until < wait {

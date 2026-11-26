@@ -353,6 +353,8 @@ func (s *Service) write(id string, change func(*Stored), reachUser bool) {
 		r.UpdatedAt = s.now()
 		if reachUser && r.Status != before && r.Status.reachesUser() {
 			r.Engaged, r.Closed = true, false
+			// What needs the user, or tells them something, is never left in the drawer or the snooze.
+			r.ArchivedAt, r.SnoozedUntil = "", ""
 		}
 	})
 }
