@@ -95,6 +95,20 @@ the notice that follows.
   A pinned one stays, and so does anything waiting for you.
 - Filing a conversation away is not activity: it keeps its place in the order, and the assistant is not interrupted.
 
+## Search and commands
+
+**Cmd+K** (Ctrl+K elsewhere) opens one box that searches every conversation and runs a few commands. It reads the title, the
+sender, the summary and the messages of the conversation (not the log of commands the assistant ran), ignoring case and
+accents, and it wants every word you type, in any order. The archive and the snoozed conversations are searched too and say so.
+With nothing typed it offers the latest conversations of the list. The arrows move through the results, **Enter** opens one,
+**Escape** closes the box. The commands open the pages of the app (new conversation, conversations, alerts, memory,
+connectors, settings).
+
+The search runs in the window on the conversations the core already sends: no text goes anywhere else and nothing is kept.
+The shortcuts of the box and of a new conversation can be changed in Settings → General; they are kept in the window's own
+storage, and a combination without Cmd, Ctrl or Alt, or one the system keeps (copy, paste, close…), is refused. In the macOS
+app the menu bar entry for a new conversation keeps its own Cmd+N whatever is chosen.
+
 ## Memory
 
 Pouple keeps a **memory** of what lasts beyond a conversation: your projects, your team and your decisions. It is a folder

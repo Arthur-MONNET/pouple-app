@@ -9,6 +9,7 @@ import GitLabSettings from '../components/GitLabSettings.vue';
 import InlineError from '../components/InlineError.vue';
 import SettingsRow from '../components/SettingsRow.vue';
 import SettingsSection from '../components/SettingsSection.vue';
+import ShortcutField from '../components/ShortcutField.vue';
 import ProjectsFolderForm from '../components/ProjectsFolderForm.vue';
 import PhoneSettings from '../components/PhoneSettings.vue';
 import UpdateSection from '../components/UpdateSection.vue';
@@ -125,6 +126,12 @@ function onInterfaceLanguage(event: Event): void {
               <option v-for="code in LANGS" :key="code" :value="code">{{ $t(`language.${code}`) }}</option>
             </select>
             <InlineError v-if="language.error.value">{{ language.error.value }}</InlineError>
+          </SettingsRow>
+          <SettingsRow :label="$t('shortcuts.palette')" :description="$t('shortcuts.paletteHelp')">
+            <ShortcutField id="palette" :label="$t('shortcuts.palette')" />
+          </SettingsRow>
+          <SettingsRow :label="$t('shortcuts.newConversation')" :description="$t('shortcuts.newConversationHelp')">
+            <ShortcutField id="new-conversation" :label="$t('shortcuts.newConversation')" />
           </SettingsRow>
         </SettingsSection>
 

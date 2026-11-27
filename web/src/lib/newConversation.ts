@@ -38,12 +38,6 @@ export function conversationPayload(draft: ConversationDraft): NewConversation {
   };
 }
 
-type KeyPress = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>;
-
-/** Cmd+N (or Ctrl+N), with no other modifier. */
-export const isNewConversationShortcut = (event: KeyPress): boolean =>
-  (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'n';
-
 type Listenable = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
 
 /** Calls the handler each time the shell asks for a new conversation; returns what stops listening. */
