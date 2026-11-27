@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   conversationPayload,
   draftProblem,
-  isNewConversationShortcut,
   MAX_MESSAGE_BYTES,
   NEW_CONVERSATION_EVENT,
   onNewConversationRequest,
@@ -47,24 +46,7 @@ describe('conversationPayload', () => {
   });
 });
 
-describe('shortcut and shell event', () => {
-  const key = (overrides: Partial<KeyboardEvent>): Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'> => ({
-    key: 'n',
-    metaKey: false,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    ...overrides,
-  });
-
-  it('is Cmd+N or Ctrl+N with no other modifier', () => {
-    expect(isNewConversationShortcut(key({ metaKey: true }))).toBe(true);
-    expect(isNewConversationShortcut(key({ ctrlKey: true, key: 'N' }))).toBe(true);
-    expect(isNewConversationShortcut(key({}))).toBe(false);
-    expect(isNewConversationShortcut(key({ metaKey: true, shiftKey: true }))).toBe(false);
-    expect(isNewConversationShortcut(key({ metaKey: true, key: 'm' }))).toBe(false);
-  });
-
+describe('shell event', () => {
   it('calls the handler on each shell request until it stops listening', () => {
     const target = new EventTarget();
     const handler = vi.fn();

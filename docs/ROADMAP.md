@@ -20,7 +20,7 @@ Effort: S = hours, M = a day or two, L = several days.
 ## Phase 1: comfort in conversations (S to M)
 - [x] Pin, archive, settle (automatic after 7 days), snooze; 5-second undo.
 - [ ] Settle a conversation when its merge request or pull request merges.
-- [ ] Command palette (Cmd+K) that also searches message text; customizable shortcuts.
+- [x] Command palette (Cmd+K) that also searches message text; customizable shortcuts.
 - [ ] OS notifications with sound modes, Dock badge.
 
 ## Phase 2: triggers, Pouple's core (M each)
